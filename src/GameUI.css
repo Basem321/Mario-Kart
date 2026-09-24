@@ -1,0 +1,259 @@
+.game-ui {
+  position: fixed;
+  top: 20px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.game-ui > * {
+  pointer-events: auto;
+}
+
+.time-trial .time-container {
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 10px;
+  padding: 10px 20px;
+  margin-left: 20px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.lap-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-right: 20px;
+  border-right: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.lap-counter {
+  font-family: "mario_kart_f2", sans-serif;
+  font-size: 2.5rem;
+  color: #FDE902;
+}
+
+.time-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.time-item span:first-child {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.time {
+  font-family: "DIN 2014", monospace;
+  font-size: 1.2rem;
+  color: white;
+}
+
+.time.best {
+  color: #FDE902;
+}
+
+.game-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.game-btn {
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.game-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.game-btn.reset {
+  background: rgba(230, 0, 18, 0.6);
+}
+
+.game-btn.reset:hover {
+  background: rgba(230, 0, 18, 0.8);
+}
+
+/* Regular mode UI */
+.regular-mode .game-info {
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 10px;
+  padding: 10px 20px;
+  margin-left: 20px;
+  display: flex;
+  gap: 30px;
+  align-items: center;
+}
+
+.position {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.position-label {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.position-value {
+  font-family: "mario_kart_f2", sans-serif;
+  font-size: 2rem;
+  color: #FDE902;
+}
+
+.total-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Game Over Modal */
+.game-over-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  animation: fadeIn 0.5s ease;
+}
+
+.game-over-content {
+  background: linear-gradient(135deg, #1a1c2d, #0d0f1d);
+  border-radius: 20px;
+  padding: 40px;
+  width: 90%;
+  max-width: 500px;
+  text-align: center;
+  animation: bounceIn 0.6s ease;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+@keyframes bounceIn {
+  0% { transform: scale(0.8); opacity: 0; }
+  70% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.game-over-content h2 {
+  font-family: "mario_kart_f2", sans-serif;
+  font-size: 3rem;
+  margin-bottom: 30px;
+  color: #E60012;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.time-trial-results {
+  margin-bottom: 30px;
+  font-size: 1.2rem;
+}
+
+.total-time-result, .best-lap-result {
+  margin: 10px 0;
+}
+
+.total-time-result span, .best-lap-result span {
+  font-family: "DIN 2014", monospace;
+  color: #FDE902;
+  font-size: 1.4rem;
+}
+
+.game-over-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.retry-btn, .home-btn {
+  padding: 12px 24px;
+  border-radius: 50px;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 1rem;
+}
+
+.retry-btn {
+  background: #0066B3;
+  color: white;
+}
+
+.retry-btn:hover {
+  background: #0080E1;
+  transform: translateY(-2px);
+}
+
+.home-btn {
+  background: #E60012;
+  color: white;
+}
+
+.home-btn:hover {
+  background: #FF1a29;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+  .time-trial .time-container {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    margin-left: 10px;
+  }
+  
+  .lap-info {
+    flex-direction: row;
+    gap: 10px;
+    border-right: none;
+    padding-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    padding-bottom: 5px;
+    width: 100%;
+  }
+  
+  .regular-mode .game-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    margin-left: 10px;
+  }
+  
+  .game-over-content {
+    padding: 30px 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .game-ui {
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  
+  .game-controls {
+    margin-left: 20px;
+  }
+}

@@ -1,0 +1,284 @@
+@import url("https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Orbitron:wght@400..900&family=Oswald:wght@200..700&display=swap");
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Oswald", sans-serif;
+  font-optical-sizing: auto;
+  font-style: normal;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+@font-face {
+    font-family: "mario_kart_f2";
+    src: url('/fonts/mario_kart_f2.ttf');
+}
+
+@font-face {
+  src: url('https://assets.codepen.io/4175254/DIN2014-DemiBold.ttf') format('truetype');
+  font-family: 'DIN 2014';
+
+}
+
+.canvas-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    user-select: none;
+}
+
+
+.mobile-controls {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100dvh;
+  width: 100vw;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  .bottom-left {
+    position: absolute;
+    left: 7%;
+    bottom: 7%;
+  }
+  .bottom-right {
+    position: absolute;
+    right: 7%;
+    bottom: 7%;
+  }
+
+  .bottom-right button {
+    all: unset;
+    position: relative;
+    width: 100px;
+    height: 100px;
+    background: radial-gradient(circle at 30% 30%, #58db84, #37995c);
+    color: #37995c;
+    font-weight: bold;
+    font-size: 48px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 6px 0 #1f4c32, 0 4px 15px rgba(0, 0, 0, 0.3);
+    transition: all 0.15s ease;
+    touch-action: manipulation;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  .bottom-right button::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.6) 0%,
+      rgba(255, 255, 255, 0.15) 40%,
+      transparent 60%
+    );
+    pointer-events: none;
+    transform: rotate(-20deg);
+    z-index: 3;
+  }
+
+  .bottom-right button:active {
+    transform: translateY(4px);
+    box-shadow: 0 2px 0 #1f4c32, 0 2px 6px rgba(0, 0, 0, 0.3);
+    background: radial-gradient(circle at 30% 30%, #4fd176, #2e7a4d);
+  }
+}
+
+.pressed{
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 #1f4c32, 0 2px 6px rgba(0, 0, 0, 0.3);
+  background: radial-gradient(circle at 30% 30%, #4fd176, #2e7a4d);
+}
+
+
+.joystick-base {
+  position: relative;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, #c7c7c7 60%, #aaaaaa 100%);
+  box-shadow: inset 0 4px 6px rgba(0, 0, 0, 0.2),
+              inset 0 -2px 4px rgba(255, 255, 255, 0.2);
+  touch-action: none;
+}
+
+.joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40%;
+  height: 40%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #ddd, #999);
+  background-image: repeating-radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.3) 0px,
+    rgba(255, 255, 255, 0.1) 3px,
+    transparent 6px
+  );
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  border: 2px solid #666;
+  pointer-events: none;
+  transition: transform 0.05s linear;
+}
+
+canvas{
+  filter: saturate(1.4);
+}
+
+.loading-screen{
+    position:fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh;
+    z-index: 2;
+    display:flex;
+    justify-content: center;
+    align-items: center;
+    background: white;
+    .background{
+        position:fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100dvh;
+        z-index: -1;
+        object-fit: cover;
+    }
+    .loading{
+        font-family: "DIN 2014";
+
+        font-weight: 600;
+
+        font-size: 32px;
+        /* transform: scale(1.2, 1.0); */
+    }
+    .mention{
+        position:absolute;
+        bottom: 15px;
+        left: 50%;
+        transform: translateX(-50%);
+        text-align: center justify;
+    }
+}
+
+.button-text-character {
+  animation: fadeInMoveUp 1s cubic-bezier(0.3, 0.8, 0.3, 2.3) forwards;
+  animation-delay: var(--delay);
+  display: inline-block;
+  transform:skewX(-6deg);
+  font-family: "DIN 2014";
+
+  font-weight: 600;
+  text-shadow: #fff 1px 0 10px;
+}
+
+.version{
+  position:fixed;
+  bottom: 15px;
+  font-family: "DIN 2014";
+  color:white;
+
+  font-weight: 300;
+}
+
+@keyframes fadeInMoveUp {
+  0%, 100% {
+    transform: translateY(0px) skewX(-6deg);
+  }
+  50% {
+    transform: translateY(-5px) skewX(-6deg);
+  }
+}
+
+/* Countdown overlay styles */
+.countdown-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(5px);
+}
+
+.countdown-number {
+  font-family: "mario_kart_f2", sans-serif;
+  font-size: 12rem;
+  color: #FDE902;
+  text-shadow: 4px 4px 0 #E60012, 8px 8px 0 rgba(0, 0, 0, 0.5);
+  animation: pulse 1s infinite alternate;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.go-text {
+  font-family: "mario_kart_f2", sans-serif;
+  font-size: 12rem;
+  color: #5AC628;
+  text-shadow: 4px 4px 0 #0066B3, 8px 8px 0 rgba(0, 0, 0, 0.5);
+  animation: goAnimation 0.6s ease-out;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@keyframes pulse {
+  from { transform: scale(0.9); opacity: 0.9; }
+  to { transform: scale(1.1); opacity: 1; }
+}
+
+@keyframes goAnimation {
+  0% { transform: scale(0.5); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .countdown-number,
+  .go-text {
+    font-size: 8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .countdown-number,
+  .go-text {
+    font-size: 6rem;
+  }
+}
+
+/* Loading screen and overlay transitions are handled by the component logic */

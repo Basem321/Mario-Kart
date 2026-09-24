@@ -1,0 +1,224 @@
+.controls-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  backdrop-filter: blur(8px);
+}
+
+.controls-modal-content {
+  background: linear-gradient(135deg, #1a1c2d, #0d0f1d);
+  border-radius: 24px;
+  padding: 2.5rem;
+  width: 90%;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  position: relative;
+}
+
+.close-btn {
+  position: absolute;
+  top: 15px;
+  right: 20px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 2rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  color: white;
+  transform: scale(1.1);
+}
+
+.controls-modal-content h2 {
+  font-family: "mario_kart_f2", sans-serif;
+  color: #FDE902;
+  text-shadow: 2px 2px 0 #E60012;
+  text-align: center;
+  margin-bottom: 2rem;
+  font-size: 2.5rem;
+}
+
+.controls-section {
+  margin-bottom: 2.5rem;
+}
+
+.controls-section h3 {
+  color: #0099FF;
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.5rem;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.control-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.8rem;
+}
+
+.key-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.key {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+  min-width: 60px;
+  font-weight: bold;
+  font-size: 1.2rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
+}
+
+.key-inline {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-weight: bold;
+  font-size: 0.9rem;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.mobile-controls-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.mobile-control-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.mobile-control-icon {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.drift-steps {
+  padding-left: 2rem;
+  line-height: 1.8;
+}
+
+.drift-steps li {
+  margin-bottom: 0.8rem;
+}
+
+.button-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.got-it-btn {
+  background: linear-gradient(90deg, #E60012, #E3350D);
+  color: white;
+  border: none;
+  padding: 0.8rem 2.5rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  border-radius: 50px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(230, 0, 18, 0.3);
+}
+
+.got-it-btn:hover {
+  background: linear-gradient(90deg, #FF1a29, #FF3D17);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(230, 0, 18, 0.4);
+}
+
+/* Scrollbar styling */
+.controls-modal-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.controls-modal-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.controls-modal-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+}
+
+.controls-modal-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+@media (max-width: 768px) {
+  .controls-modal-content {
+    padding: 1.5rem;
+    width: 95%;
+  }
+
+  .controls-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  .key {
+    min-width: 50px;
+    padding: 8px;
+    font-size: 1rem;
+  }
+
+  .controls-modal-content h2 {
+    font-size: 2rem;
+  }
+
+  .controls-section h3 {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .controls-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-control-item {
+    flex-direction: column;
+    text-align: center;
+    gap: 0.5rem;
+  }
+}
