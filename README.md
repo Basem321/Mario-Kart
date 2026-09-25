@@ -24,7 +24,7 @@
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/Nathan-Richard-21/Mario-Kart-game.git
+git clone https://github.com/Basem321/Mario-Kart.git
 cd Mario-Kart-game
 ```
 
