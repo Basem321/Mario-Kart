@@ -1,0 +1,139 @@
+.online-leaderboard {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 130;
+  width: min(308px, calc(100vw - 40px));
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 15px;
+  background:
+    linear-gradient(145deg, rgba(43, 47, 55, 0.93), rgba(9, 11, 15, 0.94)),
+    rgba(8, 10, 13, 0.92);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  pointer-events: none;
+  backdrop-filter: blur(9px);
+}
+
+.online-leaderboard-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 13px 16px 9px;
+}
+
+.online-leaderboard-kicker {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.online-leaderboard h2 {
+  margin: 0;
+  color: #fff;
+  font-family: "mario_kart_f2", system-ui, sans-serif;
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.online-leaderboard-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0 8px;
+  list-style: none;
+}
+
+.online-leaderboard-row {
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 39px;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.43);
+}
+
+.online-leaderboard-row.leader {
+  border-color: rgba(255, 221, 76, 0.45);
+  background: linear-gradient(90deg, rgba(255, 208, 46, 0.33), rgba(107, 75, 10, 0.42));
+}
+
+.online-leaderboard-row.self {
+  box-shadow: inset 3px 0 0 #39c6ff;
+}
+
+.online-leaderboard-place {
+  color: #f8da42;
+  font-family: "mario_kart_f2", system-ui, sans-serif;
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+.online-leaderboard-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.online-leaderboard-name small {
+  margin-left: 6px;
+  color: #7edcff;
+  font-size: 0.59rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.online-leaderboard-laps {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: right;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.online-leaderboard-footer {
+  margin: 8px 0 0;
+  padding: 8px 15px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.69rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+@media (max-width: 700px) {
+  .online-leaderboard {
+    right: 10px;
+    bottom: 10px;
+    width: min(264px, calc(100vw - 20px));
+  }
+
+  .online-leaderboard-heading {
+    padding: 10px 12px 7px;
+  }
+
+  .online-leaderboard h2 {
+    font-size: 1.08rem;
+  }
+
+  .online-leaderboard-row {
+    min-height: 34px;
+  }
+}

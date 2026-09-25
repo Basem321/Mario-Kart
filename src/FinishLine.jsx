@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { useGameStore } from "./store";
 import { useGameManager } from "./gameManager";
 import { FINISH_LINE } from "./constants";
+import { publishOnlineRaceEvent } from "./onlineRaceTransport";
 
 const groundRaycaster = new THREE.Raycaster();
 const downDir = new THREE.Vector3(0, -1, 0);
@@ -188,6 +189,20 @@ export function FinishLine() {
       const lapTime = gm.currentLapTime;
       const result = gm.completeLap(lapTime);
       if (!result.counted) return;
+
+      // Offline races keep their existing local-only behavior. In an online
+      // race this compact, validated event lets every client rank the roster
+      // by completed laps without coupling the finish-line physics to P2P.
+      const updatedGame = useGameManager.getState();
+      if (updatedGame.isOnlineRace) {
+        publishOnlineRaceEvent({
+          type: "race:progress",
+          completedLaps: result.completedLap,
+          currentLap: updatedGame.currentLap,
+          finished: result.finished,
+        });
+      }
+
       console.log(
         `🏁 Lap ${result.completedLap} completed in ${gm.formatTime(lapTime)}${
           result.finished ? " — race finished" : ""

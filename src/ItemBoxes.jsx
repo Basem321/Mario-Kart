@@ -9,6 +9,7 @@ import {
   subscribeOnlineRaceEvents,
 } from "./onlineRaceTransport";
 import { useGameManager } from "./gameManager";
+import { getBlackRoadGeometry, sampleBlackRoadPoint } from "./trackRoad";
 
 const BOX_COUNT = 3;
 const PICKUP_RADIUS = 2.6;
@@ -16,10 +17,6 @@ const BOMB_ARM_SECONDS = 1.0;
 const BOMB_TRIGGER_RADIUS = 3.4;
 const RESPAWN_SECONDS = 25;
 const EXPLOSION_LIFE = 1.05;
-
-// Must match the <Track> transform in models/Mario-circuit-test.jsx
-const TRACK_OFFSET = new THREE.Vector3(155, -28, 15);
-const TRACK_SCALE = 0.08;
 
 const snapRaycaster = new THREE.Raycaster();
 const downDir = new THREE.Vector3(0, -1, 0);
@@ -196,10 +193,10 @@ export function ItemBoxes() {
   const scene = useThree((s) => s.scene);
   const [, getKeys] = useKeyboardControls();
   const collidersRef = useRef(null);
-  const roadBoxRef = useRef(null);
   const boxNodesRef = useRef(new Map());
   const dropHeldRef = useRef(false);
   const tickAudioRef = useRef(null);
+  const blackRoadGeometry = getBlackRoadGeometry(nodes);
 
   const itemBoxes = useGameStore((s) => s.itemBoxes);
   const droppedBombs = useGameStore((s) => s.droppedBombs);
@@ -245,23 +242,6 @@ export function ItemBoxes() {
     return collidersRef.current;
   };
 
-  const getRoadBox = () => {
-    if (!roadBoxRef.current) {
-      const geo = nodes?.Object_24?.geometry ?? nodes?.Object_25?.geometry;
-      if (!geo) return null;
-      geo.computeBoundingBox();
-      const bb = geo.boundingBox;
-      if (!bb) return null;
-      roadBoxRef.current = {
-        minX: Math.min(bb.min.x, bb.max.x) * TRACK_SCALE + TRACK_OFFSET.x,
-        maxX: Math.max(bb.min.x, bb.max.x) * TRACK_SCALE + TRACK_OFFSET.x,
-        minZ: Math.min(bb.min.z, bb.max.z) * TRACK_SCALE + TRACK_OFFSET.z,
-        maxZ: Math.max(bb.min.z, bb.max.z) * TRACK_SCALE + TRACK_OFFSET.z,
-      };
-    }
-    return roadBoxRef.current;
-  };
-
   const snapToGround = (x, z) => {
     snapRaycaster.set(new THREE.Vector3(x, 60, z), downDir);
     snapRaycaster.far = 200;
@@ -272,17 +252,10 @@ export function ItemBoxes() {
   };
 
   const randomBoxSpot = () => {
-    const box = getRoadBox();
-    if (!box) return null;
-    for (let i = 0; i < 25; i++) {
-      const x =
-        box.minX + 15 + Math.random() * Math.max(1, box.maxX - box.minX - 30);
-      const z =
-        box.minZ + 15 + Math.random() * Math.max(1, box.maxZ - box.minZ - 30);
-      const y = snapToGround(x, z);
-      if (y !== null) return { x, y: y + 1.1, z };
-    }
-    return null;
+    // Sample the actual Object_24 black-road triangles. The prior bounding
+    // box + general ground ray could resolve to grass, barriers or scenery.
+    const point = sampleBlackRoadPoint(blackRoadGeometry);
+    return point ? { x: point.x, y: point.y + 1.1, z: point.z } : null;
   };
 
   // Initial spawn.

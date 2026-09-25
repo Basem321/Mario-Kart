@@ -4,6 +4,9 @@ import { create } from "zustand";
 // second do not re-render the homepage, lobby, or WebGL canvas root.
 export const useOnlineRaceStore = create((set) => ({
   remoteRacers: {},
+  // Race-only state stays separate from transforms so a leaderboard update
+  // cannot affect interpolation of a remote kart.
+  remoteRaceProgress: {},
   setRemoteRacer: (playerId, transform) =>
     set((state) => ({
       remoteRacers: {
@@ -24,11 +27,38 @@ export const useOnlineRaceStore = create((set) => ({
         },
       },
     })),
+  setRemoteRaceProgress: (playerId, progress) =>
+    set((state) => {
+      const previous = state.remoteRaceProgress[playerId];
+      const nextCompletedLaps = Number(progress?.completedLaps);
+
+      if (!Number.isInteger(nextCompletedLaps) || nextCompletedLaps < 0) {
+        return state;
+      }
+
+      // Messages are reliable, but this keeps an older relay packet from
+      // making a racer appear to lose a completed lap.
+      if (previous && previous.completedLaps > nextCompletedLaps) {
+        return state;
+      }
+
+      return {
+        remoteRaceProgress: {
+          ...state.remoteRaceProgress,
+          [playerId]: {
+            ...previous,
+            ...progress,
+            completedLaps: nextCompletedLaps,
+          },
+        },
+      };
+    }),
   removeRemoteRacer: (playerId) =>
     set((state) => {
-      if (!state.remoteRacers[playerId]) return state;
+      if (!state.remoteRacers[playerId] && !state.remoteRaceProgress[playerId]) return state;
       const { [playerId]: _removed, ...remoteRacers } = state.remoteRacers;
-      return { remoteRacers };
+      const { [playerId]: _removedProgress, ...remoteRaceProgress } = state.remoteRaceProgress;
+      return { remoteRacers, remoteRaceProgress };
     }),
-  clearRemoteRacers: () => set({ remoteRacers: {} }),
+  clearRemoteRacers: () => set({ remoteRacers: {}, remoteRaceProgress: {} }),
 }));

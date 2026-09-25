@@ -141,7 +141,16 @@ export function TrackWalls() {
   useEffect(() => {
     // Strip render-only fields before storing.
     setWallSegments(
-      segments.map((s) => ({ ax: s.ax, az: s.az, bx: s.bx, bz: s.bz }))
+      // Keep the outer-fence flag for the UI map. Collision only reads the
+      // coordinates, while the minimap can exclude this artificial safety
+      // rectangle and draw the real black-road outline.
+      segments.map((s) => ({
+        ax: s.ax,
+        az: s.az,
+        bx: s.bx,
+        bz: s.bz,
+        outer: Boolean(s.outer),
+      }))
     );
     return () => setWallSegments([]);
   }, [segments, setWallSegments]);

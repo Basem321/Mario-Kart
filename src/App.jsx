@@ -20,6 +20,7 @@ export const App = () => {
     { name: "useItem", keys: ["KeyE"] },
     { name: "dropBomb", keys: ["KeyG"] },
     { name: "reset", keys: ["KeyR"] },
+    { name: "lookBehind", keys: ["KeyQ"] },
   ];
   
   const smokeTexture = useTexture('./textures/particles/smoke.png');

@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useGameManager } from "./gameManager";
+import { MiniMap } from "./MiniMap";
+import { OnlineRaceLeaderboard } from "./OnlineRaceLeaderboard";
 import gsap from "gsap";
 import "./GameUI.css";
 
@@ -61,6 +63,10 @@ const GameUI = () => {
     };
   }, [gameStarted, gameOver]);
 
+  const requestReset = () => {
+    window.dispatchEvent(new CustomEvent("mario-kart:reset"));
+  };
+
   if (!gameStarted && !gameOver) return null;
 
   return (
@@ -87,32 +93,41 @@ const GameUI = () => {
           </div>
           <div className="game-controls">
             <button className="game-btn" onClick={returnToHomepage}>Exit</button>
-            <button className="game-btn reset">Reset</button>
+            <button type="button" className="game-btn reset" onClick={requestReset}>Reset</button>
           </div>
         </div>
       )}
 
       {!isTimeTrial && gameStarted && !gameOver && (
-        <div className="game-ui regular-mode">
-          <div className="game-info">
-            <div className="position">
-              <span className="position-label">LAP</span>
-              <span className="position-value">{currentLap}/{totalLaps}</span>
+        <>
+          <div className="game-ui regular-mode">
+            <div className="game-info">
+              <div className="position">
+                <span className="position-label">LAP</span>
+                <span className="position-value">{currentLap}/{totalLaps}</span>
+              </div>
+              <div className="total-time">
+                <span>Time</span>
+                <span className="time" key={`regular-total-${refreshKey}`}>{formatTime(totalTime)}</span>
+              </div>
+              <div className="total-time">
+                <span>Lap Time</span>
+                <span className="time" key={`regular-lap-${refreshKey}`}>{formatTime(currentLapTime)}</span>
+              </div>
             </div>
-            <div className="total-time">
-              <span>Time</span>
-              <span className="time" key={`regular-total-${refreshKey}`}>{formatTime(totalTime)}</span>
-            </div>
-            <div className="total-time">
-              <span>Lap Time</span>
-              <span className="time" key={`regular-lap-${refreshKey}`}>{formatTime(currentLapTime)}</span>
+            <div className="game-controls">
+              <button className="game-btn" onClick={returnToHomepage}>Exit</button>
+              <button type="button" className="game-btn reset" onClick={requestReset}>Reset</button>
             </div>
           </div>
-          <div className="game-controls">
-            <button className="game-btn" onClick={returnToHomepage}>Exit</button>
-            <button className="game-btn reset">Reset</button>
-          </div>
-        </div>
+        </>
+      )}
+
+      {gameStarted && !gameOver && (
+        <>
+          <MiniMap />
+          <OnlineRaceLeaderboard />
+        </>
       )}
 
       {showGameOver && (

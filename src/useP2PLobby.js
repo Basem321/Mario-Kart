@@ -98,7 +98,7 @@ const toRacePosition = (candidate) => {
 
 // P2P peers are untrusted inputs, so only a compact whitelist of gameplay
 // actions reaches the Three.js scene. Movement has its own validator above.
-const toRaceEvent = (candidate) => {
+const toRaceEvent = (candidate, maxLapCount = 5) => {
   if (!candidate || typeof candidate !== "object") return null;
 
   if (candidate.type === "bomb:carried") {
@@ -129,8 +129,46 @@ const toRaceEvent = (candidate) => {
     return { type: "bomb:explode", bombId, ...position };
   }
 
+  if (candidate.type === "race:progress") {
+    const lapLimit = Math.min(5, Math.max(1, Math.floor(Number(maxLapCount) || 3)));
+    const completedLaps = Number(candidate.completedLaps);
+    const currentLap = Number(candidate.currentLap);
+    const finished = Boolean(candidate.finished);
+    const completedAt = Number(candidate.completedAt);
+
+    if (
+      !Number.isInteger(completedLaps) ||
+      !Number.isInteger(currentLap) ||
+      completedLaps < 0 ||
+      completedLaps > lapLimit ||
+      currentLap < 1 ||
+      currentLap > lapLimit
+    ) {
+      return null;
+    }
+
+    // A completion message must describe a coherent post-finish lap state.
+    const expectedCurrentLap = completedLaps === lapLimit ? lapLimit : completedLaps + 1;
+    if (currentLap !== expectedCurrentLap || finished !== (completedLaps === lapLimit)) {
+      return null;
+    }
+
+    return {
+      type: "race:progress",
+      completedLaps,
+      currentLap,
+      finished,
+      ...(Number.isFinite(completedAt) && completedAt > 0 ? { completedAt } : {}),
+    };
+  }
+
   return null;
 };
+
+// The lobby host is the relay for race events. It supplies the timestamp used
+// for deterministic same-lap ordering instead of trusting a guest's clock.
+const stampRaceProgress = (event) =>
+  event.type === "race:progress" ? { ...event, completedAt: Date.now() } : event;
 
 const upsertPlayer = (players, player) => {
   const existingIndex = players.findIndex(({ id }) => id === player.id);
@@ -219,6 +257,10 @@ export const useP2PLobby = () => {
       useOnlineRaceStore.getState().setRemoteRacerCarriedBomb(playerId, event.carried);
     }
 
+    if (event.type === "race:progress") {
+      useOnlineRaceStore.getState().setRemoteRaceProgress(playerId, event);
+    }
+
     receiveOnlineRaceEvent({ ...event, playerId });
   }, []);
 
@@ -262,18 +304,19 @@ export const useP2PLobby = () => {
     (candidate) => {
       const activeRace = activeRaceRef.current;
       const self = selfRef.current;
-      const event = toRaceEvent(candidate);
+      const event = toRaceEvent(candidate, activeRace?.lapCount);
 
       if (!activeRace || !self?.id || !event || !activeRace.playerIds.includes(self.id)) {
         return;
       }
 
       if (hostRef.current) {
+        const relayedEvent = stampRaceProgress(event);
         broadcastRaceTransform({
           type: "lobby:race-event",
           raceId: activeRace.raceId,
           playerId: self.id,
-          event,
+          event: relayedEvent,
         });
         return;
       }
@@ -441,7 +484,7 @@ export const useP2PLobby = () => {
 
             if (message.type === "race:event") {
               const activeRace = activeRaceRef.current;
-              const event = toRaceEvent(message.event);
+              const event = toRaceEvent(message.event, activeRace?.lapCount);
 
               if (
                 !activeRace ||
@@ -452,12 +495,13 @@ export const useP2PLobby = () => {
                 return;
               }
 
-              applyIncomingRaceEvent(connection.peer, event);
+              const relayedEvent = stampRaceProgress(event);
+              applyIncomingRaceEvent(connection.peer, relayedEvent);
               broadcastRaceTransform({
                 type: "lobby:race-event",
                 raceId: activeRace.raceId,
                 playerId: connection.peer,
-                event,
+                event: relayedEvent,
               });
             }
           };
@@ -626,7 +670,7 @@ export const useP2PLobby = () => {
 
           if (message.type === "lobby:race-event") {
             const activeRace = activeRaceRef.current;
-            const event = toRaceEvent(message.event);
+            const event = toRaceEvent(message.event, activeRace?.lapCount);
 
             if (
               activeRace &&

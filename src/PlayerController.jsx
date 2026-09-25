@@ -1,7 +1,7 @@
 import { Kart } from "./models/Kart";
-import { useKeyboardControls } from "@react-three/drei";
+import { useGLTF, useKeyboardControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Vector3, Raycaster } from "three";
 import { damp } from "three/src/math/MathUtils.js";
 import { getOnlineSpawnSlot, kartSettings } from "./constants";
@@ -17,6 +17,7 @@ import {
   KART_RADIUS,
   WALL_SKIN,
 } from "./collision";
+import { findNearestBlackRoadPoint, getBlackRoadGeometry } from "./trackRoad";
 
 // Horizontal ray vs the visible track meshes (barriers included).
 // Catches real walls even where the precomputed segments have gaps.
@@ -51,6 +52,8 @@ export const PlayerController = () => {
   const inputTurn = useRef(0);
   const lastExplosionIdRef = useRef(0);
   const lastNetworkSyncRef = useRef(-Infinity);
+  const resetHeldRef = useRef(false);
+  const resetRequestedRef = useRef(false);
   const isOnlineRace = useGameManager((state) => state.isOnlineRace);
   const onlineSpawnIndex = useGameManager((state) => state.onlineSpawnIndex);
   const spawnSlot = isOnlineRace
@@ -112,7 +115,54 @@ export const PlayerController = () => {
   const setGamepad = useGameStore((state) => state.setGamepad);
 
   const scene = useThree((s) => s.scene);
+  const { nodes: trackNodes } = useGLTF("./models/mario-circuit-test-transformed.glb");
+  const blackRoadGeometry = getBlackRoadGeometry(trackNodes);
   const meshCollidersRef = useRef(null);
+
+  // The HUD uses this event so its Reset button and the R key share exactly
+  // the same physics-safe recovery path.  Keeping the request in a ref lets
+  // the actual teleport happen inside the next Three.js frame.
+  useEffect(() => {
+    const requestReset = () => {
+      resetRequestedRef.current = true;
+    };
+
+    window.addEventListener("mario-kart:reset", requestReset);
+    return () => window.removeEventListener("mario-kart:reset", requestReset);
+  }, []);
+
+  const resetToNearestBlackRoad = (player) => {
+    if (!useGameManager.getState().gameStarted) return false;
+
+    const point = findNearestBlackRoadPoint(
+      blackRoadGeometry,
+      player.position.x,
+      player.position.z,
+    );
+    if (!point) return false;
+
+    // The kart chassis follows its wheels' ground ray. Keep its current Y
+    // baseline and only recover the X/Z position onto the black road.
+    player.position.x = point.x;
+    player.position.z = point.z;
+    speedRef.current = 0;
+    rotationSpeedRef.current = 0;
+    driftDirection.current = driftDirections.none;
+    driftPower.current = 0;
+    turbo.current = 0;
+    smoothedDirectionRef.current.set(
+      -Math.sin(player.rotation.y),
+      0,
+      -Math.cos(player.rotation.y),
+    );
+    setSpeed(0);
+    useGameStore.getState().setPlayerPosition(player.position);
+    useGameStore.getState().setPlayerRotationY(player.rotation.y);
+
+    // Let an online peer publish the corrected position on this same frame.
+    lastNetworkSyncRef.current = -Infinity;
+    return true;
+  };
 
   // Visible track meshes (road + barriers — everything named "ground").
   // Collected once; our own "wall-barrier" mesh is excluded by name.
@@ -179,8 +229,6 @@ export const PlayerController = () => {
     }
     return { x: inX, z: inZ, hit: false, nx: 0, nz: 0 };
   }
-
-  const isTimeTrial = useGameManager.getState().isTimeTrial;
 
   const getGamepad = () => {
     if (navigator.getGamepads) {
@@ -480,7 +528,7 @@ export const PlayerController = () => {
     const joystick = useGameStore.getState().joystick;
     const jumpButtonPressed = useGameStore.getState().jumpButtonPressed;
 
-    const { forward, backward, left, right, jump, reset } = get();
+    const { forward, backward, left, right, jump, reset, lookBehind } = get();
 
     const gamepadButtons = {
       jump: false,
@@ -493,12 +541,21 @@ export const PlayerController = () => {
         gamepadRef.current.buttons[7].pressed;
       gamepadButtons.x = gamepadRef.current.axes[0];
     }
+    // Reset is edge-triggered so holding R cannot repeatedly teleport the
+    // kart. The screen button queues the same request through CustomEvent.
+    const resetDown = Boolean(reset);
+    if ((resetDown && !resetHeldRef.current) || resetRequestedRef.current) {
+      resetRequestedRef.current = false;
+      resetToNearestBlackRoad(player);
+    }
+    resetHeldRef.current = resetDown;
+
     updateSpeed(forward, backward, cappedDelta);
     rotatePlayer(left, right, player, joystick.x, cappedDelta);
-    // R (reset) = look behind while held, smooth back to normal on release.
+    // Q = look behind while held, smooth back to the chase camera on release.
     lookingBackRef.current = damp(
       lookingBackRef.current,
-      reset ? 1 : 0,
+      lookBehind ? 1 : 0,
       10,
       cappedDelta
     );

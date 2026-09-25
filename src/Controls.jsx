@@ -1,10 +1,26 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import './Controls.css';
 
 const Controls = ({ onClose }) => {
   const modalRef = useRef(null);
   const contentRef = useRef(null);
+
+  const closeModal = useCallback(() => {
+    gsap.to(contentRef.current, {
+      y: 50,
+      opacity: 0,
+      scale: 0.9,
+      duration: 0.3,
+      ease: 'power2.in'
+    });
+    
+    gsap.to(modalRef.current, {
+      backgroundColor: 'rgba(0, 0, 0, 0)',
+      duration: 0.3,
+      onComplete: () => onClose()
+    });
+  }, [onClose]);
 
   useEffect(() => {
     // Animation for the modal when it appears
@@ -30,23 +46,7 @@ const Controls = ({ onClose }) => {
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const closeModal = () => {
-    gsap.to(contentRef.current, {
-      y: 50,
-      opacity: 0,
-      scale: 0.9,
-      duration: 0.3,
-      ease: 'power2.in'
-    });
-    
-    gsap.to(modalRef.current, {
-      backgroundColor: 'rgba(0, 0, 0, 0)',
-      duration: 0.3,
-      onComplete: () => onClose()
-    });
-  };
+  }, [closeModal]);
   
   return (
     <div className="controls-modal-overlay" ref={modalRef}>
@@ -107,6 +107,11 @@ const Controls = ({ onClose }) => {
             
             <div className="control-item">
               <div className="key">R</div>
+              <span>Reset to nearest road</span>
+            </div>
+
+            <div className="control-item">
+              <div className="key">Q</div>
               <span>Look Behind (Hold)</span>
             </div>
             

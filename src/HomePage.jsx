@@ -286,6 +286,10 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
               </div>
               <div className="control-item">
                 <div className="key">R</div>
+                <span>Reset to nearest road</span>
+              </div>
+              <div className="control-item">
+                <div className="key">Q</div>
                 <span>Look Behind (Hold)</span>
               </div>
             </div>
