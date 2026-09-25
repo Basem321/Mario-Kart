@@ -4,7 +4,7 @@
 
 **Demo Project:** This is a demo project that brings the magic of Mario Kart to your browser using Three.js and WebGL technology.
 
-[Live Demo Link](https://mario-kart-3-js.vercel.app/)
+[Live Demo Link](mariokart-brown.vercel.app)
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Nathan-Richard-21/Mario-Kart-game)
 
@@ -24,7 +24,7 @@
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/Nathan-Richard-21/Mario-Kart-game.git
+git clone https://github.com/Basem321/Mario-Kart.git
 cd Mario-Kart-game
 ```
 
