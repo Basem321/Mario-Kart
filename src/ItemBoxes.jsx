@@ -317,6 +317,15 @@ export function ItemBoxes() {
         const d = Math.hypot(px - b.x, pz - b.z);
         if (d < PICKUP_RADIUS) {
           st.setCarriedBomb(true);
+          try {
+            const rawVol = Number(useGameManager.getState().sfxVolume);
+            const vol = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+            const pickup = new Audio("./music/collecting_box.mp3");
+            pickup.volume = vol;
+            pickup.play().catch(() => {});
+          } catch {
+            // ignore — audio must never break the pickup loop
+          }
           publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
           st.setItemBoxes(
             st.itemBoxes.map((o) =>
@@ -343,9 +352,9 @@ export function ItemBoxes() {
     });
     if (needsRespawn) st.setItemBoxes(next);
 
-    // Drop with G (edge trigger).
+    // Drop with G or E (edge trigger).
     const keys = getKeys();
-    const dropDown = !!keys?.dropBomb;
+    const dropDown = Boolean(keys?.dropBomb || keys?.useItem);
     if (dropDown && !dropHeldRef.current && st.carriedBomb) {
       const ry = st.playerRotationY || 0;
       const fx = -Math.sin(ry);

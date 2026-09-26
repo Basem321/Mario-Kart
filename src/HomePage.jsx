@@ -265,24 +265,28 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
             <h2>Game Controls</h2>
             <div className="controls-grid">
               <div className="control-item">
-                <div className="key">W</div>
+                <div className="key">W / ↑</div>
                 <span>Accelerate</span>
               </div>
               <div className="control-item">
-                <div className="key">A / D</div>
+                <div className="key">S / ↓</div>
+                <span>Brake / Reverse</span>
+              </div>
+              <div className="control-item">
+                <div className="key">A / D / ← / →</div>
                 <span>Steer Left / Right</span>
               </div>
               <div className="control-item">
                 <div className="key">SPACE</div>
-                <span>Drift (Hold)</span>
+                <span>Drift (Hold, release for boost)</span>
               </div>
               <div className="control-item">
-                <div className="key">E</div>
-                <span>Use Item</span>
-              </div>
-              <div className="control-item">
-                <div className="key">G</div>
+                <div className="key">E / G</div>
                 <span>Drop Bomb</span>
+              </div>
+              <div className="control-item">
+                <div className="key">H</div>
+                <span>Honk</span>
               </div>
               <div className="control-item">
                 <div className="key">R</div>
@@ -291,6 +295,10 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
               <div className="control-item">
                 <div className="key">Q</div>
                 <span>Look Behind (Hold)</span>
+              </div>
+              <div className="control-item">
+                <div className="key">ESC</div>
+                <span>Pause Menu</span>
               </div>
             </div>
             <p className="control-info">On mobile, use the on-screen controls to play!</p>

@@ -1,0 +1,328 @@
+.race-results-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: fadeIn 0.4s ease;
+  overflow-y: auto;
+}
+
+.race-results-modal {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: linear-gradient(160deg, rgba(28, 34, 46, 0.98), rgba(12, 15, 21, 0.99));
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 20px;
+  padding: 28px 26px 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  color: #fff;
+  text-align: center;
+  animation: scaleIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.race-results-header {
+  margin-bottom: 18px;
+}
+
+.race-results-kicker {
+  display: block;
+  color: #ffd700;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.race-results-place {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  margin-bottom: 10px;
+}
+
+.race-results-place .place-medal {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.race-results-place .place-ordinal {
+  font-family: "mario_kart_f2", sans-serif;
+  font-size: 2.6rem;
+  line-height: 1;
+  color: #fff;
+}
+
+.race-results-place .place-of {
+  font-size: 1rem;
+  opacity: 0.6;
+}
+
+.race-results-place.pos-1 {
+  border-color: rgba(255, 215, 0, 0.7);
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.25), rgba(255, 215, 0, 0.06));
+  box-shadow: 0 0 24px rgba(255, 215, 0, 0.35);
+}
+
+.race-results-place.pos-1 .place-ordinal {
+  color: #ffd700;
+  text-shadow: 0 0 12px rgba(255, 215, 0, 0.7);
+}
+
+.race-results-place.pos-2 .place-ordinal {
+  color: #e0e5ec;
+}
+
+.race-results-place.pos-3 .place-ordinal {
+  color: #e8a87c;
+}
+
+.race-results-title {
+  margin: 4px 0 4px;
+  font-family: "Oswald", sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.race-results-title.rank-1 {
+  color: #ffd700;
+  text-shadow: 0 2px 12px rgba(255, 215, 0, 0.4);
+}
+
+.race-results-subtitle {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.95rem;
+}
+
+.race-results-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.rr-stat {
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rr-stat.highlight {
+  border-color: rgba(255, 215, 0, 0.5);
+  background: linear-gradient(180deg, rgba(255, 215, 0, 0.14), rgba(0, 0, 0, 0.4));
+}
+
+.rr-stat-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.rr-stat-value {
+  font-family: "DIN 2014", monospace;
+  font-size: 1.15rem;
+  color: #fff;
+}
+
+.rr-stat.highlight .rr-stat-value {
+  color: #ffd700;
+}
+
+.race-results-standings,
+.race-results-laps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.rr-row,
+.rr-lap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rr-row.pos-1 {
+  border-color: rgba(255, 215, 0, 0.5);
+  background: linear-gradient(90deg, rgba(255, 215, 0, 0.18), rgba(255, 215, 0, 0.04));
+}
+
+.rr-row.pos-2 {
+  border-color: rgba(220, 225, 235, 0.3);
+}
+
+.rr-row.pos-3 {
+  border-color: rgba(205, 127, 50, 0.4);
+}
+
+.rr-row.self {
+  border-left: 3px solid #00d2ff;
+}
+
+.rr-pos {
+  font-weight: 700;
+  min-width: 36px;
+  color: #fff;
+}
+
+.rr-row.pos-1 .rr-pos {
+  color: #ffd700;
+}
+
+.rr-medal {
+  font-size: 1.1rem;
+}
+
+.rr-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rr-you {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 210, 255, 0.22);
+  border: 1px solid rgba(0, 210, 255, 0.5);
+  color: #00d2ff;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.rr-laps {
+  font-family: "DIN 2014", monospace;
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+.rr-finished {
+  color: #2ed573;
+  font-weight: 700;
+}
+
+.rr-lap-row.best {
+  border-color: rgba(255, 215, 0, 0.5);
+}
+
+.rr-lap-label {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.rr-lap-time {
+  margin-left: auto;
+  font-family: "DIN 2014", monospace;
+  font-size: 1.05rem;
+}
+
+.rr-best-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 215, 0, 0.2);
+  border: 1px solid rgba(255, 215, 0, 0.5);
+  color: #ffd700;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.race-results-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.rr-btn {
+  padding: 12px 24px;
+  border-radius: 50px;
+  border: none;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rr-btn.retry {
+  background: #0066b3;
+  color: #fff;
+}
+
+.rr-btn.retry:hover {
+  background: #0080e1;
+  transform: translateY(-2px);
+}
+
+.rr-btn.home {
+  background: #e60012;
+  color: #fff;
+}
+
+.rr-btn.home:hover {
+  background: #ff1a29;
+  transform: translateY(-2px);
+}
+
+.race-results-note {
+  margin: 12px 0 0;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.92) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (max-width: 480px) {
+  .race-results-modal {
+    padding: 20px 16px;
+  }
+  .race-results-stats {
+    grid-template-columns: 1fr;
+  }
+  .race-results-actions {
+    flex-direction: column;
+  }
+}

@@ -6,6 +6,7 @@ import VFXParticles from "./wawa-vfx/VFXParticles";
 import { Composer } from "./Composer";
 import { useThree, useFrame } from "@react-three/fiber";
 import { Skid } from "./particles/drift/Skid";
+import { BoostCameraRig } from "./BoostCameraRig";
 import { Leva } from "leva";
 import { useGameStore } from "./store";
 import { useGameManager } from "./gameManager";
@@ -21,6 +22,7 @@ export const App = () => {
     { name: "dropBomb", keys: ["KeyG"] },
     { name: "reset", keys: ["KeyR"] },
     { name: "lookBehind", keys: ["KeyQ"] },
+    { name: "honk", keys: ["KeyH"] },
   ];
   
   const smokeTexture = useTexture('./textures/particles/smoke.png');
@@ -119,6 +121,8 @@ export const App = () => {
             alphaMap={smokeTexture}
           />
           {/* <Skid/> */}
+          <Skid />
+          <BoostCameraRig />
           <KeyboardControls map={controls}>
                 <TrackScene />
                 

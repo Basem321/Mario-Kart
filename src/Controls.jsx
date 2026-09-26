@@ -92,17 +92,20 @@ const Controls = ({ onClose }) => {
             
             <div className="control-item">
               <div className="key">Space</div>
-              <span>Drift (Hold)</span>
+              <span>Drift (Hold, release for boost)</span>
             </div>
             
             <div className="control-item">
-              <div className="key">E</div>
-              <span>Use Item</span>
+              <div className="key-container">
+                <div className="key">E</div>
+                <div className="key">G</div>
+              </div>
+              <span>Drop Bomb</span>
             </div>
 
             <div className="control-item">
-              <div className="key">G</div>
-              <span>Drop Bomb</span>
+              <div className="key">H</div>
+              <span>Honk</span>
             </div>
             
             <div className="control-item">
@@ -116,8 +119,8 @@ const Controls = ({ onClose }) => {
             </div>
             
             <div className="control-item">
-              <div className="key">Mouse</div>
-              <span>Steer (Alternative)</span>
+              <div className="key">ESC</div>
+              <span>Pause Menu</span>
             </div>
           </div>
         </div>

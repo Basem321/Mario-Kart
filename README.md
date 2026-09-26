@@ -52,7 +52,8 @@ bun run dev
 - <kbd>W</kbd> or <kbd>↑</kbd> - Accelerate
 - <kbd>A</kbd>/<kbd>D</kbd> or <kbd>←</kbd>/<kbd>→</kbd> - Steer left/right
 - <kbd>Space</kbd> - Drift (Hold and steer to maintain drift, release for mini-turbo)
-- <kbd>E</kbd> - Use current item
+- <kbd>E</kbd>/<kbd>G</kbd> - Drop bomb
+- <kbd>H</kbd> - Honk
 - <kbd>R</kbd> - Reset to the nearest safe point on the black road
 - <kbd>Q</kbd> - Look behind (hold)
 

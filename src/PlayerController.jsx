@@ -54,6 +54,7 @@ export const PlayerController = () => {
   const lastNetworkSyncRef = useRef(-Infinity);
   const resetHeldRef = useRef(false);
   const resetRequestedRef = useRef(false);
+  const honkHeldRef = useRef(false);
   const isOnlineRace = useGameManager((state) => state.isOnlineRace);
   const onlineSpawnIndex = useGameManager((state) => state.onlineSpawnIndex);
   const spawnSlot = isOnlineRace
@@ -286,10 +287,10 @@ export const PlayerController = () => {
     // Adjust max speed for time trial mode
     const baseMaxSpeed = kartSettings.speed.max;
     const maxSpeed = (baseMaxSpeed * speedFactor) + (turbo.current > 0 ? 40 : 0);
-    
-    maxSpeed > baseMaxSpeed
-      ? setIsBoosting(true)
-      : setIsBoosting(false);
+
+    // Boost flag drives flames + FOV kick + wind overlay. It must reflect an
+    // actual mini-turbo, not the higher time-trial cruising speed.
+    turbo.current > 0 ? setIsBoosting(true) : setIsBoosting(false);
 
     const gamepadButtons = {
       forward: false,
@@ -528,7 +529,7 @@ export const PlayerController = () => {
     const joystick = useGameStore.getState().joystick;
     const jumpButtonPressed = useGameStore.getState().jumpButtonPressed;
 
-    const { forward, backward, left, right, jump, reset, lookBehind } = get();
+    const { forward, backward, left, right, jump, reset, lookBehind, honk } = get();
 
     const gamepadButtons = {
       jump: false,
@@ -549,6 +550,21 @@ export const PlayerController = () => {
       resetToNearestBlackRoad(player);
     }
     resetHeldRef.current = resetDown;
+
+    // H = honk (edge-triggered so holding H plays the horn once).
+    const honkDown = Boolean(honk);
+    if (honkDown && !honkHeldRef.current) {
+      try {
+        const rawVol = Number(useGameManager.getState().sfxVolume);
+        const vol = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+        const horn = new Audio("./music/car-honk.mp3");
+        horn.volume = vol;
+        horn.play().catch(() => {});
+      } catch {
+        // ignore — audio must never break the physics loop
+      }
+    }
+    honkHeldRef.current = honkDown;
 
     updateSpeed(forward, backward, cappedDelta);
     rotatePlayer(left, right, player, joystick.x, cappedDelta);

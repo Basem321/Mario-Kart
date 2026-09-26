@@ -15,7 +15,7 @@ const ensureAudioContext = () => {
     if (sharedAudioContext.state === "suspended") {
       sharedAudioContext.resume().catch(() => {});
     }
-  } catch (e) {
+  } catch {
     console.warn("Web Audio API not supported in this browser");
   }
   return sharedAudioContext;
@@ -44,6 +44,7 @@ export const useGameManager = create((set, get) => ({
   backgroundMusic: null,
   gameStartSound: null,
   gameOverSound: null,
+  winningSound: null,
   musicVolume: 0.35,
   sfxVolume: 0.7,
   setMusicVolume: (volume) => {
@@ -94,6 +95,11 @@ export const useGameManager = create((set, get) => ({
     gameOverSound.volume = Math.max(0, Math.min(1, 0.5 * currentSfxVolume));
     gameOverSound.preload = 'auto';
     gameOverSound.load();
+
+    const winningSound = new Audio('./music/winning_sound.mp3');
+    winningSound.volume = Math.max(0, Math.min(1, currentSfxVolume));
+    winningSound.preload = 'auto';
+    winningSound.load();
     
     // Add event listeners to handle audio playback issues
     backgroundMusic.addEventListener('canplaythrough', () => {
@@ -145,6 +151,7 @@ export const useGameManager = create((set, get) => ({
       backgroundMusic,
       gameStartSound,
       gameOverSound,
+      winningSound,
       totalTime: 0,
       currentLapTime: 0,
       currentLap: 1,
@@ -195,7 +202,7 @@ export const useGameManager = create((set, get) => ({
           }
           
           // Show "GO!" for a short time, then start the game
-          const goTimeout = setTimeout(() => {
+          setTimeout(() => {
             console.log("GO countdown complete, starting game now");
             set({ 
               gameStarted: true,
@@ -222,17 +229,15 @@ export const useGameManager = create((set, get) => ({
   },
   
   endGame: () => {
-    const { gameOverSound, backgroundMusic } = get();
-    
+    const { backgroundMusic } = get();
+
     if (backgroundMusic) {
       backgroundMusic.pause();
       backgroundMusic.currentTime = 0;
     }
-    
-    if (gameOverSound) {
-      gameOverSound.play();
-    }
-    
+
+    // Result jingle is played by RaceResults based on final position:
+    // top 3 hear winning_sound, the rest hear game-over.
     set({
       gameOver: true,
       isPlaying: false

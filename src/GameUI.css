@@ -331,6 +331,95 @@
   align-items: flex-start;
 }
 
+/* Live online position badge in HUD */
+.live-position {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-right: 22px;
+  margin-right: 4px;
+  border-right: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.live-position .position-value {
+  color: #00d2ff;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.live-position.pos-1 .position-value {
+  color: #ffd700;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.6);
+}
+
+.live-position.pos-2 .position-value {
+  color: #e0e5ec;
+}
+
+.live-position.pos-3 .position-value {
+  color: #e8a87c;
+}
+
+.live-position .position-total {
+  font-size: 1rem;
+  opacity: 0.6;
+}
+
+/* Boost wind-screen overlay */
+.boost-wind-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.boost-wind-overlay.active {
+  opacity: 1;
+}
+
+.boost-wind-overlay .wind-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 52%,
+    rgba(0, 0, 0, 0.12) 72%,
+    rgba(0, 10, 30, 0.5) 100%
+  );
+}
+
+.boost-wind-overlay .wind-streaks {
+  position: absolute;
+  inset: -40px;
+  background: repeating-conic-gradient(
+    from 0deg at 50% 50%,
+    transparent 0deg 7deg,
+    rgba(255, 255, 255, 0.14) 8deg 9deg,
+    transparent 10deg 16deg
+  );
+  -webkit-mask-image: radial-gradient(
+    ellipse at center,
+    transparent 42%,
+    black 75%
+  );
+  mask-image: radial-gradient(
+    ellipse at center,
+    transparent 42%,
+    black 75%
+  );
+  animation: wind-spin 0.7s linear infinite;
+  opacity: 0.85;
+}
+
+@keyframes wind-spin {
+  from { transform: scale(1) rotate(0deg); opacity: 0.5; }
+  50% { opacity: 0.9; }
+  to { transform: scale(1.12) rotate(2deg); opacity: 0.5; }
+}
+
 /* Game Over Modal */
 .game-over-modal {
   position: fixed;
