@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useEffect } from "react";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { useGameStore } from "./store";
+import { getRoadMapData, getBlackRoadGeometry } from "./trackRoad";
 
 // Must match the <Track> transform in models/Mario-circuit-test.jsx
 const TRACK_OFFSET = new THREE.Vector3(155, -28, 15);
@@ -54,6 +55,11 @@ function getBoundarySegments(geometry) {
     const a = v(t * 3);
     const b = v(t * 3 + 1);
     const c = v(t * 3 + 2);
+    // Road meshes are often double-sided or closed. Skipping bottom-facing
+    // faces prevents outer boundary edges from being cancelled out (count = 2).
+    const normalY = (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z);
+    if (normalY < 0) continue;
+
     const edges = [
       [a, b],
       [b, c],
@@ -91,11 +97,22 @@ export function TrackWalls() {
   const { nodes } = useGLTF("./models/mario-circuit-test-transformed.glb");
   const instancedRef = useRef(null);
   const setWallSegments = useGameStore((s) => s.setWallSegments);
+  const setRoadMapData = useGameStore((s) => s.setRoadMapData);
+
+  // Directly extract and publish roadMapData for the minimap
+  useEffect(() => {
+    const roadGeometry = getBlackRoadGeometry(nodes);
+    if (roadGeometry && setRoadMapData) {
+      const mapData = getRoadMapData(roadGeometry);
+      if (mapData) {
+        setRoadMapData(mapData);
+      }
+    }
+  }, [nodes, setRoadMapData]);
 
   const segments = useMemo(() => {
     // Main road surface. Object_24 is the flat road mesh (see Track component).
-    const roadGeometry =
-      nodes?.Object_24?.geometry ?? nodes?.Object_25?.geometry ?? null;
+    const roadGeometry = getBlackRoadGeometry(nodes);
     let segs = [];
     if (roadGeometry) {
       segs = getBoundarySegments(roadGeometry);

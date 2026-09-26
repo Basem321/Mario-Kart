@@ -44,6 +44,20 @@ export const useGameManager = create((set, get) => ({
   backgroundMusic: null,
   gameStartSound: null,
   gameOverSound: null,
+  musicVolume: 0.35,
+  sfxVolume: 0.7,
+  setMusicVolume: (volume) => {
+    const nextVolume = Math.max(0, Math.min(1, Number(volume) || 0));
+    set({ musicVolume: nextVolume });
+    const bgm = get().backgroundMusic;
+    if (bgm) {
+      bgm.volume = nextVolume;
+    }
+  },
+  setSfxVolume: (volume) => {
+    const nextVolume = Math.max(0, Math.min(1, Number(volume) || 0));
+    set({ sfxVolume: nextVolume });
+  },
   
   // Time trial data
   lapTimes: [],
@@ -60,21 +74,24 @@ export const useGameManager = create((set, get) => ({
   startGame: (isTimeTrial = false, onlineOptions = {}) => {
     // Fresh battle state every run (boxes/bombs/explosions/stun).
     useGameStore.getState().resetBattleState();
+    const currentMusicVolume = get().musicVolume ?? 0.35;
+    const currentSfxVolume = get().sfxVolume ?? 0.7;
+
     // Preload audio files
     const backgroundMusic = new Audio('./music/Mario Kart Wii OST.mp3');
     backgroundMusic.loop = true;
-    backgroundMusic.volume = 0.3;
+    backgroundMusic.volume = currentMusicVolume;
     // Preload audio to prevent delayed playback
     backgroundMusic.preload = 'auto';
     backgroundMusic.load();
     
     const gameStartSound = new Audio('./music/level-completed.wav');
-    gameStartSound.volume = 0.5;
+    gameStartSound.volume = Math.max(0, Math.min(1, 0.5 * currentSfxVolume));
     gameStartSound.preload = 'auto';
     gameStartSound.load();
     
     const gameOverSound = new Audio('./music/game-over.wav');
-    gameOverSound.volume = 0.5;
+    gameOverSound.volume = Math.max(0, Math.min(1, 0.5 * currentSfxVolume));
     gameOverSound.preload = 'auto';
     gameOverSound.load();
     

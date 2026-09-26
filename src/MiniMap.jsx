@@ -4,8 +4,8 @@ import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 import "./MiniMap.css";
 
-const MAP_PADDING = 15;
-const RACER_COLORS = ["#ff4c4c", "#42c7ff", "#ffdb3d", "#a772ff", "#55df8b", "#ff8d43"];
+const MAP_PADDING = 16;
+const RACER_COLORS = ["#ff4757", "#2ed573", "#ffa502", "#1e90ff", "#9b59b6", "#e056fd"];
 
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
 const pointKey = (x, z) => `${Math.round(x * 20)}:${Math.round(z * 20)}`;
@@ -17,7 +17,7 @@ const validRoadSegments = (segments) =>
       [segment?.ax, segment?.az, segment?.bx, segment?.bz].every(Number.isFinite),
   );
 
-/** Join the real road-boundary edges into fillable loops for the map. */
+/** Join boundary segments into fillable loops if using wallSegments fallback. */
 const buildRoadLoops = (segments) => {
   const connections = new Map();
   const addConnection = (key, connection) => {
@@ -45,9 +45,6 @@ const buildRoadLoops = (segments) => {
     ];
     unused.delete(firstIndex);
 
-    // Boundary vertices should have degree two. If an exported mesh contains
-    // a junction, choosing an unused neighbor still yields a faithful outline
-    // instead of blocking the entire minimap.
     for (let safety = 0; safety <= segments.length; safety += 1) {
       if (currentKey === startKey) break;
       const next = (connections.get(currentKey) ?? []).find((entry) => unused.has(entry.index));
@@ -68,7 +65,7 @@ const buildRoadLoops = (segments) => {
   return loops;
 };
 
-const makeMapData = (wallSegments) => {
+const makeMapDataFromSegments = (wallSegments) => {
   const segments = validRoadSegments(wallSegments);
   if (segments.length === 0) return null;
 
@@ -82,7 +79,7 @@ const makeMapData = (wallSegments) => {
   const maxZ = Math.max(...coordinates.map((point) => point.z));
 
   return {
-    segments,
+    boundaryEdges: segments,
     loops: buildRoadLoops(segments),
     minX,
     maxX,
@@ -107,100 +104,135 @@ const makeProjection = (mapData, width, height) => {
 
 const drawRoad = (context, mapData, projection, width, height) => {
   context.clearRect(0, 0, width, height);
-  context.fillStyle = "#15181f";
+  // Dark circular map background
+  context.fillStyle = "#11141c";
   context.fillRect(0, 0, width, height);
 
-  // A subtle grid makes position changes easy to read without replacing the
-  // true track outline as the visual source of truth.
-  context.strokeStyle = "rgba(255, 255, 255, 0.035)";
+  // Subtle grid
+  context.strokeStyle = "rgba(255, 255, 255, 0.045)";
   context.lineWidth = 1;
-  for (let coordinate = 10; coordinate < width; coordinate += 20) {
+  for (let x = 12; x < width; x += 22) {
     context.beginPath();
-    context.moveTo(coordinate, 0);
-    context.lineTo(coordinate, height);
+    context.moveTo(x, 0);
+    context.lineTo(x, height);
     context.stroke();
   }
-  for (let coordinate = 10; coordinate < height; coordinate += 20) {
+  for (let y = 12; y < height; y += 22) {
     context.beginPath();
-    context.moveTo(0, coordinate);
-    context.lineTo(width, coordinate);
+    context.moveTo(0, y);
+    context.lineTo(width, y);
     context.stroke();
   }
 
-  if (mapData.loops.length > 0) {
+  // Draw road surface from triangles if available
+  if (mapData.triangles && mapData.triangles.length > 0) {
+    context.fillStyle = "#3a404c";
+    context.beginPath();
+    for (const tri of mapData.triangles) {
+      const pa = projection.point(tri.a.x, tri.a.z);
+      const pb = projection.point(tri.b.x, tri.b.z);
+      const pc = projection.point(tri.c.x, tri.c.z);
+      context.moveTo(pa.x, pa.y);
+      context.lineTo(pb.x, pb.y);
+      context.lineTo(pc.x, pc.y);
+    }
+    context.fill();
+  } else if (mapData.loops && mapData.loops.length > 0) {
     context.beginPath();
     for (const loop of mapData.loops) {
       const first = projection.point(loop[0].x, loop[0].z);
       context.moveTo(first.x, first.y);
-      for (let index = 1; index < loop.length; index += 1) {
-        const point = projection.point(loop[index].x, loop[index].z);
-        context.lineTo(point.x, point.y);
+      for (let i = 1; i < loop.length; i += 1) {
+        const p = projection.point(loop[i].x, loop[i].z);
+        context.lineTo(p.x, p.y);
       }
       context.closePath();
     }
-    context.fillStyle = "#555a63";
+    context.fillStyle = "#3a404c";
     context.fill("evenodd");
   }
 
-  // Always stroke the original edges, including any loop a malformed export
-  // could not close. This keeps the minimap's visual course exact.
-  context.strokeStyle = "rgba(255, 246, 225, 0.76)";
-  context.lineWidth = 1.35;
-  context.beginPath();
-  for (const segment of mapData.segments) {
-    const a = projection.point(segment.ax, segment.az);
-    const b = projection.point(segment.bx, segment.bz);
-    context.moveTo(a.x, a.y);
-    context.lineTo(b.x, b.y);
+  // Stroke crisp road boundary edges
+  const edges = mapData.boundaryEdges || [];
+  if (edges.length > 0) {
+    context.strokeStyle = "rgba(255, 255, 255, 0.88)";
+    context.lineWidth = 1.6;
+    context.lineCap = "round";
+    context.beginPath();
+    for (const edge of edges) {
+      const a = projection.point(edge.ax, edge.az);
+      const b = projection.point(edge.bx, edge.bz);
+      context.moveTo(a.x, a.y);
+      context.lineTo(b.x, b.y);
+    }
+    context.stroke();
   }
-  context.stroke();
 };
 
 const drawRacer = (context, projection, racer, color, isSelf, label, width, height) => {
   if (!Number.isFinite(racer?.x) || !Number.isFinite(racer?.z)) return;
   const raw = projection.point(racer.x, racer.z);
-  const x = clamp(raw.x, 7, width - 7);
-  const y = clamp(raw.y, 7, height - 7);
+  const x = clamp(raw.x, 8, width - 8);
+  const y = clamp(raw.y, 8, height - 8);
   const rotationY = Number.isFinite(racer.rotationY) ? racer.rotationY : 0;
 
   context.save();
   context.translate(x, y);
   context.rotate(rotationY + Math.PI / 2);
+
+  // Directional arrow
   context.beginPath();
-  context.moveTo(6.5, 0);
-  context.lineTo(-4.5, -4.25);
-  context.lineTo(-2.4, 0);
-  context.lineTo(-4.5, 4.25);
+  context.moveTo(7, 0);
+  context.lineTo(-4.5, -4);
+  context.lineTo(-2.2, 0);
+  context.lineTo(-4.5, 4);
   context.closePath();
   context.fillStyle = color;
   context.fill();
-  context.lineWidth = isSelf ? 2.4 : 1.4;
-  context.strokeStyle = isSelf ? "#ffffff" : "rgba(0, 0, 0, 0.72)";
+  context.lineWidth = isSelf ? 2.2 : 1.3;
+  context.strokeStyle = isSelf ? "#ffffff" : "rgba(0, 0, 0, 0.75)";
   context.stroke();
   context.restore();
 
+  // Subtle highlight halo for local player
+  if (isSelf) {
+    context.beginPath();
+    context.arc(x, y, 8, 0, Math.PI * 2);
+    context.strokeStyle = "rgba(57, 198, 255, 0.55)";
+    context.lineWidth = 1.5;
+    context.stroke();
+  }
+
   if (label) {
     context.fillStyle = "#ffffff";
-    context.font = "700 8px system-ui, sans-serif";
+    context.font = "800 8px 'Oswald', sans-serif";
     context.textAlign = "center";
-    context.fillText(label, x, y - 8);
+    context.shadowColor = "rgba(0, 0, 0, 0.9)";
+    context.shadowBlur = 3;
+    context.fillText(label, x, y - 9);
+    context.shadowBlur = 0;
   }
 };
 
 /**
- * Canvas minimap for online races. Marker coordinates are read directly from
- * the same local/remote transforms that render the 3D karts, so it stays in
- * sync without adding a second network channel or a React render every frame.
+ * High-performance 2D canvas minimap.
+ * Renders the accurate road surface + real-time player positions.
  */
 export function MiniMap() {
   const canvasRef = useRef(null);
-  const isOnlineRace = useGameManager((state) => state.isOnlineRace);
   const gameStarted = useGameManager((state) => state.gameStarted);
+  const roadMapData = useGameStore((state) => state.roadMapData);
   const wallSegments = useGameStore((state) => state.wallSegments);
-  const mapData = useMemo(() => makeMapData(wallSegments), [wallSegments]);
+
+  const mapData = useMemo(() => {
+    if (roadMapData && roadMapData.triangles && roadMapData.triangles.length > 0) {
+      return roadMapData;
+    }
+    return makeMapDataFromSegments(wallSegments);
+  }, [roadMapData, wallSegments]);
 
   useEffect(() => {
-    if (!isOnlineRace || !gameStarted || !canvasRef.current) return undefined;
+    if (!gameStarted || !canvasRef.current) return undefined;
 
     const canvas = canvasRef.current;
     let frame = 0;
@@ -236,9 +268,10 @@ export function MiniMap() {
       staticLayer.height = canvas.height;
       const staticContext = staticLayer.getContext("2d");
       staticContext.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
-      if (mapData && projection) drawRoad(staticContext, mapData, projection, width, height);
-      else {
-        staticContext.fillStyle = "#15181f";
+      if (mapData && projection) {
+        drawRoad(staticContext, mapData, projection, width, height);
+      } else {
+        staticContext.fillStyle = "#11141c";
         staticContext.fillRect(0, 0, width, height);
       }
     };
@@ -256,27 +289,45 @@ export function MiniMap() {
         const remoteRacers = useOnlineRaceStore.getState().remoteRacers;
         const players = game.onlinePlayers ?? [];
 
-        players.forEach((player, index) => {
-          const isSelf = player.id === game.onlineSelfId;
-          const transform = isSelf ? playerState.playerPosition : remoteRacers[player.id];
-          if (!transform) return;
+        if (game.isOnlineRace && players.length > 0) {
+          players.forEach((player, index) => {
+            const isSelf = player.id === game.onlineSelfId;
+            const transform = isSelf ? playerState.playerPosition : remoteRacers[player.id];
+            if (!transform) return;
+            drawRacer(
+              context,
+              projection,
+              isSelf
+                ? {
+                    x: transform.x,
+                    z: transform.z,
+                    rotationY: playerState.playerRotationY,
+                  }
+                : transform,
+              RACER_COLORS[index % RACER_COLORS.length],
+              isSelf,
+              isSelf ? "YOU" : String(player.name ?? "?").slice(0, 1).toUpperCase(),
+              width,
+              height,
+            );
+          });
+        } else if (playerState.playerPosition) {
+          // Single player / time trial
           drawRacer(
             context,
             projection,
-            isSelf
-              ? {
-                  x: transform.x,
-                  z: transform.z,
-                  rotationY: playerState.playerRotationY,
-                }
-              : transform,
-            RACER_COLORS[index % RACER_COLORS.length],
-            isSelf,
-            isSelf ? "YOU" : String(player.name ?? "?").slice(0, 1).toUpperCase(),
+            {
+              x: playerState.playerPosition.x,
+              z: playerState.playerPosition.z,
+              rotationY: playerState.playerRotationY,
+            },
+            "#39c6ff",
+            true,
+            "YOU",
             width,
             height,
           );
-        });
+        }
       }
 
       frame = window.requestAnimationFrame(draw);
@@ -292,15 +343,15 @@ export function MiniMap() {
       window.removeEventListener("resize", prepareCanvas);
       resizeObserver?.disconnect();
     };
-  }, [gameStarted, isOnlineRace, mapData]);
+  }, [gameStarted, mapData]);
 
-  if (!isOnlineRace || !gameStarted) return null;
+  if (!gameStarted) return null;
 
   return (
-    <aside className="mini-map" aria-label="Live map of every online racer">
-      <span className="mini-map-title">Map</span>
+    <aside className="mini-map" aria-label="Track minimap">
+      <span className="mini-map-title">MAP</span>
       <canvas ref={canvasRef} aria-label="Track map with racer positions">
-        Live online track map
+        Track map
       </canvas>
     </aside>
   );

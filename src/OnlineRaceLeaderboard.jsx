@@ -62,29 +62,38 @@ export function OnlineRaceLeaderboard() {
   return (
     <aside className="online-leaderboard" aria-label="Online race leaderboard">
       <div className="online-leaderboard-heading">
-        <span className="online-leaderboard-kicker">Online race</span>
-        <h2>Leaderboard</h2>
+        <div className="online-leaderboard-tag">
+          <span className="live-pulse" />
+          <span>ONLINE RACE</span>
+        </div>
+        <h2 className="online-leaderboard-title">LEADERBOARD</h2>
       </div>
       <ol className="online-leaderboard-list">
         {standings.map((racer, index) => (
           <li
             key={racer.id}
-            className={`online-leaderboard-row ${index === 0 ? "leader" : ""} ${
+            className={`online-leaderboard-row pos-${index + 1} ${index === 0 ? "leader" : ""} ${
               racer.isSelf ? "self" : ""
             }`}
           >
             <span className="online-leaderboard-place">{index + 1}</span>
             <span className="online-leaderboard-name" title={racer.name}>
-              {racer.name}
-              {racer.isSelf && <small>You</small>}
+              <span className="racer-name-text">{racer.name}</span>
+              {racer.isSelf && <span className="you-badge">YOU</span>}
             </span>
             <span className="online-leaderboard-laps">
-              {lapLabel(racer.completedLaps)}{racer.finished ? " ✓" : ""}
+              {racer.finished ? (
+                <span className="lap-finished">FINISHED 🏁</span>
+              ) : (
+                <span className="lap-count">{racer.completedLaps} / {totalLaps} LAPS</span>
+              )}
             </span>
           </li>
         ))}
       </ol>
-      <p className="online-leaderboard-footer">Completed laps / {totalLaps}</p>
+      <div className="online-leaderboard-footer">
+        <span>Target: {totalLaps} Laps</span>
+      </div>
     </aside>
   );
 }

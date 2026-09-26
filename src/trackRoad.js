@@ -81,7 +81,7 @@ const makeRoadSampler = (geometry) => {
   return { triangles, totalArea: cumulativeArea };
 };
 
-const getRoadSampler = (geometry) => {
+export const getRoadSampler = (geometry) => {
   if (!geometry) return null;
   const cached = samplerCache.get(geometry);
   if (cached) return cached;
@@ -89,6 +89,81 @@ const getRoadSampler = (geometry) => {
   const sampler = makeRoadSampler(geometry);
   if (sampler) samplerCache.set(geometry, sampler);
   return sampler;
+};
+
+const mapDataCache = new WeakMap();
+
+export const getRoadMapData = (geometry) => {
+  if (!geometry) return null;
+  const cached = mapDataCache.get(geometry);
+  if (cached) return cached;
+
+  const sampler = getRoadSampler(geometry);
+  if (!sampler || sampler.triangles.length === 0) return null;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  const edges = new Map();
+
+  for (const tri of sampler.triangles) {
+    for (const p of [tri.a, tri.b, tri.c]) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.z < minZ) minZ = p.z;
+      if (p.z > maxZ) maxZ = p.z;
+    }
+
+    const triEdges = [
+      [tri.a, tri.b],
+      [tri.b, tri.c],
+      [tri.c, tri.a],
+    ];
+
+    for (const [p1, p2] of triEdges) {
+      const k1 = `${Math.round(p1.x * 20)},${Math.round(p1.z * 20)}`;
+      const k2 = `${Math.round(p2.x * 20)},${Math.round(p2.z * 20)}`;
+      const key = k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
+      const existing = edges.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        edges.set(key, { ax: p1.x, az: p1.z, bx: p2.x, bz: p2.z, count: 1 });
+      }
+    }
+  }
+
+  const boundaryEdges = [];
+  for (const entry of edges.values()) {
+    if (entry.count === 1) {
+      boundaryEdges.push({
+        ax: entry.ax,
+        az: entry.az,
+        bx: entry.bx,
+        bz: entry.bz,
+      });
+    }
+  }
+
+  const roadTriangles = sampler.triangles.map((tri) => ({
+    a: { x: tri.a.x, z: tri.a.z },
+    b: { x: tri.b.x, z: tri.b.z },
+    c: { x: tri.c.x, z: tri.c.z },
+  }));
+
+  const result = {
+    triangles: roadTriangles,
+    boundaryEdges,
+    minX,
+    maxX,
+    minZ,
+    maxZ,
+  };
+
+  mapDataCache.set(geometry, result);
+  return result;
 };
 
 const chooseTriangle = (sampler, random) => {
