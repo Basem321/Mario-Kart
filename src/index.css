@@ -19,11 +19,9 @@
     src: url('/fonts/mario_kart_f2.ttf');
 }
 
-@font-face {
-  src: url('https://assets.codepen.io/4175254/DIN2014-DemiBold.ttf') format('truetype');
-  font-family: 'DIN 2014';
-
-}
+/* NOTE: DIN 2014 was previously hotlinked from assets.codepen.io, which now
+   returns 403. It is intentionally not loaded; every usage below falls back
+   to Oswald/sans-serif. */
 
 .canvas-container {
     width: 100vw;
@@ -166,7 +164,7 @@ canvas{
         object-fit: cover;
     }
     .loading{
-        font-family: "DIN 2014";
+        font-family: "DIN 2014", "Oswald", sans-serif;
 
         font-weight: 600;
 
@@ -187,7 +185,7 @@ canvas{
   animation-delay: var(--delay);
   display: inline-block;
   transform:skewX(-6deg);
-  font-family: "DIN 2014";
+  font-family: "DIN 2014", "Oswald", sans-serif;
 
   font-weight: 600;
   text-shadow: #fff 1px 0 10px;
@@ -196,7 +194,7 @@ canvas{
 .version{
   position:fixed;
   bottom: 15px;
-  font-family: "DIN 2014";
+  font-family: "DIN 2014", "Oswald", sans-serif;
   color:white;
 
   font-weight: 300;

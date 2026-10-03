@@ -101,6 +101,10 @@ export const LoadingScreen = () => {
     <div 
       className="loading-screen" 
       ref={screenRef}
+      // Deterministic hide: once the race starts this overlay must be gone
+      // even if a GSAP fade tween never runs/completes (it is a fixed,
+      // full-viewport, opaque white layer sitting above the WebGL canvas).
+      style={gameStarted ? { display: 'none' } : undefined}
     >
       {progress < 100 ? (
         <>
