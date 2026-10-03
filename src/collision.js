@@ -89,7 +89,8 @@ export function resolveWallCollision(
   desiredX,
   desiredZ,
   segments,
-  radius = KART_RADIUS
+  radius = KART_RADIUS,
+  kartY = null
 ) {
   if (!segments || segments.length === 0) {
     return { x: desiredX, z: desiredZ, hit: false, nx: 0, nz: 0 };
@@ -117,6 +118,20 @@ export function resolveWallCollision(
     for (let iter = 0; iter < 2; iter++) {
       for (let i = 0; i < segments.length; i++) {
         const seg = segments[i];
+
+        // Vertical filter: only collide if kart is near the wall's height level.
+        // Wall height is ~2.2. If kart is driving on a bridge 6m above or underpass below, skip it.
+        if (
+          !seg.outer &&
+          kartY !== null &&
+          Number.isFinite(kartY) &&
+          Number.isFinite(seg.y)
+        ) {
+          if (kartY < seg.y - 1.5 || kartY > seg.y + 3.5) {
+            continue;
+          }
+        }
+
         // Broadphase: skip walls far from the kart.
         // (Cheap AABB check expanded by radius.)
         const minX = seg.ax < seg.bx ? seg.ax : seg.bx;

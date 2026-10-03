@@ -1,12 +1,14 @@
 import { PlayerController } from "./PlayerController";
 import { Grid } from "@react-three/drei";
 import Flames from "./particles/drift/flames/Flames";
-import {Track} from './models/Mario-circuit-test';
+import { Track } from "./models/Track";
 import { TrackWalls } from "./TrackWalls";
 import { ItemBoxes } from "./ItemBoxes";
 import { BVHEnsure } from "./BVHEnsure";
 import { FinishLine } from "./FinishLine";
 import { RemoteRacers } from "./RemoteRacers";
+import { BoostPads } from "./BoostPads";
+
 export const TrackScene = () => {
   return (
     <>
@@ -14,10 +16,10 @@ export const TrackScene = () => {
       <RemoteRacers />
       <Track />
       <TrackWalls />
+      <BoostPads />
       <ItemBoxes />
       <BVHEnsure />
       <FinishLine />
-
 
       <Flames />
 

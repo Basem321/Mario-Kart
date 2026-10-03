@@ -1,0 +1,117 @@
+.track-select {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 40px 20px;
+  background: radial-gradient(ellipse at center, #171a2c 0%, #0a0c17 80%);
+  color: #fff;
+  text-align: center;
+}
+
+.track-title {
+  font-family: "mario_kart_f2", sans-serif;
+  font-size: 2.6rem;
+  color: #fde902;
+  text-shadow: 3px 3px 0 #e60012, 6px 6px 0 rgba(0, 0, 0, 0.5);
+  margin: 0;
+}
+
+.track-subtitle {
+  margin: 0 0 10px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 1rem;
+}
+
+.track-cards {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.track-card {
+  position: relative;
+  width: min(300px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 30px 22px 24px;
+  border-radius: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: linear-gradient(160deg, rgba(40, 46, 64, 0.95), rgba(16, 19, 30, 0.98));
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.track-card:hover {
+  transform: translateY(-4px);
+  border-color: #ffd700;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.track-card.selected {
+  border-color: #2ed573;
+  box-shadow: 0 0 24px rgba(46, 213, 115, 0.3);
+}
+
+.track-emoji {
+  font-size: 3rem;
+  line-height: 1;
+}
+
+.track-image {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 12px;
+  display: block;
+}
+
+.track-name {
+  font-family: "Oswald", sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.track-tagline {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.track-current {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(46, 213, 115, 0.2);
+  border: 1px solid rgba(46, 213, 115, 0.5);
+  color: #2ed573;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.track-back {
+  margin-top: 8px;
+  padding: 10px 28px;
+  border-radius: 50px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.track-back:hover {
+  background: rgba(255, 255, 255, 0.15);
+}

@@ -408,11 +408,11 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
         
         <section ref={infinityRef} className="infinity-section">
           <div className="infinity-content">
-            <h2 className="animate-in" style={{opacity: 0, transform: 'translateY(20px)'}}>Developed by Infinity Cybertech</h2>
+            <h2 className="animate-in" style={{opacity: 0, transform: 'translateY(20px)'}}>Developed by Basem Ahmed</h2>
             <p className="infinity-subtitle animate-in" style={{opacity: 0, transform: 'translateY(20px)'}}>Specialists in 3D Web & Mobile Technology</p>
             <p className="animate-in" style={{opacity: 0, transform: 'translateY(20px)'}}>
-              At Infinity Cybertech, we transform digital experiences with cutting-edge
-              3D web technology. This demo showcases our expertise in
+              Transforming digital experiences with cutting-edge
+              3D web technology. This demo showcases expertise in
               building immersive, interactive applications.
             </p>
             <div className="infinity-specialties animate-in" style={{opacity: 0, transform: 'translateY(20px)'}}>
@@ -505,7 +505,7 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
             <a href="https://github.com/Basem321/Mario-Kart.git" target="_blank" rel="noopener noreferrer">View Source</a>
           </div>
           <div className="footer-bottom">
-            <p>&copy; {new Date().getFullYear()} Infinity Cybertech. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} Basem Ahmed. All rights reserved.</p>
             <p>This is a non-profit fan project. Mario Kart is a trademark of Nintendo Co., Ltd.</p>
           </div>
         </div>

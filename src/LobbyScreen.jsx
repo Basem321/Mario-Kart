@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useGLTF } from "@react-three/drei";
+import { TRACKS, getTrack } from "./tracks";
 import "./LobbyScreen.css";
 
 const DRIVERS = {
@@ -17,6 +19,8 @@ const statusMessage = (lobby) => {
 
 const LobbyScreen = ({
   lobby,
+  raceTrackId,
+  onSelectTrack,
   onCreateLobby,
   onRequestJoin,
   onChooseDriver,
@@ -31,6 +35,13 @@ const LobbyScreen = ({
   const [formError, setFormError] = useState("");
   const [copyLabel, setCopyLabel] = useState("Copy code");
   const [lapCount, setLapCount] = useState(3);
+  const activeRaceTrack = getTrack(raceTrackId);
+
+  // Warm every course cache while players gather, so the shared countdown
+  // never starts on a cold (multi-MB) download.
+  useEffect(() => {
+    TRACKS.forEach((track) => useGLTF.preload(track.glb));
+  }, []);
 
   const hasLobby = lobby.status !== "idle";
   const ownDriver = lobby.self?.driver ? DRIVERS[lobby.self.driver] : null;
@@ -190,17 +201,30 @@ const LobbyScreen = ({
               {lobby.isHost ? (
                 <>
                   <h2>Ready players: {readyPlayers}/{lobby.players.length}</h2>
-                  <p>{startHint} The race will run for {lapCount} lap{lapCount === 1 ? "" : "s"}.</p>
+                  <p>{startHint} The race will run for {lapCount} lap{lapCount === 1 ? "" : "s"} on {activeRaceTrack.name}.</p>
                 </>
               ) : (
                 <>
                   <h2>Waiting for the host</h2>
-                  <p>The host will start everyone at the same time.</p>
+                  <p>The host will start everyone at the same time on {activeRaceTrack.name}.</p>
                 </>
               )}
             </div>
             {lobby.isHost && (
               <div className="lobby-race-controls">
+                <label className="lobby-lap-picker" htmlFor="lobby-track">
+                  <span>Track</span>
+                  <select
+                    id="lobby-track"
+                    value={activeRaceTrack.id}
+                    onChange={(event) => onSelectTrack?.(event.target.value)}
+                    disabled={lobby.status !== "connected"}
+                  >
+                    {TRACKS.map((track) => (
+                      <option key={track.id} value={track.id}>{track.name}</option>
+                    ))}
+                  </select>
+                </label>
                 <label className="lobby-lap-picker" htmlFor="lobby-lap-count">
                   <span>Laps</span>
                   <select

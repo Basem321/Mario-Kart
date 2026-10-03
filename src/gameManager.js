@@ -32,6 +32,13 @@ export const useGameManager = create((set, get) => ({
   // Chosen driver: 'mario' | 'luigi' (picked on the character screen)
   selectedDriver: 'mario',
   setDriver: (selectedDriver) => set({ selectedDriver }),
+  // Chosen course id (see tracks.js). Picked on the track screen / lobby.
+  selectedTrackId: 'mario-circuit',
+  setTrackId: (selectedTrackId) => {
+    if (typeof selectedTrackId === 'string' && selectedTrackId) {
+      set({ selectedTrackId });
+    }
+  },
   // Online race settings are assigned by the lobby host's shared start event.
   isOnlineRace: false,
   onlineSpawnIndex: 0,

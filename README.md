@@ -12,6 +12,13 @@
 
 - Modern homepage with animations using GSAP
 - Both regular game mode and Time Trial mode
+- Multiple courses: Mario Circuit, Waluigi Stadium (dirt oval with a big jump), and DS Shroom Ridge (mountain pass with tunnel switchbacks)
+- Track configs driven by JSON: `ds-shroom-ridge-config.json` at the repo root is the source of truth for Shroom Ridge (spawns, finish line, checkpoints, walls, scale) — edit it directly to retune a course
+- Natural model walls: courses can hide the generated red/white barriers and collide against the model's own walls, with invisible road-edge collision so karts can't fall inside the map
+- Per-spawn kart size (0.2x–3x) with fully proportional physics: speed, turning, camera, wheels, particles, item boxes and bombs all scale with the kart
+- Checkpoint-based reset: falling off the track respawns the kart at the nearest checkpoint with its heading, plus a lost-kart watchdog that rescues karts stuck far from any road
+- Rotatable/movable finish line per course
+- Online P2P race lobbies with host-picked course synced to every racer
 - Enhanced UI with game information display
 - Realistic driving physics with drift mechanics
 - Particle effects for drift, boosts, and more
@@ -54,7 +61,7 @@ bun run dev
 - <kbd>Space</kbd> - Drift (Hold and steer to maintain drift, release for mini-turbo)
 - <kbd>E</kbd>/<kbd>G</kbd> - Drop bomb
 - <kbd>H</kbd> - Honk
-- <kbd>R</kbd> - Reset to the nearest safe point on the black road
+- <kbd>R</kbd> - Reset to the nearest checkpoint (or nearest road point on courses without checkpoints)
 - <kbd>Q</kbd> - Look behind (hold)
 
 ### Mobile
@@ -69,6 +76,13 @@ bun run dev
 ### Time Trial Mode
 - Challenge yourself to beat your own record
 - Tracks your best lap and total time
+
+## Track Configuration
+
+- `ds-shroom-ridge-config.json` (repo root) is the source of truth for the Shroom Ridge course and is imported directly by `src/tracks.js`. To retune it, edit the file (or paste a Map Editor export over it) and rebuild:
+  - `spawnSlots` (with per-spawn `kartScale` and `rotationY`), `checkpoints` (reset targets with headings), `finishOffset` / `lateralOffset` / `halfWidth` / `finishRotationY`, `wallExclusion`, `boostPads`, `offset` / `scale`, `naturalWalls`
+- `waluigi-stadium-config.json` is a reference export (same schema); the Waluigi Stadium entry in `src/tracks.js` is currently hardcoded
+- The Map Editor UI (`src/MapEditor.jsx`, `src/EditorScene.jsx`, etc.) is dev-only: it is `.gitignore`d, never shipped in the bundle, and has no entry points in the game UI
 
 ## Development Roadmap
 
@@ -107,9 +121,9 @@ The Mario Kart intellectual property is owned by Nintendo Co., Ltd. This project
 
 MIT License
 
-Copyright (c) 2025 Infinity Cybertech
+Copyright (c) 2025 Basem Ahmed
 
-This is a work by [Infinity Cybertech](https://www.infinitycybertech.com).
+This is a work by Basem Ahmed.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

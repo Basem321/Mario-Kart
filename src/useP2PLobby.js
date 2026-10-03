@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Peer } from "peerjs";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 import { receiveOnlineRaceEvent, setOnlineRaceTransport } from "./onlineRaceTransport";
+import { DEFAULT_TRACK_ID, isKnownTrackId } from "./tracks";
 
 const LOBBY_ID_PREFIX = "mario-kart-3js-";
 const LOBBY_CODE_LENGTH = 6;
@@ -200,6 +201,10 @@ const peerErrorMessage = (error, lobbyCode) => {
 export const useP2PLobby = () => {
   const [lobby, setLobby] = useState(emptyLobby);
   const [raceStart, setRaceStart] = useState(null);
+  // Course for the next online race. Chosen by the host in the lobby and
+  // broadcast with the shared race-start event so every browser loads it.
+  const [raceTrackId, setRaceTrackIdState] = useState(DEFAULT_TRACK_ID);
+  const raceTrackRef = useRef(DEFAULT_TRACK_ID);
   const peerRef = useRef(null);
   const guestConnectionRef = useRef(null);
   const hostConnectionsRef = useRef(new Map());
@@ -227,7 +232,11 @@ export const useP2PLobby = () => {
   }, []);
 
   const broadcastLobbyState = useCallback(() => {
-    const message = { type: "lobby:state", players: playersRef.current };
+    const message = {
+      type: "lobby:state",
+      players: playersRef.current,
+      trackId: raceTrackRef.current,
+    };
 
     hostConnectionsRef.current.forEach((connection) => {
       if (connection.open) {
@@ -337,6 +346,14 @@ export const useP2PLobby = () => {
     [broadcastRaceTransform],
   );
 
+  const setRaceTrackId = useCallback((trackId) => {
+    if (!isKnownTrackId(trackId)) return;
+    raceTrackRef.current = trackId;
+    setRaceTrackIdState(trackId);
+    // Host shares the pick live so guests see (and preload) the same course.
+    if (hostRef.current) broadcastLobbyState();
+  }, [broadcastLobbyState]);
+
   const destroyTransport = useCallback(() => {
     const peer = peerRef.current;
     peerRef.current = null;
@@ -419,7 +436,11 @@ export const useP2PLobby = () => {
           if (!connection.open) return;
 
           try {
-            connection.send({ type: "lobby:state", players: playersRef.current });
+            connection.send({
+              type: "lobby:state",
+              players: playersRef.current,
+              trackId: raceTrackRef.current,
+            });
           } catch {
             // The close event handles failed data connections.
           }
@@ -625,6 +646,10 @@ export const useP2PLobby = () => {
               .filter(Boolean);
 
             applyPlayers(nextPlayers);
+            // Host's course pick arrives with every lobby snapshot.
+            if (isKnownTrackId(message.trackId)) {
+              setRaceTrackId(message.trackId);
+            }
             setLobby((current) => ({ ...current, status: "connected", error: "" }));
           }
 
@@ -645,6 +670,7 @@ export const useP2PLobby = () => {
                 players,
                 startsAt: Number.isFinite(message.startsAt) ? message.startsAt : Date.now(),
                 lapCount: Math.min(5, Math.max(1, Math.floor(Number(message.lapCount) || 3))),
+                trackId: isKnownTrackId(message.trackId) ? message.trackId : DEFAULT_TRACK_ID,
               };
               activeRaceRef.current = race;
               useOnlineRaceStore.getState().clearRemoteRacers();
@@ -734,7 +760,7 @@ export const useP2PLobby = () => {
         }));
       });
     },
-    [applyIncomingRaceEvent, applyPlayers, destroyTransport],
+    [applyIncomingRaceEvent, applyPlayers, destroyTransport, setRaceTrackId],
   );
 
   const updateDriver = useCallback(
@@ -795,6 +821,7 @@ export const useP2PLobby = () => {
       playerIds: players.map((player) => player.id),
       players: players.map((player) => ({ ...player })),
       lapCount,
+      trackId: raceTrackRef.current,
       // Gives every browser a short window to mount the scene before the
       // shared 3-2-1 countdown begins.
       startsAt: Date.now() + 900,
@@ -806,6 +833,7 @@ export const useP2PLobby = () => {
       players: payload.players,
       startsAt: payload.startsAt,
       lapCount: payload.lapCount,
+      trackId: payload.trackId,
     };
     activeRaceRef.current = race;
     useOnlineRaceStore.getState().clearRemoteRacers();
@@ -828,6 +856,8 @@ export const useP2PLobby = () => {
   return {
     lobby,
     raceStart,
+    raceTrackId,
+    setRaceTrackId,
     createLobby,
     joinLobby,
     updateDriver,

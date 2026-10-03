@@ -59,6 +59,11 @@ export const Flames = () => {
     const camera = state.camera;
     const flamePositions = useGameStore.getState().flamePositions;
     const isBoosting = useGameStore.getState().isBoosting;
+    // Boost flames live in world space (positions come from the store), so
+    // their size/rise must scale with the kart explicitly — otherwise a mini
+    // kart blows full-size flames. At scale=1 identical to before.
+    const ks = useGameStore.getState().kartScale ?? 1;
+    const spawnScale = 0.7 * ks;
     if (flamePositions && state.clock.getElapsedTime() - lastFiredTimeRef.current >= addInterval && isBoosting) {
       const noiseTexture = useGameStore.getState().noiseTexture;
       material.uniforms.noiseTexture.value = noiseTexture;
@@ -69,7 +74,7 @@ export const Flames = () => {
         obj.setUniform('uCurrentTime', 0);
         obj.setUniform('uTimeOffset', Math.random());
       
-        obj.scale.set(0.7, 0.7, 0.7);
+        obj.scale.set(spawnScale, spawnScale, spawnScale);
       });
 
       ref.current.addInstances(1, (obj) => {
@@ -78,7 +83,7 @@ export const Flames = () => {
         obj.setUniform('uCurrentTime', 0);
         obj.setUniform('uTimeOffset', Math.random());
       
-        obj.scale.set(0.7, 0.7, 0.7);
+        obj.scale.set(spawnScale, spawnScale, spawnScale);
       });
 
       lastFiredTimeRef.current = state.clock.getElapsedTime();
@@ -87,8 +92,8 @@ export const Flames = () => {
     ref.current.updateInstances((obj) => {
       obj.currentTime += delta;
       obj.setUniform('uCurrentTime', obj.currentTime);
-      obj.scale.lerp(new Vector3(scaleTarget, scaleTarget * 2, scaleTarget), 1 * delta);
-      obj.position.y += delta * 13;
+      obj.scale.lerp(new Vector3(scaleTarget * ks, scaleTarget * 2 * ks, scaleTarget * ks), 1 * delta);
+      obj.position.y += delta * 13 * ks;
 
       const toCamera = new Vector3().subVectors(camera.getWorldPosition(new Vector3()), obj.position).normalize();
     

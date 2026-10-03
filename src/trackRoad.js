@@ -6,16 +6,43 @@ import * as THREE from "three";
 export const TRACK_OFFSET = new THREE.Vector3(155, -28, 15);
 export const TRACK_SCALE = 0.08;
 
+// Per-track transform override: { scale, offset: {x, y, z} }.
+// Defaults to the Mario Circuit transform so existing single-argument calls
+// keep working unchanged.
+const DEFAULT_TRANSFORM = {
+  scale: TRACK_SCALE,
+  offset: { x: TRACK_OFFSET.x, y: TRACK_OFFSET.y, z: TRACK_OFFSET.z },
+};
+
+const resolveTransform = (transform) => {
+  if (
+    transform &&
+    Number.isFinite(transform.scale) &&
+    transform.offset &&
+    Number.isFinite(transform.offset.x) &&
+    Number.isFinite(transform.offset.y) &&
+    Number.isFinite(transform.offset.z)
+  ) {
+    return transform;
+  }
+  return DEFAULT_TRANSFORM;
+};
+
+export const trackConfigToTransform = (track) =>
+  track
+    ? { scale: track.scale, offset: { x: track.offset[0], y: track.offset[1], z: track.offset[2] } }
+    : DEFAULT_TRANSFORM;
+
 const EPSILON = 1e-7;
 const samplerCache = new WeakMap();
 
 export const getBlackRoadGeometry = (nodes) =>
   nodes?.Object_24?.geometry ?? nodes?.Object_25?.geometry ?? null;
 
-const toWorldPoint = (position, index) => ({
-  x: position.getX(index) * TRACK_SCALE + TRACK_OFFSET.x,
-  y: position.getY(index) * TRACK_SCALE + TRACK_OFFSET.y,
-  z: position.getZ(index) * TRACK_SCALE + TRACK_OFFSET.z,
+const toWorldPoint = (position, index, transform) => ({
+  x: position.getX(index) * transform.scale + transform.offset.x,
+  y: position.getY(index) * transform.scale + transform.offset.y,
+  z: position.getZ(index) * transform.scale + transform.offset.z,
 });
 
 const triangleProjectedArea = (a, b, c) =>
@@ -29,7 +56,7 @@ const triangleNormalY = (a, b, c) =>
  * It is cached per GLTF geometry, so item spawning and Reset never rebuild it
  * during normal play.
  */
-const makeRoadSampler = (geometry) => {
+const makeRoadSampler = (geometry, transform) => {
   const position = geometry?.attributes?.position;
   if (!position) return null;
 
@@ -44,9 +71,9 @@ const makeRoadSampler = (geometry) => {
     const ib = index ? index[base + 1] : base + 1;
     const ic = index ? index[base + 2] : base + 2;
 
-    const a = toWorldPoint(position, ia);
-    const b = toWorldPoint(position, ib);
-    const c = toWorldPoint(position, ic);
+    const a = toWorldPoint(position, ia, transform);
+    const b = toWorldPoint(position, ib, transform);
+    const c = toWorldPoint(position, ic, transform);
     const area = triangleProjectedArea(a, b, c);
     if (area <= EPSILON) continue;
 
@@ -81,24 +108,25 @@ const makeRoadSampler = (geometry) => {
   return { triangles, totalArea: cumulativeArea };
 };
 
-export const getRoadSampler = (geometry) => {
+export const getRoadSampler = (geometry, transform) => {
   if (!geometry) return null;
+  // Geometries are unique per track (merged road cache), so one entry each.
   const cached = samplerCache.get(geometry);
   if (cached) return cached;
 
-  const sampler = makeRoadSampler(geometry);
+  const sampler = makeRoadSampler(geometry, resolveTransform(transform));
   if (sampler) samplerCache.set(geometry, sampler);
   return sampler;
 };
 
 const mapDataCache = new WeakMap();
 
-export const getRoadMapData = (geometry) => {
+export const getRoadMapData = (geometry, transform) => {
   if (!geometry) return null;
   const cached = mapDataCache.get(geometry);
   if (cached) return cached;
 
-  const sampler = getRoadSampler(geometry);
+  const sampler = getRoadSampler(geometry, transform);
   if (!sampler || sampler.triangles.length === 0) return null;
 
   let minX = Infinity;
@@ -185,8 +213,8 @@ const chooseTriangle = (sampler, random) => {
  * Sampling the true road triangles avoids the old bounding-box behaviour
  * that could put item boxes on grass or outside the course.
  */
-export const sampleBlackRoadPoint = (geometry, random = Math.random) => {
-  const sampler = getRoadSampler(geometry);
+export const sampleBlackRoadPoint = (geometry, transform, random = Math.random) => {
+  const sampler = getRoadSampler(geometry, transform);
   if (!sampler) return null;
 
   const triangle = chooseTriangle(sampler, random);
@@ -246,8 +274,8 @@ const distanceSqXZ = (x, z, point) => {
  * Reset, where "nearest" needs to mean nearest visible road rather than the
  * nearest general ground mesh (which includes grass, scenery and barriers).
  */
-export const findNearestBlackRoadPoint = (geometry, x, z) => {
-  const sampler = getRoadSampler(geometry);
+export const findNearestBlackRoadPoint = (geometry, x, z, transform) => {
+  const sampler = getRoadSampler(geometry, transform);
   if (!sampler || !Number.isFinite(x) || !Number.isFinite(z)) return null;
 
   let best = null;
@@ -293,4 +321,128 @@ export const findNearestBlackRoadPoint = (geometry, x, z) => {
     distance: Math.sqrt(bestDistanceSq),
     triangle: bestTriangle,
   };
+};
+
+/**
+ * 3D-aware rescue query. The XZ-only version above returns the kart's own XZ
+ * whenever it sits inside ANY road triangle — including the elevated deck of
+ * a jump while the kart is trapped in the pit underneath it (Waluigi Stadium
+ * big jump: deck at y≈8 stacked directly above the pit floor at y≈-4, and the
+ * pit floor itself is road mesh). Such a "reset" changes nothing and the kart
+ * can never climb out: steep dirt walls are skipped by the wheel-height
+ * raycasts and push the kart back via the horizontal mesh-wall ray, while
+ * head-on slowdown kills all speed.
+ *
+ * Strategy: take the 3D-nearest road point, but when it is the kart's own
+ * spot on its own level (the pocket-trap no-op case), look for the nearest
+ * road level strictly ABOVE instead — Lakitu always puts you back on top,
+ * never down into a hole. Pressing Reset while legitimately parked on a deck
+ * therefore keeps you on that deck (nothing above it).
+ */
+export const findNearestBlackRoadPoint3D = (geometry, x, y, z, transform) => {
+  const sampler = getRoadSampler(geometry, transform);
+  if (
+    !sampler ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(z)
+  )
+    return null;
+
+  // Road levels less than this apart count as the SAME driving level.
+  // (The stadium pit sits ~12 units below its deck, so 3 separates cleanly.)
+  const LEVEL_GAP = 3;
+  // XZ distance below which a rescue target counts as "the kart's own spot".
+  const SAME_SPOT = 1.5;
+  // The above-level escape only applies when stacked road floats (nearly)
+  // overhead — otherwise a driver parked on a lower road would get teleported
+  // to a far-away deck instead of staying put (a skippable shortcut).
+  const ABOVE_RADIUS = 4;
+
+  const nearest = (mustBeAbove) => {
+    let best = null;
+    let bestDistanceSq = Infinity;
+    let bestTriangle = null;
+
+    for (const triangle of sampler.triangles) {
+      const inside = pointInTriangleXZ(x, z, triangle);
+      const candidates = inside
+        ? [inside]
+        : [
+            closestPointOnSegmentXZ(x, z, triangle.a, triangle.b),
+            closestPointOnSegmentXZ(x, z, triangle.b, triangle.c),
+            closestPointOnSegmentXZ(x, z, triangle.c, triangle.a),
+          ];
+      for (const candidate of candidates) {
+        if (mustBeAbove) {
+          if (candidate.y - y < LEVEL_GAP) continue;
+          const dxz = Math.hypot(x - candidate.x, z - candidate.z);
+          if (dxz > ABOVE_RADIUS) continue;
+        }
+        const dx = x - candidate.x;
+        const dy = y - candidate.y;
+        const dz = z - candidate.z;
+        const distanceSq = dx * dx + dy * dy + dz * dz;
+        if (distanceSq < bestDistanceSq) {
+          best = candidate;
+          bestDistanceSq = distanceSq;
+          bestTriangle = triangle;
+        }
+      }
+    }
+
+    if (!best || !bestTriangle) return null;
+    return { best, bestDistanceSq, bestTriangle };
+  };
+
+  const applyEdgeInset = ({ best, bestDistanceSq, bestTriangle }) => {
+    // Same edge inset as the XZ version: keep the rescued kart off barriers.
+    const centroidDx = bestTriangle.cx - best.x;
+    const centroidDz = bestTriangle.cz - best.z;
+    const centroidDistance = Math.hypot(centroidDx, centroidDz);
+    const inset = Math.min(1.2, centroidDistance * 0.22);
+    const insetT = centroidDistance > EPSILON ? inset / centroidDistance : 0;
+
+    return {
+      x: best.x + centroidDx * insetT,
+      y: best.y + (bestTriangle.cy - best.y) * insetT,
+      z: best.z + centroidDz * insetT,
+      distance: Math.sqrt(bestDistanceSq),
+      triangle: bestTriangle,
+    };
+  };
+
+  const overall = nearest(false);
+  if (!overall) return null;
+
+  const sameSpot =
+    Math.hypot(overall.best.x - x, overall.best.z - z) < SAME_SPOT;
+  const sameLevel = Math.abs(overall.best.y - y) < LEVEL_GAP;
+  if (!sameSpot || !sameLevel) return applyEdgeInset(overall);
+
+  // Pocket trap: nearest road is the floor the kart already sits on.
+  // Rescue onto the closest level above (the deck over the pit).
+  const above = nearest(true);
+  if (!above) return applyEdgeInset(overall);
+  return applyEdgeInset(above);
+};
+
+/**
+ * Highest road-surface Y directly above (x, z), or null when the kart is not
+ * under stacked road. Used to detect the trapped-under-the-deck state: the
+ * kart sits in a pit whose floor IS road mesh (so the XZ reset no-ops) while
+ * a whole other driving level floats several units overhead.
+ */
+export const getHighestRoadYAt = (geometry, x, z, transform) => {
+  const sampler = getRoadSampler(geometry, transform);
+  if (!sampler || !Number.isFinite(x) || !Number.isFinite(z)) return null;
+
+  let highest = null;
+  for (const triangle of sampler.triangles) {
+    const inside = pointInTriangleXZ(x, z, triangle);
+    if (inside && (highest === null || inside.y > highest)) {
+      highest = inside.y;
+    }
+  }
+  return highest;
 };

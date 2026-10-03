@@ -22,3 +22,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Map Editor (dev-only): kept aside locally, never shipped to users and
+# never committed to GitHub. No shipped code imports these files — the game
+# only depends on src/mapEditorStore.js (committed state infra, no UI).
+src/MapEditor.jsx
+src/MapEditor.css
+src/MapEditorGizmos.jsx
+src/EditorScene.jsx
+src/EditorScene.css
+src/EditorFinishLine.jsx
+src/SpectatorCamera.jsx

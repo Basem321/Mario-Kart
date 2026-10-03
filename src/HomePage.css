@@ -274,6 +274,27 @@ section {
   box-shadow: 0 8px 25px rgba(20, 122, 82, 0.45);
 }
 
+.map-editor-btn {
+  background: linear-gradient(90deg, #d48b00, #ffd700);
+  color: #111827;
+  border: 1px solid rgba(255, 215, 0, 0.6);
+  padding: 0.9rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  border-radius: var(--border-radius-xl);
+  cursor: pointer;
+  transition: all var(--transition-medium);
+  box-shadow: 0 4px 18px rgba(255, 215, 0, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.map-editor-btn:hover {
+  background: linear-gradient(90deg, #f5a623, #ffeb3b);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(255, 215, 0, 0.55);
+}
+
 .hero-image {
   flex: 1;
   max-width: 500px;

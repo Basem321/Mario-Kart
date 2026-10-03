@@ -5,40 +5,49 @@ import { ShaderMaterial, BufferGeometry, Float32BufferAttribute, AdditiveBlendin
 import { lerp } from "three/src/math/MathUtils.js";
 import fragmentShader from "./fragment.glsl";
 import vertexShader from "./vertex.glsl";
+import { useGameStore } from "../../store";
 
 export const Sparks = forwardRef(({ left }, ref) => {
   const pointsRef = useRef();
   const simulationTimeRef = useRef(0);
   const shouldEmitRef = useRef(false);
+  // Spark point sizes are raw pixels (shader has no perspective/scale
+  // attenuation), so they must be pre-scaled with the kart — otherwise a
+  // mini kart gets full-size fireworks. Positions/directions live in the
+  // scaled kart space and shrink automatically.
+  const ks = useGameStore((s) => s.kartScale) ?? 1;
 
   const texture = useTexture("/textures/particles/alpha.png");
 
   const particleCount = 200;
-  const positions = [];
-  const colors = [];
-  const sizes = [];
-  const directions = [];
-  const timeOffsets = [];
+  const { positions, colors, sizes, directions, timeOffsets } = useMemo(() => {
+    const positions = [];
+    const colors = [];
+    const sizes = [];
+    const directions = [];
+    const timeOffsets = [];
 
-  const colorsRGB = [
-    [238, 175, 74],
-    [239, 198, 117],
-    [174, 132, 86],
-    [255, 222, 189],
-    [255, 175, 108],
-  ];
+    const colorsRGB = [
+      [238, 175, 74],
+      [239, 198, 117],
+      [174, 132, 86],
+      [255, 222, 189],
+      [255, 175, 108],
+    ];
 
-  for (let i = 0; i < particleCount; i++) {
-    positions.push(0, 0, 0);
-    colors.push(...colorsRGB[Math.floor(Math.random() * colorsRGB.length)]);
-    sizes.push(Math.random() * 10);
-    directions.push(
-      (1 + Math.random() * 20) * (left ? 1 : -1),
-      Math.random() * 10,
-      -Math.random() * 20
-    );
-    timeOffsets.push(1 + Math.random() * 3);
-  }
+    for (let i = 0; i < particleCount; i++) {
+      positions.push(0, 0, 0);
+      colors.push(...colorsRGB[Math.floor(Math.random() * colorsRGB.length)]);
+      sizes.push(Math.random() * 10 * ks);
+      directions.push(
+        (1 + Math.random() * 20) * (left ? 1 : -1),
+        Math.random() * 10,
+        -Math.random() * 20
+      );
+      timeOffsets.push(1 + Math.random() * 3);
+    }
+    return { positions, colors, sizes, directions, timeOffsets };
+  }, [ks, left]);
 
   const particles = useRef(new BufferGeometry());
   particles.current.setAttribute("position", new Float32BufferAttribute(positions, 3));
@@ -100,7 +109,8 @@ export const Sparks = forwardRef(({ left }, ref) => {
 
   return (
     <group position={[0, 0, 0]} layers={1}>
-      <points ref={pointsRef} geometry={particles.current} material={material} layers={1} />
+      {/* Remount when kart size changes so the pre-scaled point sizes rebuild */}
+      <points key={ks} ref={pointsRef} geometry={particles.current} material={material} layers={1} />
     </group>
   );
 });

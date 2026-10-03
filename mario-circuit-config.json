@@ -1,0 +1,52 @@
+{
+  "trackId": "mario-circuit",
+  "boostPads": [],
+  "finishOffset": 30.5,
+  "lateralOffset": 0,
+  "halfWidth": 29,
+  "wallExclusion": [],
+  "offset": [155, -28, 15],
+  "scale": 0.08,
+  "spawnSlots": [
+    {
+      "position": [-5.3, -1.7, -25.3],
+      "rotationY": 0
+    },
+    {
+      "position": [-3, -1.7, -21.8],
+      "rotationY": 0
+    },
+    {
+      "position": [-0.7, -1.7, -19.2],
+      "rotationY": 0
+    },
+    {
+      "position": [1.2, -1.7, -16],
+      "rotationY": 0
+    },
+    {
+      "position": [3.6, -1.7, -12.5],
+      "rotationY": 0
+    },
+    {
+      "position": [6, -1.7, -9.2],
+      "rotationY": 0
+    },
+    {
+      "position": [-4.2, -1.7, -6],
+      "rotationY": 0
+    },
+    {
+      "position": [-2, -1.7, -3.2],
+      "rotationY": 0
+    },
+    {
+      "position": [0.3, -1.7, 0.1],
+      "rotationY": 0
+    },
+    {
+      "position": [2.6, -1.7, 3.4],
+      "rotationY": 0
+    }
+  ]
+}

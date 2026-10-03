@@ -9,7 +9,8 @@ import {
   subscribeOnlineRaceEvents,
 } from "./onlineRaceTransport";
 import { useGameManager } from "./gameManager";
-import { getBlackRoadGeometry, sampleBlackRoadPoint } from "./trackRoad";
+import { getMergedRoadGeometry, getTrack } from "./tracks";
+import { sampleBlackRoadPoint, trackConfigToTransform } from "./trackRoad";
 
 const BOX_COUNT = 3;
 const PICKUP_RADIUS = 2.6;
@@ -46,6 +47,8 @@ const addDroppedBomb = (bomb) => {
   if (!id || st.droppedBombs.some((entry) => entry.id === id)) return false;
   if (st.explosions.some((entry) => entry.id === bombExplosionId(id))) return false;
 
+  // Bombs keep their owner's kart size so a mini kart drops a mini bomb.
+  const rawScale = Number(bomb?.scale);
   st.setDroppedBombs([
     ...st.droppedBombs,
     {
@@ -53,6 +56,7 @@ const addDroppedBomb = (bomb) => {
       x: bomb.x,
       y: bomb.y,
       z: bomb.z,
+      scale: Number.isFinite(rawScale) ? Math.max(0.2, Math.min(3, rawScale)) : 1,
       createdAt: Number.isFinite(bomb.createdAt) ? bomb.createdAt : Date.now(),
       at: performance.now(),
     },
@@ -76,6 +80,8 @@ const triggerBombExplosion = (bomb, { broadcast = false } = {}) => {
       x: bomb.x,
       y: bomb.y,
       z: bomb.z,
+      // The blast renders at its owner's kart size (mini bomb, mini boom).
+      scale: Number.isFinite(Number(bomb?.scale)) ? bomb.scale : 1,
       at: performance.now(),
     },
   ]);
@@ -91,6 +97,7 @@ const triggerBombExplosion = (bomb, { broadcast = false } = {}) => {
       x: bomb.x,
       y: bomb.y,
       z: bomb.z,
+      scale: Number.isFinite(Number(bomb?.scale)) ? bomb.scale : 1,
     });
   }
 
@@ -144,19 +151,18 @@ function ExplosionFx({ data }) {
       pos.needsUpdate = true;
     }
     const fade = 1 - t / EXPLOSION_LIFE;
-    if (pointsMatRef.current) pointsMatRef.current.opacity = fade * 0.9;
-    if (flashRef.current) {
+    if (pointsMatRef.current) pointsMatRef.current.opacity = fade * 0.9;    if (flashRef.current) {
       // Small flash on purpose: a big additive sphere swallows the camera
       // and turns the whole screen white.
       const s = 1 + (t / EXPLOSION_LIFE) * 3;
       flashRef.current.scale.set(s, s, s);
     }
     if (flashMatRef.current) flashMatRef.current.opacity = fade * 0.4;
-    if (lightRef.current) lightRef.current.intensity = fade * 45;
+    if (lightRef.current) lightRef.current.intensity = fade * 45 * (data.scale ?? 1);
   });
 
   return (
-    <group position={[data.x, data.y + 1, data.z]}>
+    <group position={[data.x, data.y + 1, data.z]} scale={data.scale ?? 1}>
       <points ref={pointsRef} frustumCulled={false}>
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" args={[positions, 3]} />
@@ -183,25 +189,30 @@ function ExplosionFx({ data }) {
           blending={THREE.AdditiveBlending}
         />
       </mesh>
-      <pointLight ref={lightRef} color="#ffb14e" intensity={45} distance={22} decay={2} />
+      <pointLight ref={lightRef} color="#ffb14e" intensity={45} distance={22 * (data.scale ?? 1)} decay={2} />
     </group>
   );
 }
 
 export function ItemBoxes() {
-  const { nodes } = useGLTF("./models/mario-circuit-test-transformed.glb");
+  const selectedTrackId = useGameManager((s) => s.selectedTrackId);
+  const activeTrack = getTrack(selectedTrackId);
+  const { nodes } = useGLTF(activeTrack.glb);
   const scene = useThree((s) => s.scene);
   const [, getKeys] = useKeyboardControls();
   const collidersRef = useRef(null);
   const boxNodesRef = useRef(new Map());
   const dropHeldRef = useRef(false);
   const tickAudioRef = useRef(null);
-  const blackRoadGeometry = getBlackRoadGeometry(nodes);
+  const blackRoadGeometry = getMergedRoadGeometry(nodes, activeTrack);
+  const roadTransform = trackConfigToTransform(activeTrack);
 
   const itemBoxes = useGameStore((s) => s.itemBoxes);
   const droppedBombs = useGameStore((s) => s.droppedBombs);
   const explosions = useGameStore((s) => s.explosions);
   const carriedBomb = useGameStore((s) => s.carriedBomb);
+  // Pickups render at the local kart's size so a mini kart meets a mini box.
+  const boxVisualScale = useGameStore((s) => s.kartScale) ?? 1;
 
   // Apply reliable gameplay events received from another racer. The local
   // player is excluded by the P2P layer, so these never duplicate their own
@@ -223,6 +234,7 @@ export function ItemBoxes() {
               x: event.x,
               y: event.y,
               z: event.z,
+              scale: event.scale,
             },
             { broadcast: false },
           );
@@ -252,10 +264,15 @@ export function ItemBoxes() {
   };
 
   const randomBoxSpot = () => {
-    // Sample the actual Object_24 black-road triangles. The prior bounding
+    // Sample the actual road triangles. The prior bounding
     // box + general ground ray could resolve to grass, barriers or scenery.
-    const point = sampleBlackRoadPoint(blackRoadGeometry);
-    return point ? { x: point.x, y: point.y + 1.1, z: point.z } : null;
+    const point = sampleBlackRoadPoint(blackRoadGeometry, roadTransform);
+    if (!point) return null;
+    // Hover height follows the local kart size so a mini box hugs the road
+    // instead of floating a full kart-height above it. Stored per box so
+    // respawns and bobbing stay consistent even if the scale changes.
+    const s = useGameStore.getState().kartScale ?? 1;
+    return { x: point.x, y: point.y + 1.1 * s, z: point.z, s };
   };
 
   // Initial spawn.
@@ -268,7 +285,7 @@ export function ItemBoxes() {
     }
     if (spots.length > 0) useGameStore.getState().setItemBoxes(spots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, scene]);
+  }, [nodes, scene, selectedTrackId]);
 
   // Ticking loop while carrying the bomb.
   useEffect(() => {
@@ -298,24 +315,29 @@ export function ItemBoxes() {
     const now = performance.now();
     const t = state.clock.elapsedTime;
 
-    // Spin + bob living boxes.
+    // Spin + bob living boxes (bob amplitude follows each box's scale).
     for (const b of st.itemBoxes) {
       const g = boxNodesRef.current.get(b.id);
       if (!g || !b.active) continue;
       g.rotation.y = t * 2 + b.id;
-      g.position.y = b.y + Math.sin(t * 2.2 + b.id * 1.7) * 0.3;
+      g.position.y = b.y + Math.sin(t * 2.2 + b.id * 1.7) * 0.3 * (b.s ?? 1);
     }
 
     if (!playerPos) return;
     const px = playerPos.x;
     const pz = playerPos.z;
+    // Radii follow the local kart size (clamped so mini karts can still
+    // grab boxes without pixel-perfect driving). At scale=1 unchanged.
+    const myScale = useGameStore.getState().kartScale ?? 1;
+    const pickupRadius = Math.max(1.2, PICKUP_RADIUS * myScale);
+    const triggerRadius = Math.max(1.2, BOMB_TRIGGER_RADIUS * myScale);
 
     // Pickup.
     if (!st.carriedBomb) {
       for (const b of st.itemBoxes) {
         if (!b.active) continue;
         const d = Math.hypot(px - b.x, pz - b.z);
-        if (d < PICKUP_RADIUS) {
+        if (d < pickupRadius) {
           st.setCarriedBomb(true);
           try {
             const rawVol = Number(useGameManager.getState().sfxVolume);
@@ -357,16 +379,19 @@ export function ItemBoxes() {
     const dropDown = Boolean(keys?.dropBomb || keys?.useItem);
     if (dropDown && !dropHeldRef.current && st.carriedBomb) {
       const ry = st.playerRotationY || 0;
+      const myScale = useGameStore.getState().kartScale ?? 1;
       const fx = -Math.sin(ry);
       const fz = -Math.cos(ry);
-      const bx = px - fx * 2.6;
-      const bz = pz - fz * 2.6;
+      const dropBack = 2.6 * Math.max(0.5, myScale);
+      const bx = px - fx * dropBack;
+      const bz = pz - fz * dropBack;
       const gy = snapToGround(bx, bz) ?? (st.groundPosition ?? 0);
       const bomb = {
         id: makeBombId(),
         x: bx,
-        y: gy + 0.9,
+        y: gy + 0.9 * myScale,
         z: bz,
+        scale: myScale,
         createdAt: Date.now(),
       };
       addDroppedBomb(bomb);
@@ -380,7 +405,7 @@ export function ItemBoxes() {
     for (const bomb of [...st.droppedBombs]) {
       if (bombAgeMs(bomb, now) < BOMB_ARM_SECONDS * 1000) continue;
       const d = Math.hypot(px - bomb.x, pz - bomb.z);
-      if (d < BOMB_TRIGGER_RADIUS) triggerBombExplosion(bomb, { broadcast: true });
+      if (d < triggerRadius) triggerBombExplosion(bomb, { broadcast: true });
     }
 
     void delta;
@@ -399,12 +424,14 @@ export function ItemBoxes() {
               }}
               position={[b.x, b.y, b.z]}
             >
-              <ItemBoxModel />
+              <group scale={boxVisualScale}>
+                <ItemBoxModel />
+              </group>
             </group>
           )
       )}
       {droppedBombs.map((b) => (
-        <group key={b.id} position={[b.x, b.y, b.z]} scale={0.75}>
+        <group key={b.id} position={[b.x, b.y, b.z]} scale={0.75 * (b.scale ?? 1)}>
           <BombModel />
         </group>
       ))}

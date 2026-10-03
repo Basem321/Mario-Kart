@@ -3,6 +3,7 @@ import { useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { MathUtils } from "three";
 import { getOnlineSpawnSlot } from "./constants";
+import { getTrack } from "./tracks";
 import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
 import { BombModel } from "./models/Pickups";
@@ -16,9 +17,10 @@ const smoothAngle = (from, to, lambda, delta) => {
 const RemoteKart = ({ player, playerIndex }) => {
   const { nodes, materials } = useGLTF("/models/kart.glb");
   const remoteState = useOnlineRaceStore((state) => state.remoteRacers[player.id]);
+  const selectedTrackId = useGameManager((state) => state.selectedTrackId);
   const kartRef = useRef(null);
   const visualRef = useRef(null);
-  const spawnSlot = getOnlineSpawnSlot(playerIndex);
+  const spawnSlot = getOnlineSpawnSlot(playerIndex, getTrack(selectedTrackId));
 
   useFrame((_, delta) => {
     if (!kartRef.current || !visualRef.current) return;
@@ -31,17 +33,20 @@ const RemoteKart = ({ player, playerIndex }) => {
       bodyY: 0,
     };
     const target = { ...fallbackTarget, ...remoteState };
+    // The outer group is scaled by kartScale, so network world positions
+    // convert to local (at scale=1 this is exactly the old code).
+    const rs = spawnSlot.kartScale ?? 1;
 
-    kartRef.current.position.x = MathUtils.damp(kartRef.current.position.x, target.x, 14, delta);
-    kartRef.current.position.y = MathUtils.damp(kartRef.current.position.y, target.y, 14, delta);
-    kartRef.current.position.z = MathUtils.damp(kartRef.current.position.z, target.z, 14, delta);
+    kartRef.current.position.x = MathUtils.damp(kartRef.current.position.x * rs, target.x, 14, delta) / rs;
+    kartRef.current.position.y = MathUtils.damp(kartRef.current.position.y * rs, target.y, 14, delta) / rs;
+    kartRef.current.position.z = MathUtils.damp(kartRef.current.position.z * rs, target.z, 14, delta) / rs;
     kartRef.current.rotation.y = smoothAngle(kartRef.current.rotation.y, target.rotationY, 16, delta);
     visualRef.current.position.y = MathUtils.damp(
-      visualRef.current.position.y,
+      visualRef.current.position.y * rs,
       (Number.isFinite(target.bodyY) ? target.bodyY : 0) - 0.5,
       12,
       delta,
-    );
+    ) / rs;
   });
 
   return (
@@ -49,6 +54,7 @@ const RemoteKart = ({ player, playerIndex }) => {
       ref={kartRef}
       position={spawnSlot.position}
       rotation-y={spawnSlot.rotationY}
+      scale={spawnSlot.kartScale ?? 1}
       name={`remote-racer-${player.id}`}
     >
       <group ref={visualRef} position-y={-0.5} rotation-y={Math.PI}>

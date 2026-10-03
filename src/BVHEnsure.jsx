@@ -7,6 +7,8 @@ import {
   computeBoundsTree,
   disposeBoundsTree,
 } from "three-mesh-bvh";
+import { useGameManager } from "./gameManager";
+import { getTrack } from "./tracks";
 
 // Guarantees every "ground" mesh (the raycast targets for wheels + walls)
 // has a BVH, no matter when drei's <Bvh> traverse ran relative to async
@@ -27,10 +29,6 @@ function ensureBVH(root, label) {
       return;
     }
     try {
-      if (o.raycast !== Mesh.prototype.raycast) {
-        skipped += 1;
-        return;
-      }
       o.raycast = acceleratedRaycast;
       o.geometry.computeBoundsTree = computeBoundsTree;
       o.geometry.disposeBoundsTree = disposeBoundsTree;
@@ -47,14 +45,16 @@ function ensureBVH(root, label) {
 
 export function BVHEnsure() {
   const scene = useThree((s) => s.scene);
+  const selectedTrackId = useGameManager((s) => s.selectedTrackId);
+  const activeTrack = getTrack(selectedTrackId);
   // Suspend until the always-rendered track models are loaded, so the
   // traverse below actually sees them (runs post-load, every session).
-  useGLTF("./models/mario-circuit-test-transformed.glb");
+  useGLTF(activeTrack.glb);
   useGLTF("/models/kart.glb");
 
   useEffect(() => {
-    ensureBVH(scene, "mount");
-  }, [scene]);
+    ensureBVH(scene, selectedTrackId);
+  }, [scene, selectedTrackId]);
 
   return null;
 }

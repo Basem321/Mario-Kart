@@ -131,16 +131,22 @@ const VFXEmitter = forwardRef<VFXEmitterRef, VFXEmitterProps>(
             worldEuler.setFromQuaternion(worldQuaternion);
             worldRotation.setFromQuaternion(worldQuaternion);
 
-            const randSize = randFloat(size[0], size[1]);
+            // Emitters parented under a scaled kart (mini karts) must emit
+            // proportional particles: sizes, spread and speeds scale with the
+            // emitter's world scale. Unscaled emitters (worldScale=1) behave
+            // exactly as before.
+            const wScale =
+              (worldScale.x + worldScale.y + worldScale.z) / 3 || 1;
+            const randSize = randFloat(size[0], size[1]) * wScale;
             const color = colorStart[randInt(0, colorStart.length - 1)];
             return {
               position: [
                 worldPosition.x +
-                  randFloat(startPositionMin[0], startPositionMax[0]),
+                  randFloat(startPositionMin[0], startPositionMax[0]) * wScale,
                 worldPosition.y +
-                  randFloat(startPositionMin[1], startPositionMax[1]),
+                  randFloat(startPositionMin[1], startPositionMax[1]) * wScale,
                 worldPosition.z +
-                  randFloat(startPositionMin[2], startPositionMax[2]),
+                  randFloat(startPositionMin[2], startPositionMax[2]) * wScale,
               ],
               direction: (() => {
                 const dir = new Vector3(
@@ -173,7 +179,7 @@ const VFXEmitter = forwardRef<VFXEmitterRef, VFXEmitterProps>(
               colorEnd: colorEnd?.length
                 ? colorEnd[randInt(0, colorEnd.length - 1)]
                 : color,
-              speed: [randFloat(speed[0], speed[1])],
+              speed: [randFloat(speed[0], speed[1]) * wScale],
             };
           });
           emitted.current += rate;

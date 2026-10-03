@@ -1,0 +1,166 @@
+{
+  "trackId": "ds-shroom-ridge",
+  "boostPads": [],
+  "finishOffset": 5.2,
+  "lateralOffset": 0,
+  "halfWidth": 4,
+  "finishRotationY": -90,
+  "naturalWalls": true,
+  "wallExclusion": [],
+  "offset": [
+    2.68,
+    -24.7,
+    -12.39
+  ],
+  "scale": 0.08,
+  "spawnSlots": [
+    {
+      "position": [
+        3.9,
+        -1.7,
+        1.5
+      ],
+      "rotationY": -89,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        3.2,
+        -1.7,
+        1
+      ],
+      "rotationY": -88,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        2.2,
+        -1.7,
+        0.5
+      ],
+      "rotationY": -90,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        1.5,
+        -1.7,
+        -0.1
+      ],
+      "rotationY": -91,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        0.7,
+        -1.7,
+        -0.7
+      ],
+      "rotationY": -92,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        0,
+        -1.7,
+        -1.2
+      ],
+      "rotationY": -93,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        -0.8,
+        -1.7,
+        1.2
+      ],
+      "rotationY": -85,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        -1.6,
+        -1.7,
+        0.7
+      ],
+      "rotationY": -89,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        -2.4,
+        -1.7,
+        0.2
+      ],
+      "rotationY": -90,
+      "kartScale": 0.2
+    },
+    {
+      "position": [
+        -3.2,
+        -1.7,
+        -0.4
+      ],
+      "rotationY": -91,
+      "kartScale": 0.2
+    }
+  ],
+  "checkpoints": [
+    {
+      "position": [
+        -7.9,
+        -1.6,
+        0.7
+      ],
+      "rotationY": 90
+    },
+    {
+      "position": [
+        -41.5,
+        -1.3,
+        27.3
+      ],
+      "rotationY": 0
+    },
+    {
+      "position": [
+        -1.1,
+        -2.6,
+        -25.8
+      ],
+      "rotationY": -45
+    },
+    {
+      "position": [
+        -27.5,
+        -1,
+        -29.7
+      ],
+      "rotationY": 0
+    },
+    {
+      "position": [
+        -46.3,
+        5.3,
+        8.9
+      ],
+      "rotationY": 90
+    },
+    {
+      "position": [
+        -50.1,
+        1.5,
+        -14.2
+      ],
+      "rotationY": 45
+    },
+    {
+      "position": [
+        -48.7,
+        1.7,
+        55.3
+      ],
+      "rotationY": -90
+    }
+  ]
+}

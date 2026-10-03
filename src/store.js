@@ -15,6 +15,13 @@ export const useGameStore = create((set) => ({
   setDriftLevel: (level) => set({ driftLevel: level }),
   groundPosition: null,
   setGroundPosition: (groundPosition) => set({groundPosition: groundPosition}),
+  // One-shot wheel-height snap consumed by the Kart on the next frame.
+  // Reset sets it to the rescued road level so the wheels (and the body +
+  // ray origins following them) jump to the new level together — e.g. from
+  // the pit floor onto the deck above it — instead of re-acquiring the old
+  // level underneath. Null when there is nothing to snap.
+  wheelSnapY: null,
+  setWheelSnapY: (wheelSnapY) => set({ wheelSnapY }),
   wheelPositions: null,
   setWheelPositions: (wheelPositions) => set({wheelPositions: wheelPositions}),
   body: null,
@@ -39,6 +46,11 @@ export const useGameStore = create((set) => ({
   // --- Item / bomb battle state ---
   playerRotationY: 0,
   setPlayerRotationY: (playerRotationY) => set({ playerRotationY }),
+  // Per-spawn kart size multiplier (from the active spawn slot, editable in
+  // the Map Editor). 1 = normal size. The Kart wheel rig multiplies its
+  // ground offsets by this so scaled karts still sit on the road correctly.
+  kartScale: 1,
+  setKartScale: (kartScale) => set({ kartScale }),
   carriedBomb: false,
   setCarriedBomb: (carriedBomb) => set({ carriedBomb }),
   // Item boxes on track: [{id, x, y, z, active, respawnAt}]

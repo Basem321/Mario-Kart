@@ -1,6 +1,7 @@
 import { Environment, Lightformer, Sky } from "@react-three/drei";
 import { useRef } from "react";
 import { useGameStore } from "../store";
+import { useGameManager } from "../gameManager";
 import { useFrame } from "@react-three/fiber";
 import { EnvironmentSphere } from "./EnvironmentSphere";
 import { Helper } from "@react-three/drei";
@@ -8,6 +9,9 @@ import { CameraHelper } from "three";
 
 export const Lighting = () => {
   const directionalLight = useRef(null)
+  // Per-track lighting: mario-circuit = normal (original), others = bright (as-is)
+  const selectedTrackId = useGameManager((s) => s.selectedTrackId);
+  const isMarioCircuit = (selectedTrackId ?? "mario-circuit") === "mario-circuit";
   
   useFrame(() => {
 
@@ -30,7 +34,10 @@ export const Lighting = () => {
   
   return (
     <>
-      <directionalLight
+      {isMarioCircuit ? (
+        <>
+          {/* Mario Circuit: normal/original lighting */}
+          <directionalLight
             castShadow
             ref={directionalLight}
             position={[0, 0, 0]}
@@ -38,8 +45,6 @@ export const Lighting = () => {
             color={"#FFffff"}
             shadow-bias={-0.0001}
             shadow-mapSize={[2048, 2048]}
-            // layers={1}
-            
           >
             <orthographicCamera
               attach="shadow-camera"
@@ -49,18 +54,47 @@ export const Lighting = () => {
               left={-5}
               right={5}
               bottom={-5}
-            >
-              {/* <Helper type={CameraHelper} /> */}
-            </orthographicCamera>
+            />
           </directionalLight>
-          {/* <directionalLight 
-          position={[20, 20, -100]}
-          color={"#FFA22B"}
-          intensity={10}
-
-          /> */}
-            
           <EnvironmentSphere />
+        </>
+      ) : (
+        <>
+          {/* Other tracks (Waluigi Stadium, ...): keep current bright lighting as-is */}
+          <ambientLight intensity={1.6} color={"#ffffff"} />
+          <hemisphereLight
+            skyColor={"#cce7ff"}
+            groundColor={"#6d5538"}
+            intensity={1.2}
+          />
+          <directionalLight
+            castShadow
+            ref={directionalLight}
+            position={[0, 0, 0]}
+            intensity={2.5}
+            color={"#fff6e8"}
+            shadow-bias={-0.0001}
+            shadow-mapSize={[2048, 2048]}
+          >
+            <orthographicCamera
+              attach="shadow-camera"
+              near={1}
+              far={35}
+              top={15}
+              left={-15}
+              right={15}
+              bottom={-15}
+            />
+          </directionalLight>
+          {/* Stadium sun directional light for consistent global lighting across the entire track */}
+          <directionalLight
+            position={[150, 200, -100]}
+            intensity={1.8}
+            color={"#fff0d4"}
+          />
+          <EnvironmentSphere />
+        </>
+      )}
     </>
   );
 };

@@ -1,0 +1,222 @@
+{
+  "trackId": "waluigi-stadium",
+  "boostPads": [
+    {
+      "id": "stadium-ramp-1",
+      "position": [
+        0.2,
+        -1,
+        134.8
+      ],
+      "width": 13,
+      "length": 4.5,
+      "speed": 60,
+      "launchVy": 10,
+      "duration": 2
+    },
+    {
+      "id": "stadium-ramp-2",
+      "position": [
+        54.2,
+        0.1,
+        -188.9
+      ],
+      "width": 13,
+      "length": 4.5,
+      "speed": 45,
+      "launchVy": 6,
+      "duration": 2.2
+    }
+  ],
+  "finishOffset": 20,
+  "lateralOffset": 0,
+  "halfWidth": 13,
+  "finishRotationY": 0,
+  "wallExclusion": [
+    {
+      "minX": -20,
+      "maxX": 20,
+      "minZ": 45,
+      "maxZ": 125
+    },
+    {
+      "minX": 30,
+      "maxX": 85,
+      "minZ": -195,
+      "maxZ": -110
+    }
+  ],
+  "offset": [
+    0,
+    -12.52,
+    -52
+  ],
+  "scale": 0.08,
+  "naturalWalls": true,
+  "spawnSlots": [
+    {
+      "position": [
+        -6.3,
+        -1.7,
+        -14.1
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        -4.1,
+        -1.7,
+        -11.4
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        -2,
+        -1.7,
+        -7.8
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        0.4,
+        -1.7,
+        -4.6
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        2.8,
+        -1.7,
+        -1.7
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        5.4,
+        -1.7,
+        1.9
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        -5.2,
+        -1.7,
+        4.8
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        -2.9,
+        -1.7,
+        7.7
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        -0.4,
+        -1.7,
+        11.1
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    },
+    {
+      "position": [
+        1.7,
+        -1.7,
+        14.6
+      ],
+      "rotationY": 0,
+      "kartScale": 1
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "cp-mupj8dfp",
+      "position": [
+        30.5,
+        -0.7,
+        -137.1
+      ],
+      "rotationY": 0
+    },
+    {
+      "id": "cp-mupjaq5x",
+      "position": [
+        46,
+        0.8,
+        -287.7
+      ],
+      "rotationY": 0
+    },
+    {
+      "id": "cp-mupjbl0y",
+      "position": [
+        -109.8,
+        -0.6,
+        -221.9
+      ],
+      "rotationY": 0
+    },
+    {
+      "id": "cp-mupjdwan",
+      "position": [
+        -105.2,
+        -1.4,
+        62.8
+      ],
+      "rotationY": 0
+    },
+    {
+      "id": "cp-mupjnb3g",
+      "position": [
+        41.9,
+        -5,
+        85
+      ],
+      "rotationY": 0
+    },
+    {
+      "id": "cp-mupjnteo",
+      "position": [
+        -1.2,
+        -1.7,
+        156.2
+      ],
+      "rotationY": 0
+    },
+    {
+      "id": "cp-mupjnan1",
+      "position": [
+        -105.2,
+        -1.4,
+        67.8
+      ],
+      "rotationY": 0
+    },
+    {
+      "id": "cp-mupj9t7f",
+      "position": [
+        59.1,
+        -1.5,
+        -16.6
+      ],
+      "rotationY": 0
+    }
+  ]
+}

@@ -1,29 +1,39 @@
 import { useEffect, useState, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
+import { useGLTF } from '@react-three/drei'
 import './index.css'
 import { WebGPUCanvas } from './WebGPUCanvas.jsx'
 import { MobileControls } from './mobile/MobileControls.jsx'
 import { LoadingScreen } from './LoadingScreen.jsx'
 import HomePage from './HomePage.jsx'
 import CharacterSelect from './CharacterSelect.jsx'
+import TrackSelect from './TrackSelect.jsx'
 import LobbyScreen from './LobbyScreen.jsx'
 import GameUI from './GameUI.jsx'
 import GameReadyCheck from './GameReadyCheck.jsx'
 import { useGameManager } from './gameManager.js'
 import { useP2PLobby } from './useP2PLobby.js'
+import { isKnownTrackId } from './tracks.js'
+
+// Draco-compressed courses (Waluigi Stadium) decode with a vendored WASM
+// build instead of the Google CDN default, so races work fully offline.
+useGLTF.setDecoderPath('/draco/');
 
 const Root = () => {
   const {
     showHomepage,
-    isPlaying,
     startGame,
     startCountdown,
     gameStarted,
-    setDriver
+    setDriver,
+    setTrackId
   } = useGameManager();
 
   // Chosen right after the homepage countdown, before the race starts.
   const [pendingMode, setPendingMode] = useState(null); // null | 'regular' | 'trial'
+  // Course picker shown before the character screen (offline modes only;
+  // online races use the host's lobby track instead).
+  const [pendingTrackFor, setPendingTrackFor] = useState(null); // null | 'regular' | 'trial'
   const [onlineLobbyOpen, setOnlineLobbyOpen] = useState(false);
   const [onlinePlayerIntent, setOnlinePlayerIntent] = useState(null);
   const p2pLobby = useP2PLobby();
@@ -44,6 +54,10 @@ const Root = () => {
     }
 
     setDriver(self.driver ?? 'mario');
+    // Every browser loads the host's course so spawns, walls and laps match.
+    if (isKnownTrackId(raceStart.trackId)) {
+      setTrackId(raceStart.trackId);
+    }
     startGame(false, {
       online: true,
       spawnIndex,
@@ -62,6 +76,7 @@ const Root = () => {
     p2pLobby.lobby.self?.driver,
     p2pLobby.clearRaceStart,
     setDriver,
+    setTrackId,
     startGame,
     startCountdown,
   ]);
@@ -89,7 +104,7 @@ const Root = () => {
           
           console.log('Audio initialized');
         }
-      } catch (e) {
+      } catch {
         console.warn('Web Audio API not supported');
       }
       
@@ -151,14 +166,30 @@ const Root = () => {
     setOnlineLobbyOpen(false);
   };
 
+  const handlePickTrack = (trackId) => {
+    if (!isKnownTrackId(trackId)) return;
+    setTrackId(trackId);
+    setPendingMode(pendingTrackFor);
+    setPendingTrackFor(null);
+  };
+
   return (
     <>
       {showHomepage ? (
-        pendingMode ? (
+        pendingTrackFor ? (
+          <TrackSelect
+            onPick={handlePickTrack}
+            onBack={() => setPendingTrackFor(null)}
+          />
+        ) : pendingMode ? (
           <CharacterSelect
             mode={pendingMode}
             onPick={handlePickDriver}
             onBack={() => {
+              // Step back to the course picker for offline modes.
+              if (pendingMode === 'regular' || pendingMode === 'trial') {
+                setPendingTrackFor(pendingMode);
+              }
               setPendingMode(null);
               setOnlinePlayerIntent(null);
             }}
@@ -166,6 +197,8 @@ const Root = () => {
         ) : onlineLobbyOpen ? (
           <LobbyScreen
             lobby={p2pLobby.lobby}
+            raceTrackId={p2pLobby.raceTrackId}
+            onSelectTrack={p2pLobby.setRaceTrackId}
             onCreateLobby={p2pLobby.createLobby}
             onRequestJoin={requestJoinLobby}
             onChooseDriver={requestDriverChoice}
@@ -175,8 +208,8 @@ const Root = () => {
           />
         ) : (
           <HomePage
-            onStartGame={() => setPendingMode('regular')}
-            onTimeTrial={() => setPendingMode('trial')}
+            onStartGame={() => setPendingTrackFor('regular')}
+            onTimeTrial={() => setPendingTrackFor('trial')}
             onOpenLobby={() => setOnlineLobbyOpen(true)}
           />
         )

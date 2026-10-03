@@ -20,6 +20,7 @@ import { Driver } from "./Driver.jsx";
 import { BombModel } from "./Pickups.jsx";
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
+const upRaycaster = new Raycaster();
 
 export function Kart({
   speed,
@@ -78,6 +79,50 @@ export function Kart({
   const flamePositionRightRef = useRef(null);
 
   const groundMeshes = useRef([]);
+  const lastTrackIdRef = useRef(null);
+  const boostLaunchVyRef = useRef(0);
+  const boostLaunchTimerRef = useRef(null);
+  // Per-wheel airborne time: forces landing when flight lasts too long
+  // (boost pad 2 gap, big jump) so the kart can never hang in the air.
+  const wheelAirTimeRef = useRef([0, 0, 0, 0]);
+
+  useEffect(() => {
+    const clearBoost = () => {
+      boostLaunchVyRef.current = 0;
+      if (boostLaunchTimerRef.current) {
+        clearTimeout(boostLaunchTimerRef.current);
+        boostLaunchTimerRef.current = null;
+      }
+    };
+    const onLaunch = (e) => {
+      clearBoost();
+      boostLaunchVyRef.current = e.detail?.launchVy ?? 11;
+      boostLaunchTimerRef.current = setTimeout(() => {
+        boostLaunchVyRef.current = 0;
+        boostLaunchTimerRef.current = null;
+      }, 1200);
+    };
+    // Reset / R must kill any pending launch impulse, otherwise the kart
+    // bounces straight back into the air right after Lakitu puts it down.
+    const onReset = () => {
+      clearBoost();
+      wheelFloorY.current = [null, null, null, null];
+      wheelAirTimeRef.current = [0, 0, 0, 0];
+      for (const w of [wheel0, wheel1, wheel2, wheel3]) {
+        if (w.current) {
+          w.current.isAirborne = false;
+          w.current.verticalVelocity = 0;
+        }
+      }
+    };
+    window.addEventListener("mario-kart:launch-jump", onLaunch);
+    window.addEventListener("mario-kart:reset", onReset);
+    return () => {
+      window.removeEventListener("mario-kart:launch-jump", onLaunch);
+      window.removeEventListener("mario-kart:reset", onReset);
+      clearBoost();
+    };
+  }, []);
 
   const setFlamePositions = useGameStore((state) => state.setFlamePositions);
   const setBoostPower = useGameStore((state) => state.setBoostPower);
@@ -89,7 +134,21 @@ export function Kart({
   const starsTex = useTexture("/textures/stars.png");
   const starsGroupRef = useRef(null);
   const { scene } = useThree();
+  const camera = useThree((s) => s.camera);
+  // Wheel rays traverse scene children on the first frames (before the BVH
+  // ground index exists), which includes the dizzy-stars Sprites.
+  // Sprite.raycast throws when raycaster.camera is null — provide it here in
+  // the render body (not an effect) so it is set before the very first frame.
+  raycaster.camera = camera;
+  upRaycaster.camera = camera;
   const direction = new Vector3(0, -1, 0)
+  const upDirection = new Vector3(0, 1, 0)
+  // Last floor height picked per wheel. Used as hysteresis memory so a
+  // base-terrain mesh rendered just under the asphalt can never steal the
+  // pick while the kart drives on top of it (see pickFloor).
+  const wheelFloorY = useRef([null, null, null, null]);
+  // Fell into the void (no ground far below): Lakitu-style auto recovery.
+  const lastVoidResetRef = useRef(0);
 
   function rotateWheels(left, right, delta) {
     const rotationSpeed = speed.current * 0.01;
@@ -109,14 +168,38 @@ export function Kart({
   }
 
   function getGroundPosition(wheelBase, wheel, offset = 0, wheelIndex, delta) {
+    const cappedDelta = Math.min(Math.max(delta, 0.0005), 0.05);
     const origin = new Vector3();
-
-
-
     wheelBase.current.getWorldPosition(origin);
 
-    raycaster.set(origin, direction);
-    raycaster.far = 3;
+    // Per-track tuning: Waluigi dirt is rough/bumpy with steep pit walls,
+    // Mario asphalt is smooth. Rough needs a wider stick band (no micro
+    // sink/float on bumps), stricter floor normals (pit walls are not floor)
+    // and a longer down-ray (always find the landing after a jump).
+    const activeTrackIdForPhysics =
+      useGameManager.getState().selectedTrackId ?? "mario-circuit";
+    const isRoughTrack = activeTrackIdForPhysics === "waluigi-stadium";
+    const STICK_BAND = isRoughTrack ? 1.0 : 0.45;
+    const FLOOR_MIN_Y = isRoughTrack ? 0.4 : 0.15;
+    const DOWN_FAR = isRoughTrack ? 80 : 35;
+    const UP_FAR = 1.5;
+    const GRAVITY = isRoughTrack ? 24 : 18;
+    const MAX_AIR_TIME = 2.2;
+
+    // Kart size scale (per-spawn kartScale from the Map Editor). The whole
+    // player group is uniformly scaled, so wheel nodes live in scaled local
+    // space while the track lives in world space. Skeleton dimensions below
+    // are pre-scaled (×ks) and every local<->world handoff divides/multiplies
+    // by ks — at ks=1 everything is byte-identical to the original formulas.
+    const ks = useGameStore.getState().kartScale ?? 1;
+    const invKs = 1 / ks;
+    const UP_FAR_SCALED = UP_FAR * ks;
+
+    // Cast downward starting from 2.5 units above the current wheel base
+    // so climbs, ramps and elevated bridges ahead can be detected smoothly from above
+    const rayOrigin = new Vector3(origin.x, origin.y + 2.5 * ks, origin.z);
+    raycaster.set(rayOrigin, direction);
+    raycaster.far = DOWN_FAR;
     raycaster.firstHitOnly = true;
 
     // Only the drivable ground counts here. The track meshes also contain
@@ -126,54 +209,231 @@ export function Kart({
       groundMeshes.current.length >= 2 ? groundMeshes.current : scene.children;
     const intersects = raycaster.intersectObjects(targets, true);
 
-    if (intersects.length > 0) {
-      // Pick the nearest hit that is actually floor: ground-named, face
-      // pointing up, and not a tall barrier top above the wheel.
-      let groundHit = null;
+    const pickFloor = (hits) => {
+      const expectedY = origin.y - 0.78 * ks;
+
+      // Usable up-facing surfaces, nearest-first.
+      const floors = [];
+      for (const hit of hits) {
+        if (!hit.object.name.includes("ground")) continue;
+        const n = hit.face?.normal;
+        // Floor must face upward! Undersides of bridges (n.y < 0) and vertical walls must be rejected.
+        // Rough tracks use a stricter threshold so steep dirt pit walls
+        // never count as drivable floor (they caused sink/float + sticks).
+        if (n && n.y < FLOOR_MIN_Y) continue;
+        floors.push(hit);
+        if (floors.length >= 8) break;
+      }
+      if (floors.length === 0) return null;
+
+      // Stick to the surface the wheel is already on: anything within the
+      // stick band counts as the same level. Some courses render a
+      // base-terrain mesh directly under the asphalt (Mario start straight:
+      // terrain at -2.28 vs asphalt at -1.61, and the road itself undulates
+      // down to -1.79 elsewhere) — pure "closest to expected" flaps between
+      // the stacked layers and the kart ends up driving on the hidden lower
+      // one, visibly sunk. The band is wider than any legit per-frame
+      // step (ramps/slopes/curbs move the contact patch gradually) but
+      // narrower than the ghost-layer gap, so only real level changes
+      // (jumps, drops, bridges) fall through to a fresh pick below.
+      // Waluigi dirt undulates more per frame, so it uses a wider band.
+      const current = wheelFloorY.current[wheelIndex];
+      let pool = floors;
+      if (Number.isFinite(current)) {
+        const stuck = floors.filter(
+          (h) => Math.abs(h.point.y - current) <= STICK_BAND
+        );
+        if (stuck.length > 0) pool = stuck;
+      }
+
+      // Among the remaining candidates take the one closest to the expected
+      // wheel height (ramps, bridges and landing zones resolve here).
+      let best = pool[0];
+      let bestDiff = Math.abs(pool[0].point.y - expectedY);
+      for (let i = 1; i < pool.length; i++) {
+        const diff = Math.abs(pool[i].point.y - expectedY);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = pool[i];
+        }
+      }
+      wheelFloorY.current[wheelIndex] = best.point.y;
+      return best;
+    };
+
+    let groundHit = pickFloor(intersects);
+    if (!groundHit) {
+      // Small step-up only (ramp lips, curb edges). The old 6m up-ray
+      // teleported karts from pits straight through bridge decks and left
+      // them stuck inside geometry / floating.
+      upRaycaster.set(origin, upDirection);
+      upRaycaster.far = UP_FAR_SCALED;
+      upRaycaster.firstHitOnly = true;
+      const upHits = upRaycaster.intersectObjects(targets, true);
+      for (const hit of upHits) {
+        if (!hit.object.name.includes("ground")) continue;
+        const n = hit.face?.normal;
+        if (n && n.y > FLOOR_MIN_Y) {
+          // Only accept a step that is actually close above the wheel.
+          if (hit.point.y - origin.y <= UP_FAR_SCALED) {
+            groundHit = hit;
+            break;
+          }
+        }
+      }
+    }
+    // Legacy fallback for geometry without usable normals — still reject
+    // steep faces so walls can never become the wheel height.
+    if (!groundHit) {
       for (const hit of intersects) {
         if (!hit.object.name.includes("ground")) continue;
         const n = hit.face?.normal;
-        if (n && Math.abs(n.y) < 0.55) continue; // steep wall face
-        if (hit.point.y > origin.y + 0.6) continue; // barrier top, not floor
+        if (n && Math.abs(n.y) < FLOOR_MIN_Y) continue;
+        if (hit.point.y > origin.y + 0.6 * ks) continue;
         groundHit = hit;
         break;
       }
-      // Fallback for geometry without usable normals.
-      if (!groundHit) {
-        groundHit =
-          intersects.find((hit) => hit.object.name.includes("ground")) ?? null;
-      }
+    }
+    // Keep the hysteresis memory in sync when a fallback ray provided the
+    // hit (pickFloor already stores its own choice).
+    if (groundHit) {
+      wheelFloorY.current[wheelIndex] = groundHit.point.y;
+    }
 
-      if (groundHit) {
-        const targetY =
-          groundHit.point.y + 0.78 + jumpOffset.current + offset;
-        const prevY = wheel.current.position.y;
-        if (targetY > prevY + 0.4) {
-          // Suspicious pop (wall edge, etc.) — ease up instead of teleporting.
-          wheel.current.position.y = damp(prevY, targetY, 8, delta);
+    if (groundHit) {
+      // All heights below are WORLD space; wheel.current.position is scaled
+      // local space, so convert on every handoff (local = world / ks).
+      // Jump/drift lift offsets scale too, otherwise a 0.4 rear lift rips
+      // the wheels off a mini kart (at ks=1 this is exactly the old code).
+      const targetW =
+        groundHit.point.y +
+        0.78 * ks +
+        (jumpOffset.current + offset) * ks;
+      const prevW = wheel.current.position.y * ks;
+      // Clamp vertical speed: on the steep stadium ramp (الصورة) the raw
+      // (targetY - prevY) / delta explodes to 60+ when hitting the slope at
+      // boost speed, then that insane value becomes the airborne launch
+      // velocity -> wheels detach, camera flies up, forced reset. Never let
+      // a single frame inject more than a real jump.
+      const clampVy = (v) => Math.max(-25, Math.min(14, v));
+      if (targetW > prevW + 0.1) {
+        // Climbing up a ramp or hill: smoothly and quickly track target height without lagging
+        const rawVy = (targetW - prevW) / Math.max(cappedDelta, 0.001);
+        wheel.current.verticalVelocity = Math.max(0, Math.min(12, rawVy));
+        // Limit climb per frame too so a steep lip can't teleport the wheel
+        // 2m in one frame (that teleport is what looked like detachment).
+        const maxClimb = (isRoughTrack ? 0.55 : 0.35) * ks;
+        const climbedW = damp(prevW, targetW, 24, cappedDelta);
+        wheel.current.position.y = Math.min(climbedW, prevW + maxClimb) * invKs;
+        wheel.current.isAirborne = false;
+        wheelAirTimeRef.current[wheelIndex] = 0;
+        // Touching ground kills a stale launch impulse so it can't re-fire.
+        if (Math.abs(targetW - prevW) < 0.35) boostLaunchVyRef.current = 0;
+      } else if (prevW - targetW > 0.8) {
+        // Airborne jump flight over gap / drop: ballistic Mario Kart jump arc!
+        if (!wheel.current.isAirborne) {
+          wheel.current.isAirborne = true;
+          wheelAirTimeRef.current[wheelIndex] = 0;
+          const slopeVy = clampVy(wheel.current.verticalVelocity || 0);
+          // Ramp launch scales with kart size (a mini kart hitting a ramp
+          // at proportional speed gets a proportional hop, not a moon jump).
+          const speedVy = speed.current > 20 * ks ? Math.min(10 * ks, speed.current * 0.16) : 4 * ks;
+          const boostVy = Math.min(10, boostLaunchVyRef.current || 0);
+          wheel.current.verticalVelocity = Math.min(
+            14,
+            Math.max(0, slopeVy, speedVy, boostVy)
+          );
         } else {
-          wheel.current.position.y = Math.max(targetY, prevY - 0.1);
+          wheelAirTimeRef.current[wheelIndex] += cappedDelta;
         }
-
-        wheel.current.lastSafeY = wheel.current.position.y;
+        // Long flights get stronger gravity so boost pad 2 / big jumps can
+        // never hang in the air forever.
+        const airTime = wheelAirTimeRef.current[wheelIndex];
+        const gravity = airTime > 1.2 ? GRAVITY + 14 : GRAVITY;
+        wheel.current.verticalVelocity -= gravity * cappedDelta;
+        // Hard safety: after MAX_AIR_TIME force the touchdown, the landing
+        // ray already found the road below (targetY) — hanging is worse
+        // than a firm landing.
+        if (airTime > MAX_AIR_TIME) {
+          wheel.current.position.y = targetW * invKs;
+          wheel.current.verticalVelocity = 0;
+          wheel.current.isAirborne = false;
+          wheelAirTimeRef.current[wheelIndex] = 0;
+          boostLaunchVyRef.current = 0;
+        } else {
+          const nextW = prevW + wheel.current.verticalVelocity * cappedDelta;
+          if (nextW <= targetW) {
+            // Touchdown on landing road
+            wheel.current.position.y = targetW * invKs;
+            wheel.current.verticalVelocity = 0;
+            wheel.current.isAirborne = false;
+            wheelAirTimeRef.current[wheelIndex] = 0;
+            boostLaunchVyRef.current = 0;
+          } else {
+            wheel.current.position.y = nextW * invKs;
+          }
+        }
+      } else {
+        const rawFlatVy = (targetW - prevW) / Math.max(cappedDelta, 0.001);
+        wheel.current.verticalVelocity = Math.max(-25, Math.min(14, rawFlatVy));
+        // Rough dirt dips need a faster follow than 0.1/frame or the kart
+        // visibly floats above the ground.
+        const maxDrop = (isRoughTrack ? 0.35 : 0.1) * ks;
+        wheel.current.position.y = Math.max(targetW, prevW - maxDrop) * invKs;
+        wheel.current.isAirborne = false;
+        wheelAirTimeRef.current[wheelIndex] = 0;
       }
 
-      wheel.current.isOnDirt =
-        (groundHit?.object.name.includes("dirt") ?? false) &&
-        speed.current > 5 &&
-        jumpOffset.current === 0;
+      wheel.current.lastSafeY = wheel.current.position.y;
+    }
 
-      if ((wheelIndex === 2 || wheelIndex === 3) && driftPower.current > 0.01 && jumpOffset.current === 0 && offset < 0.05) {
-        wheel.current.isOnDirt = true;
+    wheel.current.isOnDirt =
+      (groundHit?.object.name.includes("dirt") ?? false) &&
+      speed.current > 5 &&
+      jumpOffset.current === 0;
+
+    if ((wheelIndex === 2 || wheelIndex === 3) && driftPower.current > 0.01 && jumpOffset.current === 0 && offset < 0.05) {
+      wheel.current.isOnDirt = true;
+    }
+
+    if (!groundHit) {
+      if (!wheel.current.isAirborne) {
+        wheel.current.isAirborne = true;
+        wheelAirTimeRef.current[wheelIndex] = 0;
+        const slopeVy = Math.max(-25, Math.min(14, wheel.current.verticalVelocity || 0));
+        const speedVy = speed.current > 20 * ks ? Math.min(10 * ks, speed.current * 0.16) : 4 * ks;
+        const boostVy = Math.min(10, boostLaunchVyRef.current || 0);
+        wheel.current.verticalVelocity = Math.min(14, Math.max(0, slopeVy, speedVy, boostVy));
+      } else {
+        wheelAirTimeRef.current[wheelIndex] += cappedDelta;
       }
-    } else {
-      if (typeof wheel.current.lastSafeY === "number") {
-        wheel.current.position.y = damp(
-          wheel.current.position.y,
-          wheel.current.lastSafeY,
-          4,
-          delta
-        );
+      const airTimeNoGround = wheelAirTimeRef.current[wheelIndex];
+      const gravityNoGround = airTimeNoGround > 1.2 ? GRAVITY + 14 : GRAVITY;
+      wheel.current.verticalVelocity -= gravityNoGround * cappedDelta;
+      wheel.current.position.y += wheel.current.verticalVelocity * cappedDelta * invKs;
+
+      // Hanging over a gap with no road below for too long: force Lakitu
+      // rescue instead of floating forever (R was also stuck before).
+      if (airTimeNoGround > MAX_AIR_TIME + 0.6) {
+        wheelAirTimeRef.current[wheelIndex] = 0;
+        wheel.current.verticalVelocity = Math.min(wheel.current.verticalVelocity, -8);
+        if (
+          useGameManager.getState().gameStarted &&
+          performance.now() - lastVoidResetRef.current > 2000
+        ) {
+          lastVoidResetRef.current = performance.now();
+          window.dispatchEvent(new CustomEvent("mario-kart:reset"));
+        }
+      }
+
+      // Fell into the void: Lakitu-style auto recovery onto the road.
+      if (
+        origin.y < -25 &&
+        performance.now() - lastVoidResetRef.current > 2000 &&
+        useGameManager.getState().gameStarted
+      ) {
+        lastVoidResetRef.current = performance.now();
+        window.dispatchEvent(new CustomEvent("mario-kart:reset"));
       }
     }
   }
@@ -221,7 +481,18 @@ export function Kart({
     pitch = MathUtils.clamp(pitch, -0.45, 0.45);
     roll = MathUtils.clamp(roll, -0.45, 0.45);
 
-    const averageYPos = 0.65 + (a.y + b.y + c.y + d.y) / 4;
+    // Outlier rejection: if one wheel spikes 3m+ above the rest (wrong deck
+    // / ramp-top pick mid-flight) the mean would yank the body + camera up
+    // and the wheels look detached. Use the median in that case so a single
+    // bad sample can't move the kart.
+    const ys = [a.y, b.y, c.y, d.y].filter(Number.isFinite).sort((x, y) => x - y);
+    let baseY = (a.y + b.y + c.y + d.y) / 4;
+    if (ys.length === 4 && ys[3] - ys[0] > 3) {
+      baseY = (ys[1] + ys[2]) / 2;
+    }
+    // World-space body height; the body node lives in scaled local space.
+    const ksBody = useGameStore.getState().kartScale ?? 1;
+    const averageYPos = 0.65 * ksBody + baseY;
     setGroundPosition(averageYPos);
 
     // Damped tilt so a single bad wheel sample can't snap the kart over.
@@ -239,7 +510,7 @@ export function Kart({
       delta
     );
 
-    bodyRef.current.position.y = averageYPos + jumpOffset.current * 0.1;
+    bodyRef.current.position.y = averageYPos / ksBody + jumpOffset.current * 0.1;
   }
   useFrame((_, delta) => {
     // Dizzy stars orbit while the explosion stun is active.
@@ -254,12 +525,49 @@ export function Kart({
       }
     }
     if (wheel0.current && wheel1.current && wheel2.current && wheel3.current) {
+      // One-shot rescue snap from Reset: place every wheel on the rescued
+      // road level at once. The body + ray origins follow the wheels in this
+      // same frame (see below), so the next raycasts already start from the
+      // new level instead of dragging the kart back down into the pit.
+      const snapY = useGameStore.getState().wheelSnapY;
+      if (snapY !== null && snapY !== undefined) {
+        useGameStore.getState().setWheelSnapY(null);
+        if (Number.isFinite(snapY)) {
+          // Scaled local space: local = world / ks, plus the fixed 0.78
+          // local offset (it absorbs the -0.5 group shift, exactly like the
+          // touchdown path above — at ks=1 this is snapY + 0.78 as before).
+          const ksSnap = useGameStore.getState().kartScale ?? 1;
+          for (const wheel of [wheel0, wheel1, wheel2, wheel3]) {
+            if (wheel.current) {
+              wheel.current.position.y = snapY / ksSnap + 0.78;
+              wheel.current.verticalVelocity = 0;
+              wheel.current.isAirborne = false;
+              wheel.current.lastSafeY = snapY / ksSnap + 0.78;
+            }
+          }
+          // Teleported to a new level: drop the floor memory so the next
+          // pick is fresh instead of sticking to the old surface.
+          wheelFloorY.current = [snapY, snapY, snapY, snapY];
+          wheelAirTimeRef.current = [0, 0, 0, 0];
+          boostLaunchVyRef.current = 0;
+          if (boostLaunchTimerRef.current) {
+            clearTimeout(boostLaunchTimerRef.current);
+            boostLaunchTimerRef.current = null;
+          }
+        }
+      }
+      const activeTrackId = useGameManager.getState().selectedTrackId;
+      if (lastTrackIdRef.current !== activeTrackId) {
+        lastTrackIdRef.current = activeTrackId;
+        groundMeshes.current = [];
+        wheelFloorY.current = [null, null, null, null];
+      }
       if (groundMeshes.current.length < 2) {
         scene.traverse((obj) => {
           if (
             obj.isMesh &&
             obj.name.includes("ground") &&
-            obj.geometry.boundsTree
+            obj.geometry?.boundsTree
           ) {
             groundMeshes.current.push(obj);
           }

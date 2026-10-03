@@ -4,62 +4,24 @@ import * as THREE from "three";
 import { useGameStore } from "./store";
 import { useGameManager } from "./gameManager";
 import { FINISH_LINE } from "./constants";
+import { getTrack, getFinishFrame } from "./tracks";
 import { publishOnlineRaceEvent } from "./onlineRaceTransport";
+import { useMapEditorStore } from "./mapEditorStore";
 
 const groundRaycaster = new THREE.Raycaster();
 const downDir = new THREE.Vector3(0, -1, 0);
 
 /**
- * يقدّر اتجاه الطريق ونصه حوالين نقطة البداية من حيطان الطريق
- * (الـ boundary edges بتمشي على طول الطريق، فاتجاهها = اتجاه السير).
- * بيرجع {cx, cz, fx, fz} أو null لو مفيش حيطان قريبة.
- */
-function estimateTrackFrame(spawnX, spawnZ, headingFx, headingFz, wallSegments) {
-  const R = FINISH_LINE.snapRadius ?? 50;
-  let sumSin2 = 0;
-  let sumCos2 = 0;
-  let cx = 0;
-  let cz = 0;
-  let n = 0;
-  for (const s of wallSegments) {
-    const mx = (s.ax + s.bx) / 2;
-    const mz = (s.az + s.bz) / 2;
-    if (Math.hypot(mx - spawnX, mz - spawnZ) > R) continue;
-    const dx = s.bx - s.ax;
-    const dz = s.bz - s.az;
-    const len = Math.hypot(dx, dz);
-    if (len < 1e-6) continue;
-    // خط بلا اتجاه: نضاعف الزاوية عشان الاتجاهين المتعاكسين يتجمعوا صح
-    const theta = Math.atan2(dz / len, dx / len);
-    sumSin2 += Math.sin(2 * theta);
-    sumCos2 += Math.cos(2 * theta);
-    cx += mx;
-    cz += mz;
-    n += 1;
-  }
-  if (n === 0) return null;
-  const avgTheta = Math.atan2(sumSin2, sumCos2) / 2;
-  let fx = Math.cos(avgTheta);
-  let fz = Math.sin(avgTheta);
-  // اختار الاتجاه اللي ماشي مع وش الكارت (ناحية اليافطة)
-  if (fx * headingFx + fz * headingFz < 0) {
-    fx = -fx;
-    fz = -fz;
-  }
-  return { cx: cx / n, cz: cz / n, fx, fz };
-}
-
-/**
  * خط النهاية تحت يافطة MARIO KART:
- * - بيتحط تلقائياً على نص الطريق عند البداية + إزاحة لقدام ناحية اليافطة
- *   (ظبطها من FINISH_LINE.forwardOffset في constants.js)
+ * - بيتحط في إحداثيات مطلقة ثابتة = اللي بيظهر في الـ Map Editor بالظبط:
+ *   بداية المستقيم عند نقطة الأصل، اتجاه السباق -Z
+ *   (X = lateralOffset، Z = -finishOffset من إعدادات التراك)
  * - كل عبور في الاتجاه الصح => lap + 1
  */
 export function FinishLine() {
   const centerRef = useRef(null); // {x,z,fx,fz,rx,rz,ry,y}
   const prevSRef = useRef(0);
   const maxDistRef = useRef(0);
-  const setupStartedAtRef = useRef(null);
   const [visual, setVisual] = useState(null);
   const scene = useThree((s) => s.scene);
   const collidersRef = useRef(null);
@@ -69,16 +31,51 @@ export function FinishLine() {
   const showHomepage = useGameManager((s) => s.showHomepage);
   const gameStarted = useGameManager((s) => s.gameStarted);
   const onlineRaceId = useGameManager((s) => s.onlineRaceId);
+  const selectedTrackId = useGameManager((s) => s.selectedTrackId);
+
+  const editorOpen = useMapEditorStore((s) => s.isOpen);
+  const editorFinishOffset = useMapEditorStore((s) => s.editedConfig?.finishOffset);
+  const editorLateralOffset = useMapEditorStore((s) => s.editedConfig?.lateralOffset);
+  const editorHalfWidth = useMapEditorStore((s) => s.editedConfig?.halfWidth);
+  const editorFinishRotationY = useMapEditorStore((s) => s.editedConfig?.finishRotationY);
+
+  // Per-track tuning: shorter start straights need the line closer to spawn.
+  const forwardOffset =
+    (editorOpen && editorFinishOffset !== undefined
+      ? editorFinishOffset
+      : getTrack(selectedTrackId).finishOffset) ?? FINISH_LINE.forwardOffset ?? 0;
+  const lateralOffset =
+    (editorOpen && editorLateralOffset !== undefined
+      ? editorLateralOffset
+      : getTrack(selectedTrackId).lateralOffset) ?? FINISH_LINE.lateralOffset ?? 0;
+  const halfWidth =
+    (editorOpen && editorHalfWidth !== undefined
+      ? editorHalfWidth
+      : getTrack(selectedTrackId).halfWidth) ?? FINISH_LINE.halfWidth ?? 12;
+  // Line yaw (degrees, 0 = perpendicular to -Z). Rotatable in the Map Editor.
+  const finishRotationY =
+    (editorOpen && editorFinishRotationY !== undefined
+      ? editorFinishRotationY
+      : getTrack(selectedTrackId).finishRotationY) ?? 0;
+  const finishFrame = getFinishFrame({ finishRotationY });
+
   useEffect(() => {
-    if (showHomepage || !gameStarted) {
-      centerRef.current = null;
-      prevSRef.current = 0;
-      maxDistRef.current = 0;
-      setupStartedAtRef.current = null;
-      collidersRef.current = null;
-      setVisual(null);
-    }
-  }, [gameStarted, onlineRaceId, showHomepage]);
+    centerRef.current = null;
+    prevSRef.current = 0;
+    maxDistRef.current = 0;
+    collidersRef.current = null;
+    setVisual(null);
+  }, [
+    gameStarted,
+    onlineRaceId,
+    showHomepage,
+    selectedTrackId,
+    editorOpen,
+    editorFinishOffset,
+    editorLateralOffset,
+    editorHalfWidth,
+    editorFinishRotationY,
+  ]);
 
   const getColliders = () => {
     if (!collidersRef.current) {
@@ -105,7 +102,7 @@ export function FinishLine() {
     return null;
   };
 
-  useFrame((state) => {
+  useFrame(() => {
     const gm = useGameManager.getState();
     if (!gm.gameStarted || gm.gameOver) return;
 
@@ -113,37 +110,20 @@ export function FinishLine() {
     const p = st.playerPosition;
     if (!p) return;
 
-    const HALF_WIDTH = FINISH_LINE.halfWidth;
+    const HALF_WIDTH = halfWidth;
     const MIN_LAP_MS = FINISH_LINE.minLapMs;
     const MIN_DIST = FINISH_LINE.minDist;
 
-    // أول فريم بعد بداية السباق: ثبّت الخط على نص الطريق ناحية اليافطة
+    // أول فريم بعد بداية السباق: ثبّت الخط في نفس الإحداثيات المطلقة اللي
+    // بيظهر بيها في الـ Map Editor (EditorFinishLine): بداية المستقيم عند
+    // نقطة الأصل، اتجاه السباق -Z (أو حسب finishRotationY). كده اللي بتشوفه
+    // في المحرر هو اللي بتسابق عليه بالظبط — مفيش تخمين من الحيطة ولا من
+    // مكان السبون.
     if (!centerRef.current) {
-      const now = state.clock.elapsedTime * 1000;
-      if (setupStartedAtRef.current === null) setupStartedAtRef.current = now;
+      const { fx, fz, rx, rz } = finishFrame;
 
-      const ry0 = st.playerRotationY || 0;
-      const headingFx = -Math.sin(ry0);
-      const headingFz = -Math.cos(ry0);
-
-      const segs = st.wallSegments || [];
-      // TrackWalls normally publishes before GO. On a slow asset load, wait a
-      // short moment for it; then use the safe spawn fallback instead of never
-      // enabling lap counting.
-      if (segs.length === 0 && now - setupStartedAtRef.current < 1500) return;
-      const est = estimateTrackFrame(p.x, p.z, headingFx, headingFz, segs);
-
-      const fx = est ? est.fx : headingFx;
-      const fz = est ? est.fz : headingFz;
-      // اليمين = عمودي على اتجاه السير
-      const rx = -fz;
-      const rz = fx;
-
-      let cx = est ? est.cx : p.x;
-      let cz = est ? est.cz : p.z;
-      // زيح الخط لقدام ناحية اليافطة + يمين/شمال لو محتاج
-      cx += fx * (FINISH_LINE.forwardOffset ?? 0) + rx * (FINISH_LINE.lateralOffset ?? 0);
-      cz += fz * (FINISH_LINE.forwardOffset ?? 0) + rz * (FINISH_LINE.lateralOffset ?? 0);
+      const cx = fx * forwardOffset + rx * lateralOffset;
+      const cz = fz * forwardOffset + rz * lateralOffset;
 
       const gy = groundYAt(cx, cz) ?? st.groundPosition ?? p.y ?? 0;
       const c = {
@@ -155,13 +135,14 @@ export function FinishLine() {
         rz,
         ry: Math.atan2(-fx, -fz),
         y: gy,
+        halfWidth: HALF_WIDTH,
       };
       centerRef.current = c;
       prevSRef.current = (p.x - cx) * fx + (p.z - cz) * fz;
       maxDistRef.current = 0;
       setVisual(c);
       console.log(
-        `[FinishLine] at (${cx.toFixed(1)}, ${cz.toFixed(1)}) dir=(${fx.toFixed(2)}, ${fz.toFixed(2)}) snapped=${est ? "road" : "spawn"}`
+        `[FinishLine] at (${cx.toFixed(1)}, ${cz.toFixed(1)}) absolute (matches Map Editor)`
       );
       return;
     }
@@ -217,8 +198,8 @@ export function FinishLine() {
 
   if (!visual) return null;
 
-  const HALF_WIDTH = FINISH_LINE.halfWidth;
-  const COLS = 14;
+  const HALF_WIDTH = visual.halfWidth ?? halfWidth;
+  const COLS = Math.max(8, Math.round(HALF_WIDTH * 1.2));
   const CELL_W = (HALF_WIDTH * 2) / COLS;
   const CELL_D = 1.1;
 

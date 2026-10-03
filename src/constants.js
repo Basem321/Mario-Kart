@@ -16,14 +16,37 @@ export const kartSettings = {
 // Every online racer gets a deterministic grid slot based on their position
 // in the lobby roster. The first pair starts side-by-side; following pairs
 // are only one short kart row behind, so nobody gets a large head start.
-export const getOnlineSpawnSlot = (playerIndex = 0) => {
+export const getOnlineSpawnSlot = (playerIndex = 0, track = null) => {
   const safeIndex = Math.max(0, Math.floor(Number(playerIndex) || 0));
+
+  // If the track has authored spawn slots (set in the Map Editor), use them.
+  // NOTE: rotationY is stored in degrees in the editor, but three.js needs
+  // radians, so convert here at the single consumption point.
+  // NOTE: Y is always pinned to 0. The wheel rig assumes the player-group
+  // origin stays at Y=0 with the road ~1.7 below it (wheel local coords are
+  // treated as world coords). Spawning the group at road height sinks the
+  // whole kart under the asphalt. The wheels find the real road height via
+  // raycasts on the first frames, so only X/Z/heading come from the author.
+  if (track && Array.isArray(track.spawnSlots) && track.spawnSlots[safeIndex]) {
+    const slot = track.spawnSlots[safeIndex];
+    const rawScale = Number(slot.kartScale);
+    return {
+      position: [slot.position[0], 0, slot.position[2]],
+      rotationY: ((Number(slot.rotationY) || 0) * Math.PI) / 180,
+      // Per-spawn kart size (editable in the Map Editor). Clamped so a
+      // typo can never spawn an invisible or gigantic kart.
+      kartScale:
+        Number.isFinite(rawScale) ? Math.max(0.2, Math.min(3, rawScale)) : 1,
+    };
+  }
+
   const lane = safeIndex % 2;
   const row = Math.floor(safeIndex / 2);
 
   return {
     position: [lane === 0 ? -2.2 : 2.2, 0, row * 3.4],
     rotationY: 0,
+    kartScale: 1,
   };
 };
 
