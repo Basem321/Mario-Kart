@@ -142,6 +142,14 @@ const WebEvolution = () => {
     });
   }, []);
   
+  useEffect(() => {
+    // Kill leaked ScrollTriggers/tweens on unmount so they never fire on
+    // detached DOM after leaving the homepage.
+    return () => {
+      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
+    };
+  }, []);
+  
   // Function to add elements to refs array
   const addToCardsRef = (el) => {
     if (el && !cardsRef.current.includes(el)) {

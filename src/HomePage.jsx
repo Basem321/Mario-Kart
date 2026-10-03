@@ -92,6 +92,7 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
       trigger: infinityRef.current,
       start: "top 80%",
       onEnter: () => {
+        if (!infinityRef.current) return;
         gsap.to(infinityRef.current.querySelectorAll('.animate-in'), {
           opacity: 1,
           y: 0,
@@ -107,6 +108,7 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
       trigger: ctaRef.current,
       start: "top 80%",
       onEnter: () => {
+        if (!ctaRef.current) return;
         gsap.to(ctaRef.current.querySelectorAll('.animate-in'), {
           opacity: 1,
           y: 0,
@@ -122,6 +124,7 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
       trigger: githubRef.current,
       start: "top 80%",
       onEnter: () => {
+        if (!githubRef.current) return;
         gsap.from(githubRef.current.querySelector('.github-title'), {
           opacity: 0,
           y: 30,
@@ -175,6 +178,12 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
         });
       }
     });
+
+    // Kill every ScrollTrigger on unmount (e.g. entering a race): leaked
+    // triggers would fire on detached DOM and crash on null refs.
+    return () => {
+      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
+    };
   }, []);
 
   // Handle countdown animation
