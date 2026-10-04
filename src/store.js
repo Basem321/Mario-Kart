@@ -57,6 +57,10 @@ export const useGameStore = create((set) => ({
   // {type: mushroom|triple|golden|red|blue|bullet|blooper, charges, expiresAt}
   carriedItem: null,
   setCarriedItem: (carriedItem) => set({ carriedItem }),
+  // Roulette spin: {type, startedAt} while icons cycle. Commits to
+  // carriedItem when the spin locks — the item appears/works only then.
+  roulette: null,
+  setRoulette: (roulette) => set({ roulette }),
   // Item boxes on track: [{id, x, y, z, active, respawnAt}]
   itemBoxes: [],
   setItemBoxes: (itemBoxes) => set({ itemBoxes }),
@@ -80,19 +84,28 @@ export const useGameStore = create((set) => ({
   // Blooper squirt visual: {x,y,z,until} for the ~1s fire flourish.
   blooperSquirt: null,
   setBlooperSquirt: (blooperSquirt) => set({ blooperSquirt }),
+  // Distance driven this race (world units, teleports capped out). Breaks
+  // lap ties for position ranks. No subscribers — read via getState.
+  selfDistance: 0,
+  addSelfDistance: (d) =>
+    set((s) => ({
+      selfDistance:
+        s.selfDistance + (Number(d) > 0 ? Math.min(30, Number(d)) : 0),
+    })),
   // Timestamp (performance.now) until which the kart is stunned.
   stunUntil: 0,
   setStunUntil: (stunUntil) => set({ stunUntil }),
   // Fresh session state: called on start/exit so stale boxes, live bombs,
   // explosions, carried bombs and stuns never leak into the next run.
   resetBattleState: () =>
-    set({
-      carriedBomb: false,
+    set({      carriedBomb: false,
       carriedItem: null,
+      roulette: null,
       activeShells: [],
       bulletRide: null,
       blooperUntil: 0,
       blooperSquirt: null,
+      selfDistance: 0,
       itemBoxes: [],
       droppedBombs: [],
       explosions: [],

@@ -44,8 +44,8 @@ const pickTable = ({ position, totalRacers }) => {
   return MID_TABLE;
 };
 
-export const canGrant = ({ carriedBomb, carriedItem } = {}) =>
-  !carriedBomb && !carriedItem;
+export const canGrant = ({ carriedBomb, carriedItem, roulette } = {}) =>
+  !carriedBomb && !carriedItem && !roulette;
 
 export const rollItem = (opts) => {
   if (!opts || typeof opts !== "object") return "mushroom";
@@ -105,14 +105,61 @@ export const consumeUse = ({ item, now = 0 } = {}) => {
   return { item, boosted: false };
 };
 
-// Current leader id from standings rows [{id, laps, finished}].
-// Finished racers no longer lead (race over for them). Null when empty.
+// Host-authoritative box sync: the host generates spots, guests apply them
+// wholesale. Pure normalizer for the item:boxes validator (same coordinate
+// bounds as live transforms). Returns a clean list or null.
+export const MAX_SYNC_BOXES = 10;
+
+export const normalizeBoxList = (raw) => {
+  if (!Array.isArray(raw) || raw.length > MAX_SYNC_BOXES) return null;
+  const out = [];
+  for (const b of raw) {
+    if (!b || typeof b !== "object") continue;
+    const id = Number(b.id);
+    const x = Number(b.x);
+    const y = Number(b.y);
+    const z = Number(b.z);
+    if (!Number.isInteger(id) || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      continue;
+    }
+    const s = Number(b.s);
+    const respawnAt = Number(b.respawnAt);
+    out.push({
+      id,
+      x: Math.max(-2500, Math.min(2500, x)),
+      y: Math.max(-500, Math.min(500, y)),
+      z: Math.max(-2500, Math.min(2500, z)),
+      s: Number.isFinite(s) ? Math.max(0.2, Math.min(3, s)) : 1,
+      active: b.active !== false,
+      respawnAt: Number.isFinite(respawnAt) && respawnAt >= 0 ? respawnAt : 0,
+    });
+  }
+  return out;
+};
+
+// Race rank: laps dominate, distance driven breaks ties. Rows are
+// [{id, laps, dist}]; missing dist counts as 0.
+export const compareRacers = (a, b) => {
+  const lapDiff = (Number(b?.laps) || 0) - (Number(a?.laps) || 0);
+  if (lapDiff !== 0) return lapDiff;
+  return (Number(b?.dist) || 0) - (Number(a?.dist) || 0);
+};
+
+export const rankOf = (rows, selfId) => {
+  const list = Array.isArray(rows) ? [...rows].sort(compareRacers) : [];
+  const idx = list.findIndex((r) => r && r.id === selfId);
+  return { position: idx < 0 ? list.length : idx + 1, total: list.length };
+};
+
+// Current leader id from standings rows [{id, laps, finished, dist}].
+// Finished racers no longer lead (race over for them). Lap ties break by
+// distance driven. Null when empty.
 export const leaderOf = (rows) => {
   if (!Array.isArray(rows)) return null;
   let best = null;
   for (const r of rows) {
     if (!r || r.finished) continue;
-    if (!best || Number(r.laps) > Number(best.laps)) best = r;
+    if (!best || compareRacers(r, best) < 0) best = r;
   }
   return best ? best.id : null;
 };

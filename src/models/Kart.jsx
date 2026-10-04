@@ -757,10 +757,28 @@ export function Kart({
                 <BombModel />
               </group>
             )}
-            {/* Carried mushroom-family item (same mount point as the bomb) */}
-            {heldMushroom && (
-              <group position={[0, 1.0, -1.2]} scale={0.5}>
+            {/* Carried mushroom-family item (same mount point as the bomb).
+                Mushroom GLB runs large — 0.22 keeps it kart-proportioned.
+                Triple renders three small ones circling the kart. */}
+            {heldMushroom && heldMushroom !== "triple" && (
+              <group position={[0, 1.0, -1.2]} scale={0.22}>
                 <MushroomModel gold={heldMushroom === "golden"} />
+              </group>
+            )}
+            {heldMushroom === "triple" && (
+              <group position={[0, 1.0, -1.2]}>
+                {[90, 210, 330].map((deg) => {
+                  const a = (deg * Math.PI) / 180;
+                  return (
+                    <group
+                      key={deg}
+                      position={[Math.cos(a) * 1.1, 0, Math.sin(a) * 1.1]}
+                      scale={0.22}
+                    >
+                      <MushroomModel />
+                    </group>
+                  );
+                })}
               </group>
             )}
             {/* Carried red shell */}

@@ -4,6 +4,7 @@ import { useOnlineRaceStore } from "./onlineRaceStore";
 import { receiveOnlineRaceEvent, setOnlineRaceTransport } from "./onlineRaceTransport";
 import { DEFAULT_TRACK_ID, isKnownTrackId } from "./tracks";
 import { BULLET_RIDE_MS } from "./items/homing";
+import { normalizeBoxList } from "./items/itemWeights";
 
 const LOBBY_ID_PREFIX = "mario-kart-3js-";
 const LOBBY_CODE_LENGTH = 6;
@@ -141,6 +142,18 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
       return null;
     }
     return { type: "item:carried", itemType };
+  }
+
+  if (candidate.type === "item:boxes") {
+    const boxes = normalizeBoxList(candidate.boxes);
+    if (!boxes) return null;
+    return { type: "item:boxes", boxes };
+  }
+
+  if (candidate.type === "item:boxTaken") {
+    const boxId = Number(candidate.boxId);
+    if (!Number.isInteger(boxId)) return null;
+    return { type: "item:boxTaken", boxId };
   }
 
   if (candidate.type === "shell:fired") {
@@ -782,6 +795,7 @@ export const useP2PLobby = () => {
               };
               activeRaceRef.current = race;
               useOnlineRaceStore.getState().clearRemoteRacers();
+              useOnlineRaceStore.getState().setIsHost(false);
               setRaceStart(race);
             }
           }
@@ -945,6 +959,7 @@ export const useP2PLobby = () => {
     };
     activeRaceRef.current = race;
     useOnlineRaceStore.getState().clearRemoteRacers();
+    useOnlineRaceStore.getState().setIsHost(hostRef.current);
     setRaceStart(race);
     broadcastRaceTransform(payload);
   }, [broadcastRaceTransform]);

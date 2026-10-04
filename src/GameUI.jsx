@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useGameManager } from "./gameManager";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
-import { ROULETTE_MS, rouletteFrame } from "./items/itemWeights";
+import { ROULETTE_MS, rankOf, rouletteFrame } from "./items/itemWeights";
 import { MiniMap } from "./MiniMap";
 import { OnlineRaceLeaderboard } from "./OnlineRaceLeaderboard";
 import { RaceResults } from "./RaceResults";
@@ -129,31 +129,30 @@ const GameUI = () => {
   const onlinePlayers = useGameManager((s) => s.onlinePlayers);
   const onlineSelfId = useGameManager((s) => s.onlineSelfId);
   const lapTimesLive = useGameManager((s) => s.lapTimes);
-  const remoteRaceProgress = useOnlineRaceStore((s) => s.remoteRaceProgress);
 
-  const livePosition = useMemo(() => {
+  // Live position: laps first, distance driven breaks ties. Distances are
+  // read unsubscribed (they change every frame); this component already
+  // re-renders at 10Hz via refreshKey, so ties resolve live for free.
+  const livePosition = (() => {
     if (!isOnlineRace || !onlinePlayers?.length) return null;
     const localCompleted = Array.isArray(lapTimesLive) ? lapTimesLive.length : 0;
-    const rows = onlinePlayers
-      .map((player, rosterIndex) => {
-        const isSelf = player.id === onlineSelfId;
-        const remote = remoteRaceProgress[player.id];
-        const completed = isSelf
+    const gs = useGameStore.getState();
+    const ors = useOnlineRaceStore.getState();
+    const rows = onlinePlayers.map((player) => {
+      const isSelf = player.id === onlineSelfId;
+      return {
+        id: player.id,
+        laps: isSelf
           ? localCompleted
-          : Number(remote?.completedLaps) || 0;
-        const finished = isSelf
-          ? false
-          : Boolean(remote?.finished);
-        return { id: player.id, isSelf, rosterIndex, completed, finished };
-      })
-      .sort((a, b) => {
-        if (b.completed !== a.completed) return b.completed - a.completed;
-        if (a.finished !== b.finished) return Number(b.finished) - Number(a.finished);
-        return a.rosterIndex - b.rosterIndex;
-      });
-    const rank = rows.findIndex((r) => r.isSelf) + 1;
-    return rank > 0 ? { rank, total: rows.length } : null;
-  }, [isOnlineRace, lapTimesLive, onlinePlayers, onlineSelfId, remoteRaceProgress]);
+          : Number(ors.remoteRaceProgress[player.id]?.completedLaps) || 0,
+        dist: isSelf
+          ? gs.selfDistance || 0
+          : ors.remoteDistances[player.id] || 0,
+      };
+    });
+    const { position } = rankOf(rows, onlineSelfId);
+    return position > 0 ? { rank: position, total: rows.length } : null;
+  })();
 
   const showWind = Boolean(isBoosting || (boostSpeed ?? 0) > 55);
 
@@ -162,17 +161,20 @@ const GameUI = () => {
   const blooperUntil = useGameStore((s) => s.blooperUntil);
   const showInk = blooperUntil > performance.now();
 
-  // Battle-item slot: Mario-Kart-style roulette. Icons cycle fast→slow for
-  // ROULETTE_MS on every new pickup (visual randomness only — the granted
-  // type was already rolled by position weights), then lock on the item.
-  // Keyed on type+expiresAt (NOT charges): triple ticks 3→2 must not replay.
+  // Battle-item slot: Mario-Kart-style roulette. While a spin is active the
+  // icons cycle fast→slow for ROULETTE_MS; the item appears (HUD + kart +
+  // usable) only after the lock commits it to carriedItem.
+  // Keyed on the spin identity — never on charges, so triple ticks don't replay.
   const carriedItem = useGameStore((s) => s.carriedItem);
-  const itemKey = `${carriedItem?.type ?? ""}:${carriedItem?.expiresAt ?? ""}`;
+  const roulette = useGameStore((s) => s.roulette);
+  const spinKey = roulette
+    ? `spin:${roulette.type}:${roulette.startedAt}`
+    : `locked:${carriedItem?.type ?? ""}`;
   const [rouletteIcon, setRouletteIcon] = useState(null);
   useEffect(() => {
-    const cur = useGameStore.getState().carriedItem;
-    if (!cur) {
-      setRouletteIcon(null);
+    const spin = useGameStore.getState().roulette;
+    if (!spin) {
+      setRouletteIcon(useGameStore.getState().carriedItem?.type ?? null);
       return;
     }
     let raf = 0;
@@ -180,7 +182,7 @@ const GameUI = () => {
     const tick = () => {
       const elapsed = performance.now() - start;
       if (elapsed >= ROULETTE_MS) {
-        setRouletteIcon(cur.type);
+        setRouletteIcon(spin.type);
         return;
       }
       setRouletteIcon(ITEM_ICON_ORDER[rouletteFrame(elapsed, ITEM_ICON_ORDER.length)]);
@@ -188,7 +190,7 @@ const GameUI = () => {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [itemKey]);
+  }, [spinKey]);
 
   const requestReset = () => {
     window.dispatchEvent(new CustomEvent("mario-kart:reset"));

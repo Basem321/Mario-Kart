@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { leaderOf, rollItem } from "../../src/items/itemWeights.js";
+import { compareRacers, leaderOf, rankOf, rollItem } from "../../src/items/itemWeights.js";
 import {
   BLUE_BLAST_RADIUS,
   resolveBlueBlast,
@@ -51,6 +51,41 @@ test("leaderOf picks max laps, skipping finished racers", () => {
   );
   assert.equal(leaderOf([]), null);
   assert.equal(leaderOf([{ id: "a", laps: 0, finished: true }]), null);
+});
+
+test("rank breaks lap ties by distance driven", () => {
+  // Same lap: further along the road ranks ahead, even from behind at start.
+  const rows = [
+    { id: "me", laps: 1, dist: 500 },
+    { id: "rival", laps: 1, dist: 620 },
+    { id: "leader", laps: 2, dist: 100 },
+  ];
+  assert.deepEqual(rankOf(rows, "me"), { position: 3, total: 3 });
+  assert.deepEqual(rankOf(rows, "rival"), { position: 2, total: 3 });
+  assert.deepEqual(rankOf(rows, "leader"), { position: 1, total: 3 });
+  assert.deepEqual(rankOf(rows, "ghost"), { position: 3, total: 3 });
+});
+
+test("leaderOf breaks lap ties by distance", () => {
+  assert.equal(
+    leaderOf([
+      { id: "a", laps: 1, dist: 500 },
+      { id: "b", laps: 1, dist: 620 },
+    ]),
+    "b"
+  );
+});
+
+test("compareRacers orders laps first, distance second", () => {
+  const rows = [
+    { id: "a", laps: 1, dist: 900 },
+    { id: "b", laps: 2, dist: 10 },
+    { id: "c", laps: 1, dist: 100 },
+  ];
+  assert.deepEqual(
+    [...rows].sort(compareRacers).map((r) => r.id),
+    ["b", "a", "c"]
+  );
 });
 
 test("blue blast stuns leader and nearby only", () => {

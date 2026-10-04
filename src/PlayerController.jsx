@@ -817,6 +817,9 @@ export const PlayerController = () => {
     }
     player.position.x = wallX;
     player.position.z = wallZ;
+    // Odometer for lap-tie position ranks (teleports capped in the store).
+    const movedDist = Math.hypot(wallX - prevX, wallZ - prevZ);
+    if (movedDist > 0.001) useGameStore.getState().addSelfDistance(movedDist);
     if (wallHit) {
       const motionX = desiredX - prevX;
       const motionZ = desiredZ - prevZ;

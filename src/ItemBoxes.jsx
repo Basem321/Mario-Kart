@@ -29,12 +29,16 @@ import {
   steerShell,
   targetsAhead,
 } from "./items/homing";
-import { leaderOf } from "./items/itemWeights";
 import {
+  ROULETTE_MS,
   canGrant,
+  compareRacers,
   consumeUse,
   makeCarriedItem,
+  normalizeBoxList,
+  rankOf,
   rollItem,
+  leaderOf,
 } from "./items/itemWeights";
 import {
   publishOnlineRaceEvent,
@@ -57,8 +61,16 @@ let nextId = 1;
 
 const bombExplosionId = (bombId) => `explosion-${String(bombId)}`;
 
-// Local standing for the item roulette. Solo = 1 of 1. Online mirrors the
-// leaderboard inputs (completed laps) without subscribing the canvas loop.
+// Host owns box positions: publishes the full list; guests apply it.
+const publishBoxes = () => {
+  publishOnlineRaceEvent({
+    type: "item:boxes",
+    boxes: useGameStore.getState().itemBoxes,
+  });
+};
+
+// Local standing for the item roulette. Solo = 1 of 1. Online ranks by
+// laps first, distance driven second (same rule as the HUD badge).
 const getStanding = () => {
   const gm = useGameManager.getState();
   if (!gm.isOnlineRace || !gm.onlinePlayers?.length) {
@@ -70,17 +82,29 @@ const getStanding = () => {
     };
   }
   const ors = useOnlineRaceStore.getState();
+  const gs = useGameStore.getState();
   const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
-  let ahead = 0;
-  for (const p of gm.onlinePlayers) {
-    if (p.id === gm.onlineSelfId) continue;
-    const c = Number(ors.remoteRaceProgress[p.id]?.completedLaps) || 0;
-    if (c > localCompleted) ahead += 1;
-  }
+  const rows = gm.onlinePlayers.map((p) => {
+    const isSelf = p.id === gm.onlineSelfId;
+    return {
+      id: p.id,
+      laps: isSelf
+        ? localCompleted
+        : Number(ors.remoteRaceProgress[p.id]?.completedLaps) || 0,
+      dist: isSelf
+        ? gs.selfDistance || 0
+        : ors.remoteDistances[p.id] || 0,
+    };
+  });
+  const selfRow = rows.find((r) => r.id === gm.onlineSelfId);
+  const { position } = rankOf(rows, gm.onlineSelfId);
+  const ahead = selfRow
+    ? rows.filter((r) => compareRacers(r, selfRow) < 0).length
+    : 0;
   return {
-    position: ahead + 1,
-    totalRacers: gm.onlinePlayers.length,
-    hasOpponents: gm.onlinePlayers.length > 1,
+    position,
+    totalRacers: rows.length,
+    hasOpponents: rows.length > 1,
     hasOpponentsAhead: ahead > 0,
   };
 };
@@ -359,12 +383,13 @@ const fireBlueShell = () => {
   const me = myRacerId();
   const ors = useOnlineRaceStore.getState();
   const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
-  const rows = [{ id: me, laps: localCompleted, finished: false }];
+  const rows = [{ id: me, laps: localCompleted, finished: false, dist: st.selfDistance || 0 }];
   for (const [id, p] of Object.entries(ors.remoteRaceProgress)) {
     rows.push({
       id,
       laps: Number(p?.completedLaps) || 0,
       finished: Boolean(p?.finished),
+      dist: ors.remoteDistances[id] || 0,
     });
   }
   const leaderId = leaderOf(rows);
@@ -598,6 +623,7 @@ export function ItemBoxes() {
   const dropHeldRef = useRef(false);
   const goldenLastRef = useRef(0);
   const knockedRef = useRef({ rideId: null, ids: new Set() });
+  const boxSyncRef = useRef(0);
   const tickAudioRef = useRef(null);
   const blackRoadGeometry = getMergedRoadGeometry(nodes, activeTrack);
   const roadTransform = trackConfigToTransform(activeTrack);
@@ -640,6 +666,28 @@ export function ItemBoxes() {
 
         if (event.type === "shell:fired" && event.shell) {
           addRemoteShell(event.shell);
+          return;
+        }
+
+        if (event.type === "item:boxes" && event.boxes) {
+          const clean = normalizeBoxList(event.boxes);
+          if (clean) useGameStore.getState().setItemBoxes(clean);
+          return;
+        }
+
+        if (event.type === "item:boxTaken" && Number.isInteger(event.boxId)) {
+          const st4 = useGameStore.getState();
+          st4.setItemBoxes(
+            st4.itemBoxes.map((o) =>
+              o.id === event.boxId && o.active
+                ? {
+                    ...o,
+                    active: false,
+                    respawnAt: performance.now() + RESPAWN_SECONDS * 1000,
+                  }
+                : o
+            )
+          );
           return;
         }
 
@@ -778,15 +826,21 @@ export function ItemBoxes() {
     return { x: point.x, y: point.y + 1.1 * s, z: point.z, s };
   };
 
-  // Initial spawn.
+  // Initial spawn. Solo + host generate spots; guests wait for the host's
+  // item:boxes (plus the 2s heartbeat below, which heals late joins).
   useEffect(() => {
     if (useGameStore.getState().itemBoxes.length > 0) return;
+    const gm = useGameManager.getState();
+    const ownsBoxes =
+      !gm.isOnlineRace || useOnlineRaceStore.getState().isHost === true;
+    if (!ownsBoxes) return;
     const spots = [];
     for (let i = 0; i < BOX_COUNT; i++) {
       const s = randomBoxSpot();
       if (s) spots.push({ id: nextId++, ...s, active: true, respawnAt: 0 });
     }
     if (spots.length > 0) useGameStore.getState().setItemBoxes(spots);
+    if (gm.isOnlineRace) publishBoxes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, scene, selectedTrackId]);
 
@@ -849,7 +903,11 @@ export function ItemBoxes() {
     // keeps its exact legacy grant path when it wins the roll; otherwise a
     // position-weighted item fills the new carriedItem slot (Task 1).
     if (
-      canGrant({ carriedBomb: st.carriedBomb, carriedItem: st.carriedItem })
+      canGrant({
+        carriedBomb: st.carriedBomb,
+        carriedItem: st.carriedItem,
+        roulette: st.roulette,
+      })
     ) {
       for (const b of st.itemBoxes) {
         if (!b.active) continue;
@@ -868,13 +926,9 @@ export function ItemBoxes() {
             st.setCarriedBomb(true);
             publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
           } else {
-            st.setCarriedItem(
-              makeCarriedItem(rollItem(getStanding()), now)
-            );
-            publishOnlineRaceEvent({
-              type: "item:carried",
-              itemType: useGameStore.getState().carriedItem?.type ?? null,
-            });
+            // Roulette starts: the item commits to the slot only when the
+            // spin locks (commit block below) — nothing usable before that.
+            st.setRoulette({ type: rollItem(getStanding()), startedAt: now });
           }
           st.setItemBoxes(
             st.itemBoxes.map((o) =>
@@ -883,23 +937,43 @@ export function ItemBoxes() {
                 : o
             )
           );
+          // Tell everyone the box is gone (offline publish is a no-op).
+          publishOnlineRaceEvent({ type: "item:boxTaken", boxId: b.id });
           break;
         }
       }
     }
 
-    // Respawn collected boxes.
+    // Respawn collected boxes. ONLY the owner (solo/host) rolls new spots —
+    // guests apply the host's list, so positions stay identical everywhere.
+    const gmFrame = useGameManager.getState();
+    const orsFrame = useOnlineRaceStore.getState();
+    const ownsBoxes = !gmFrame.isOnlineRace || orsFrame.isHost === true;
     let needsRespawn = false;
-    const next = st.itemBoxes.map((b) => {
-      if (!b.active && b.respawnAt > 0 && now >= b.respawnAt) {
-        const s = randomBoxSpot();
-        needsRespawn = true;
-        if (s) return { ...b, ...s, active: true, respawnAt: 0 };
-        return { ...b, respawnAt: now + 2000 };
+    let next = st.itemBoxes;
+    if (ownsBoxes) {
+      next = st.itemBoxes.map((b) => {
+        if (!b.active && b.respawnAt > 0 && now >= b.respawnAt) {
+          const s = randomBoxSpot();
+          needsRespawn = true;
+          if (s) return { ...b, ...s, active: true, respawnAt: 0 };
+          return { ...b, respawnAt: now + 2000 };
+        }
+        return b;
+      });
+      if (needsRespawn) {
+        st.setItemBoxes(next);
+        if (gmFrame.isOnlineRace) publishBoxes();
       }
-      return b;
-    });
-    if (needsRespawn) st.setItemBoxes(next);
+    }
+
+    // Host heartbeat: full list every 2s heals late joins and lost packets.
+    if (gmFrame.isOnlineRace && orsFrame.isHost === true) {
+      if (now - boxSyncRef.current > 2000) {
+        boxSyncRef.current = now;
+        publishBoxes();
+      }
+    }
 
     // Drop with G or E (edge trigger).
     const keys = getKeys();
@@ -926,6 +1000,16 @@ export function ItemBoxes() {
       publishOnlineRaceEvent({ type: "bomb:carried", carried: false });
       publishOnlineRaceEvent({ type: "bomb:dropped", bomb });
     }
+    // Roulette lock: the spun item enters the slot (and remotes learn it)
+    // only when the animation stops — never mid-spin.
+    const pending = st.roulette;
+    if (pending && now - pending.startedAt >= ROULETTE_MS) {
+      const committed = makeCarriedItem(pending.type, now);
+      st.setRoulette(null);
+      st.setCarriedItem(committed);
+      publishOnlineRaceEvent({ type: "item:carried", itemType: committed.type });
+    }
+
     // Mushroom-family use. Singles/triples fire on edge; golden re-fires
     // while held (GOLDEN_REUSE_MS) and expires on the performance.now clock.
     // Edge is computed BEFORE dropHeldRef updates below.

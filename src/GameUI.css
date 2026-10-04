@@ -444,11 +444,12 @@
   to { opacity: 0; }
 }
 
-/* Battle-item slot: bottom-left roulette + locked item */
+/* Battle-item slot: top-center roulette + locked item (right of the standings) */
 .item-slot {
   position: fixed;
-  left: 18px;
-  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 86px;
   z-index: 95;
   width: 76px;
   height: 76px;

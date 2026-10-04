@@ -7,16 +7,36 @@ export const useOnlineRaceStore = create((set) => ({
   // Race-only state stays separate from transforms so a leaderboard update
   // cannot affect interpolation of a remote kart.
   remoteRaceProgress: {},
+  // Odometers per remote racer (teleports capped out). Break lap ties.
+  remoteDistances: {},
+  // True on the lobby host: the host owns box spawn/respawn (item:boxes).
+  isHost: false,
+  setIsHost: (isHost) => set({ isHost: Boolean(isHost) }),
   setRemoteRacer: (playerId, transform) =>
-    set((state) => ({
-      remoteRacers: {
-        ...state.remoteRacers,
-        [playerId]: {
-          ...state.remoteRacers[playerId],
-          ...transform,
+    set((state) => {
+      const prev = state.remoteRacers[playerId];
+      let dist = state.remoteDistances[playerId] || 0;
+      if (
+        prev &&
+        Number.isFinite(prev.x) &&
+        Number.isFinite(prev.z) &&
+        Number.isFinite(transform?.x) &&
+        Number.isFinite(transform?.z)
+      ) {
+        const d = Math.hypot(transform.x - prev.x, transform.z - prev.z);
+        if (d > 0.001 && d < 30) dist += d;
+      }
+      return {
+        remoteRacers: {
+          ...state.remoteRacers,
+          [playerId]: {
+            ...state.remoteRacers[playerId],
+            ...transform,
+          },
         },
-      },
-    })),
+        remoteDistances: { ...state.remoteDistances, [playerId]: dist },
+      };
+    }),
   setRemoteRacerCarriedBomb: (playerId, carriedBomb) =>
     set((state) => ({
       remoteRacers: {
@@ -78,7 +98,8 @@ export const useOnlineRaceStore = create((set) => ({
       if (!state.remoteRacers[playerId] && !state.remoteRaceProgress[playerId]) return state;
       const { [playerId]: _removed, ...remoteRacers } = state.remoteRacers;
       const { [playerId]: _removedProgress, ...remoteRaceProgress } = state.remoteRaceProgress;
-      return { remoteRacers, remoteRaceProgress };
+      const { [playerId]: _removedDist, ...remoteDistances } = state.remoteDistances;
+      return { remoteRacers, remoteRaceProgress, remoteDistances };
     }),
-  clearRemoteRacers: () => set({ remoteRacers: {}, remoteRaceProgress: {} }),
+  clearRemoteRacers: () => set({ remoteRacers: {}, remoteRaceProgress: {}, remoteDistances: {} }),
 }));

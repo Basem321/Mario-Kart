@@ -88,10 +88,25 @@ const RemoteKart = ({ player, playerIndex }) => {
             </group>
           )}
           {(remoteState?.carriedItemType === "mushroom" ||
-            remoteState?.carriedItemType === "triple" ||
             remoteState?.carriedItemType === "golden") && (
-            <group position={[0, 1.0, -1.2]} scale={0.5}>
+            <group position={[0, 1.0, -1.2]} scale={0.22}>
               <MushroomModel gold={remoteState.carriedItemType === "golden"} />
+            </group>
+          )}
+          {remoteState?.carriedItemType === "triple" && (
+            <group position={[0, 1.0, -1.2]}>
+              {[90, 210, 330].map((deg) => {
+                const a = (deg * Math.PI) / 180;
+                return (
+                  <group
+                    key={deg}
+                    position={[Math.cos(a) * 1.1, 0, Math.sin(a) * 1.1]}
+                    scale={0.22}
+                  >
+                    <MushroomModel />
+                  </group>
+                );
+              })}
             </group>
           )}
           {remoteState?.carriedItemType === "red" && (

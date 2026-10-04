@@ -71,6 +71,15 @@ test("canGrant blocks occupied slots", () => {
     }),
     false
   );
+  // A spinning roulette occupies the slot: nothing grants mid-spin.
+  assert.equal(
+    canGrant({
+      carriedBomb: false,
+      carriedItem: null,
+      roulette: { type: "red", startedAt: 1000 },
+    }),
+    false
+  );
 });
 
 test("golden window is seven seconds", () => {
