@@ -34,10 +34,10 @@ import {
   canGrant,
   compareRacers,
   consumeUse,
-  makeCarriedItem,
   normalizeBoxList,
   rankOf,
   rollItem,
+  rowToSlot,
   leaderOf,
 } from "./items/itemWeights";
 import {
@@ -46,6 +46,7 @@ import {
 } from "./onlineRaceTransport";
 import { itemConfig } from "./items/itemConfig.js";
 import { useGameManager } from "./gameManager";
+import { kartSettings } from "./constants";
 import { getMergedRoadGeometry, getTrack } from "./tracks";
 import { sampleBlackRoadPoint, trackConfigToTransform } from "./trackRoad";
 
@@ -61,11 +62,17 @@ let nextId = 1;
 
 const bombExplosionId = (bombId) => `explosion-${String(bombId)}`;
 
-// Legacy roll rows map to v3 slots: triple is a mushroom variant, not a type.
-const toSlot = (rolled, nowMs) => {
-  if (rolled === "triple") return makeCarriedItem("mushroom", "triple", nowMs);
-  if (rolled === "golden") return makeCarriedItem("golden", "single", nowMs);
-  return makeCarriedItem(rolled, "single", nowMs);
+// Instant mini-boost for skid/wind roulette wins (TODO(decide): differentiate).
+const fireMiniBoost = () => {
+  window.dispatchEvent(
+    new CustomEvent("mario-kart:boost", {
+      detail: {
+        duration: itemConfig.miniBoost.boostMs / 1000,
+        speed: kartSettings.speed.max * itemConfig.miniBoost.speedMult,
+        launchVy: 2,
+      },
+    })
+  );
 };
 
 const publishCarried = (item) => {
@@ -636,6 +643,8 @@ export function ItemBoxes() {
   const goldenLastRef = useRef(0);
   const knockedRef = useRef({ rideId: null, ids: new Set() });
   const boxSyncRef = useRef(0);
+  // Race-start timestamp for position-mode age rules (performance.now clock).
+  const matchStartRef = useRef(0);
   const tickAudioRef = useRef(null);
   const blackRoadGeometry = getMergedRoadGeometry(nodes, activeTrack);
   const roadTransform = trackConfigToTransform(activeTrack);
@@ -938,9 +947,19 @@ export function ItemBoxes() {
             st.setCarriedBomb(true);
             publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
           } else {
-            // Roulette starts: the item commits to the slot only when the
-            // spin locks (commit block below) — nothing usable before that.
-            st.setRoulette({ type: rollItem(getStanding()), startedAt: now });
+            // Roulette starts: the row commits only when the spin locks.
+            const activeBlue = st.activeShells.some((s) => s.kind === "blue");
+            if (useGameManager.getState().gameStarted && !matchStartRef.current) {
+              matchStartRef.current = now;
+            }
+            st.setRoulette({
+              type: rollItem({
+                ...getStanding(),
+                activeBlue,
+                raceAgeMs: now - matchStartRef.current,
+              }),
+              startedAt: now,
+            });
           }          st.setItemBoxes(
             st.itemBoxes.map((o) =>
               o.id === b.id
@@ -1011,14 +1030,21 @@ export function ItemBoxes() {
       publishOnlineRaceEvent({ type: "bomb:carried", carried: false });
       publishOnlineRaceEvent({ type: "bomb:dropped", bomb });
     }
-    // Roulette lock: the spun item enters the slot (and remotes learn it)
-    // only when the animation stops — never mid-spin.
+    // Roulette lock: the spun row resolves (bomb legacy path, instant
+    // mini-boosts, or a carried slot) only when the animation stops.
     const pending = st.roulette;
     if (pending && now - pending.startedAt >= ROULETTE_MS) {
-      const committed = toSlot(pending.type, now);
       st.setRoulette(null);
-      st.setCarriedItem(committed);
-      publishCarried(committed);
+      const slot = rowToSlot(pending.type, now);
+      if (slot.bomb) {
+        st.setCarriedBomb(true);
+        publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
+      } else if (slot.type === "skid" || slot.type === "wind") {
+        fireMiniBoost();
+      } else {
+        st.setCarriedItem(slot);
+        publishCarried(slot);
+      }
     }
 
     // Mushroom-family use. Singles/triples fire on edge; golden re-fires

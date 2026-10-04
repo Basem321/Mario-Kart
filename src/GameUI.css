@@ -468,6 +468,11 @@
   object-fit: contain;
 }
 
+.item-slot .item-emoji {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
 /* Golden mushroom fallback tint (until a dedicated golden.png lands) */
 .item-slot img.gold {
   filter: sepia(1) saturate(4) hue-rotate(-10deg) brightness(1.1);

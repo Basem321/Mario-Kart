@@ -29,7 +29,7 @@ test("last place with opponents can roll bullet or blue", () => {
   assert.ok(seen.has("blue"), "blue never rolled for last place");
 });
 
-test("solo racers never roll bullet, blue, or blooper", () => {
+test("solo racers never roll blue (only safety rule)", () => {
   for (let i = 0; i < 100; i += 1) {
     const got = rollItem({
       position: 1,
@@ -38,21 +38,21 @@ test("solo racers never roll bullet, blue, or blooper", () => {
       hasOpponentsAhead: false,
       rng: () => i / 100,
     });
-    assert.ok(!["bullet", "blue", "blooper"].includes(got));
+    assert.notEqual(got, "blue");
   }
 });
 
-test("1st place never rolls bullet, blue, or blooper", () => {
+test("1st place never rolls blue", () => {
   for (let i = 0; i < 100; i += 1) {
     const got = rollItem({ ...mid({ position: 1 }), rng: () => i / 100 });
-    assert.ok(!["bullet", "blue", "blooper"].includes(got));
+    assert.notEqual(got, "blue");
   }
 });
 
-test("unknown input falls back to mushroom", () => {
-  assert.equal(rollItem(undefined), "mushroom");
-  assert.equal(rollItem(null), "mushroom");
-  assert.equal(rollItem({}), "mushroom");
+test("unknown input falls back to mushroom1", () => {
+  assert.equal(rollItem(undefined), "mushroom1");
+  assert.equal(rollItem(null), "mushroom1");
+  assert.equal(rollItem({}), "mushroom1");
 });
 
 test("canGrant blocks occupied slots", () => {

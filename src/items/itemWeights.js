@@ -6,78 +6,123 @@ import { itemConfig } from "./itemConfig.js";
 export const GOLDEN_MS = itemConfig.golden.windowMs;
 export const ROULETTE_MS = itemConfig.roulette.durationMs;
 
-const SOLO_TABLE = [
-  ["mushroom", 70],
-  ["triple", 30],
-];
-
-const FIRST_TABLE = [
-  ["mushroom", 60],
-  ["triple", 25],
-  ["red", 15],
-];
-
-const MID_TABLE = [
-  ["mushroom", 30],
-  ["triple", 20],
-  ["golden", 12],
-  ["red", 20],
-  ["blooper", 18],
-];
-
-const LAST_TABLE = [
-  ["bullet", 20],
-  ["blue", 12],
-  ["golden", 18],
-  ["blooper", 15],
-  ["red", 15],
-  ["mushroom", 10],
-  ["triple", 10],
-];
-
-const NEEDS_OPPONENTS = new Set(["bullet", "blue", "blooper"]);
-const NEEDS_AHEAD = new Set(["blooper"]);
-const NEEDS_NOT_FIRST = new Set(["bullet", "blue"]);
-
-const pickTable = ({ position, totalRacers }) => {
-  if (!Number.isInteger(totalRacers) || totalRacers <= 1) return SOLO_TABLE;
-  if (position <= 1) return FIRST_TABLE;
-  if (totalRacers >= 2 && position > (totalRacers * 2) / 3) return LAST_TABLE;
-  return MID_TABLE;
-};
+// v3 choice (Task 2): equal rows by default, position tables behind a flag.
 
 export const canGrant = ({ carriedBomb, carriedItem, roulette } = {}) =>
   !carriedBomb && !carriedItem && !roulette;
 
 export const rollItem = (opts) => {
-  if (!opts || typeof opts !== "object") return "mushroom";
-  const { position, totalRacers } = opts;
-  // Unknown standings: safe fallback instead of guessing a table.
-  if (!Number.isFinite(position) || !Number.isFinite(totalRacers)) {
-    return "mushroom";
+  if (itemConfig.usePositionWeights) {
+    if (!opts || typeof opts !== "object") return "mushroom1";
+    return positionRoll({
+      rank: opts.position,
+      totalRacers: opts.totalRacers,
+      raceAgeMs: opts.raceAgeMs,
+      lastBlueAt: opts.lastBlueAt,
+      rng: opts.rng,
+    });
   }
-  const {
-    hasOpponents = false,
-    hasOpponentsAhead = false,
-    rng = Math.random,
-  } = opts;
+  return equalRoll(opts);
+};
 
-  const entries = pickTable({ position, totalRacers }).filter(([type]) => {
-    if (NEEDS_OPPONENTS.has(type) && !hasOpponents) return false;
-    if (NEEDS_AHEAD.has(type) && !hasOpponentsAhead) return false;
-    if (NEEDS_NOT_FIRST.has(type) && position <= 1) return false;
+const equalRoll = (opts) => {
+  if (!opts || typeof opts !== "object") return "mushroom1";
+  const { position, totalRacers, activeBlue = false, rng = Math.random } = opts;
+  if (!Number.isFinite(position) || !Number.isFinite(totalRacers)) {
+    return "mushroom1";
+  }
+  // Safety rules stay ON in equal mode: blue needs a target.
+  const rows = itemConfig.equalRows.filter((row) => {
+    if (row !== "blue") return true;
+    if (position <= 1) return false;
+    if (!Number.isInteger(totalRacers) || totalRacers <= 1) return false;
+    if (activeBlue) return false;
     return true;
   });
+  const list = rows.length > 0 ? rows : ["mushroom1"];
+  return list[Math.floor(rng() * list.length) % list.length];
+};
 
-  if (entries.length === 0) return "mushroom";
-
-  const total = entries.reduce((sum, [, w]) => sum + w, 0);
-  let r = rng() * total;
-  for (const [type, w] of entries) {
-    r -= w;
-    if (r < 0) return type;
+// Disabled position mode: interpolate front/mid/back by p, apply hard rules.
+export const positionRoll = ({ rank, totalRacers, raceAgeMs, lastBlueAt, rng = Math.random } = {}) => {
+  const tables = itemConfig.positionWeights;
+  const N = Number(totalRacers) || 1;
+  const p = N <= 1 ? 0 : (Number(rank) - 1) / (N - 1);
+  const age = Number(raceAgeMs) || 0;
+  const sinceBlue = age - (Number(lastBlueAt) || 0);
+  const weightOf = (row) => {
+    const f = tables.front[row] ?? 0;
+    const m = tables.mid[row] ?? 0;
+    const b = tables.back[row] ?? 0;
+    return p <= 0.5 ? f + (m - f) * (p / 0.5) : m + (b - m) * ((p - 0.5) / 0.5);
+  };
+  const entries = [];
+  for (const row of Object.keys(tables.front)) {
+    if (row === "blue") {
+      if (N < itemConfig.blueRules.minRacers) continue;
+      if (age < itemConfig.raceGraceMs) continue;
+      if (sinceBlue < itemConfig.blueRules.cooldownMs) continue;
+    }
+    if (row === "bullet") {
+      if (age < itemConfig.raceGraceMs) continue;
+      if (p < itemConfig.bulletRules.minP) continue;
+    }
+    if (row === "golden" && age < itemConfig.raceGraceMs) continue;
+    const w = weightOf(row);
+    if (w <= 0) continue;
+    if (row === "legacy") {
+      // Split equally: bomb / skid / wind.
+      for (const sub of ["bomb", "skid", "wind"]) entries.push([sub, w / 3]);
+    } else {
+      entries.push([row, w]);
+    }
   }
-  return entries[entries.length - 1][0];
+  const list = entries.length > 0 ? entries : [["mushroom1", 1]];
+  const total = list.reduce((sum, [, w]) => sum + w, 0);
+  let r = rng() * total;
+  for (const [row, w] of list) {
+    r -= w;
+    if (r < 0) return row;
+  }
+  return list[list.length - 1][0];
+};
+
+const ROW_TO_TYPE = {
+  mushroom1: "mushroom",
+  mushroom3: "mushroom",
+  golden: "golden",
+  red1: "red",
+  red3: "red",
+  blue: "blue",
+  bullet: "bullet",
+  blooper: "blooper",
+  bomb: "bomb",
+  skid: "skid",
+  wind: "wind",
+};
+
+// Row id -> v3 slot (or {bomb:true} for the legacy bomb path, handled by the
+// pickup commit, never stored in carriedItem).
+export const rowToSlot = (row, nowMs = performance.now()) => {
+  switch (row) {
+    case "mushroom3":
+      return { type: "mushroom", variant: "triple", usesLeft: 3 };
+    case "golden":
+      return {
+        type: "golden", variant: "single", usesLeft: -1,
+        windowUntil: nowMs + itemConfig.golden.windowMs,
+      };
+    case "red3":
+      return { type: "red", variant: "triple", usesLeft: 3 };
+    case "bomb":
+      return { bomb: true };
+    case "skid":
+    case "wind":
+      // TODO(decide): skid vs wind wins are both a mini-boost today.
+      return { type: row, variant: "single", usesLeft: 1 };
+    default:
+      return { type: ROW_TO_TYPE[row] || "mushroom", variant: "single", usesLeft: 1 };
+  }
 };
 
 // v3 slot shape: {type, variant, usesLeft} (+windowUntil for golden).

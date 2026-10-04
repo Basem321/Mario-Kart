@@ -42,6 +42,8 @@ export const itemConfig = {
   blueRules: { minRacers: 3, cooldownMs: 30000, maxInFlight: 1 },
   bulletRules: { minP: 0.3 },
   mushroom: { boostMs: 1200, speedMult: 1.5 },
+  // TODO(decide): skid/wind roulette wins are both a mini-boost today.
+  miniBoost: { boostMs: 800, speedMult: 1.5 },
   golden: { windowMs: 7000, boostMs: 1000, minGapMs: 350, speedMult: 1.5, tint: 0xffd23f },
   redShell: {
     speedMult: 1.6, lifetimeMs: 8000, lockRange: 60, lockConeDeg: 50,

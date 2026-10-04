@@ -16,27 +16,40 @@ const ordinalShort = (n) => {
   return `${n}th`;
 };
 
-// Roulette order + icon sources. Triple/golden have no dedicated PNGs yet:
-// triple reuses the mushroom icon (×3 badge added in Task 7), golden reuses
-// it with a gold tint (also Task 7).
+// Roulette rows (v3 §3). PNGs exist for the models; bomb/skid/wind fall back
+// to emoji until real icons land (TODO(decide) with the win effects).
 const ITEM_ICON_ORDER = [
-  "mushroom",
-  "triple",
+  "mushroom1",
+  "mushroom3",
   "golden",
-  "red",
+  "red1",
+  "red3",
   "blue",
   "bullet",
   "blooper",
+  "bomb",
+  "skid",
+  "wind",
 ];
 
 const ITEM_ICON_SRC = {
-  mushroom: "/images/items/mushroom.png",
-  triple: "/images/items/mushroom.png",
+  mushroom1: "/images/items/mushroom.png",
+  mushroom3: "/images/items/mushroom.png",
   golden: "/images/items/mushroom.png",
-  red: "/images/items/red-shell.png",
+  red1: "/images/items/red-shell.png",
+  red3: "/images/items/red-shell.png",
   blue: "/images/items/blue-shell.png",
   bullet: "/images/items/bullet-bill.png",
   blooper: "/images/items/blooper.png",
+  bomb: null,
+  skid: null,
+  wind: null,
+};
+
+const ITEM_ICON_EMOJI = {
+  bomb: "💣",
+  skid: "🛞",
+  wind: "💨",
 };
 
 const GameUI = () => {
@@ -219,12 +232,18 @@ const GameUI = () => {
       {/* Battle-item slot: roulette cycling, then the locked item */}
       {rouletteIcon && (
         <div className="item-slot" aria-live="polite">
-          <img
-            src={ITEM_ICON_SRC[rouletteIcon]}
-            alt={rouletteIcon}
-            draggable={false}
-            className={rouletteIcon === "golden" ? "gold" : ""}
-          />
+          {ITEM_ICON_SRC[rouletteIcon] ? (
+            <img
+              src={ITEM_ICON_SRC[rouletteIcon]}
+              alt={rouletteIcon}
+              draggable={false}
+              className={rouletteIcon === "golden" ? "gold" : ""}
+            />
+          ) : (
+            <span className="item-emoji" role="img" aria-label={rouletteIcon}>
+              {ITEM_ICON_EMOJI[rouletteIcon] ?? "❓"}
+            </span>
+          )}
           {carriedItem?.type === "mushroom" && carriedItem?.variant === "triple" && (
             <span className="item-charges">×{carriedItem.usesLeft}</span>
           )}
