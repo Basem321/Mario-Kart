@@ -74,6 +74,12 @@ export const useGameStore = create((set) => ({
   // every frame for autopilot speed/steering + invincibility.
   bulletRide: null,
   setBulletRide: (bulletRide) => set({ bulletRide }),
+  // Blooper ink: performance.now() timestamp the overlay fades until.
+  blooperUntil: 0,
+  setBlooperUntil: (blooperUntil) => set({ blooperUntil }),
+  // Blooper squirt visual: {x,y,z,until} for the ~1s fire flourish.
+  blooperSquirt: null,
+  setBlooperSquirt: (blooperSquirt) => set({ blooperSquirt }),
   // Timestamp (performance.now) until which the kart is stunned.
   stunUntil: 0,
   setStunUntil: (stunUntil) => set({ stunUntil }),
@@ -85,6 +91,8 @@ export const useGameStore = create((set) => ({
       carriedItem: null,
       activeShells: [],
       bulletRide: null,
+      blooperUntil: 0,
+      blooperSquirt: null,
       itemBoxes: [],
       droppedBombs: [],
       explosions: [],

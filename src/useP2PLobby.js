@@ -210,6 +210,18 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     return { type: "bullet:knock", victimId, rideId };
   }
 
+  if (candidate.type === "blooper:ink") {
+    if (!Array.isArray(candidate.targetIds) || candidate.targetIds.length > 8) {
+      return null;
+    }
+    const targetIds = [];
+    for (const id of candidate.targetIds) {
+      if (typeof id !== "string" || !id) return null;
+      targetIds.push(id.slice(0, 64));
+    }
+    return { type: "blooper:ink", targetIds };
+  }
+
   if (candidate.type === "race:progress") {
     const lapLimit = Math.min(5, Math.max(1, Math.floor(Number(maxLapCount) || 3)));
     const completedLaps = Number(candidate.completedLaps);

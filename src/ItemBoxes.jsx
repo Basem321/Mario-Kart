@@ -4,8 +4,10 @@ import { useGLTF, useTexture, useKeyboardControls } from "@react-three/drei";
 import * as THREE from "three";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
-import { ItemBoxModel, BombModel, RedShellModel, BlueShellModel } from "./models/Pickups";
+import { ItemBoxModel, BombModel, RedShellModel, BlueShellModel, BlooperModel } from "./models/Pickups";
 import {
+  BLOOPER_INK_MS,
+  BLOOPER_SQUIRT_MS,
   BLUE_BLAST_RADIUS,
   BLUE_FLY_HEIGHT,
   BLUE_LIFE_MS,
@@ -18,9 +20,11 @@ import {
   RED_SPEED,
   RED_STUN_MS,
   bulletActive,
+  inkUntil,
   nearestAhead,
   resolveBlueBlast,
   steerShell,
+  targetsAhead,
 } from "./items/homing";
 import { leaderOf } from "./items/itemWeights";
 import {
@@ -246,8 +250,58 @@ const startBulletRide = () => {
   return true;
 };
 
-const endBulletRide = (hop = true) => {
+// Blooper: squirt visual (~1s) + ink event to whoever is ahead right now.
+// Zero targets still consumes the item (mistimed shots whiff).
+const fireBlooper = () => {
   const st = useGameStore.getState();
+  const gm = useGameManager.getState();
+  const playerPos = st.playerPosition;
+  if (!playerPos) return false;
+  const ry = st.playerRotationY || 0;
+  const fx = -Math.sin(ry);
+  const fz = -Math.cos(ry);
+  const me = myRacerId();
+  const gy = st.groundPosition ?? playerPos.y ?? 0;
+
+  let targetIds = [];
+  if (gm.isOnlineRace) {
+    const ors = useOnlineRaceStore.getState();
+    const racers = Object.entries(ors.remoteRacers).map(([id, r]) => ({
+      id,
+      x: Number(r?.x) || 0,
+      z: Number(r?.z) || 0,
+      laps: Number(ors.remoteRaceProgress[id]?.completedLaps) || 0,
+    }));
+    const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
+    targetIds = targetsAhead(
+      { id: me, x: playerPos.x, z: playerPos.z, laps: localCompleted, fx, fz },
+      racers
+    );
+  }
+
+  st.setBlooperSquirt({
+    x: playerPos.x + fx * 1.5,
+    y: gy + 1.2,
+    z: playerPos.z + fz * 1.5,
+    until: performance.now() + BLOOPER_SQUIRT_MS,
+  });
+  st.setCarriedItem(null);
+  publishOnlineRaceEvent({ type: "item:carried", itemType: null });
+  if (targetIds.length > 0) {
+    publishOnlineRaceEvent({ type: "blooper:ink", targetIds });
+  }
+  try {
+    const rawVol = Number(gm.sfxVolume);
+    const splash = new Audio("/music/blooper-splash.mp3");
+    splash.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+    splash.play().catch(() => {});
+  } catch {
+    // ignore — audio must never break firing
+  }
+  return true;
+};
+
+const endBulletRide = (hop = true) => {  const st = useGameStore.getState();
   if (!st.bulletRide) return;
   const ownerId = st.bulletRide.ownerId;
   st.setBulletRide(null);
@@ -535,6 +589,7 @@ export function ItemBoxes() {
   const droppedBombs = useGameStore((s) => s.droppedBombs);
   const explosions = useGameStore((s) => s.explosions);
   const activeShells = useGameStore((s) => s.activeShells);
+  const blooperSquirt = useGameStore((s) => s.blooperSquirt);
   const carriedBomb = useGameStore((s) => s.carriedBomb);
   // Pickups render at the local kart's size so a mini kart meets a mini box.
   const boxVisualScale = useGameStore((s) => s.kartScale) ?? 1;
@@ -612,6 +667,23 @@ export function ItemBoxes() {
               scale: 0.8,
               soft: true,
             });
+          }
+          return;
+        }
+
+        if (event.type === "blooper:ink" && Array.isArray(event.targetIds)) {
+          if (event.targetIds.includes(myRacerId())) {
+            useGameStore.getState().setBlooperUntil(inkUntil(performance.now()));
+            try {
+              const rawVol = Number(useGameManager.getState().sfxVolume);
+              const splash = new Audio("/music/blooper-splash.mp3");
+              splash.volume = Number.isFinite(rawVol)
+                ? Math.max(0, Math.min(1, rawVol))
+                : 0.7;
+              splash.play().catch(() => {});
+            } catch {
+              // ignore — audio must never break the ink effect
+            }
           }
         }
 
@@ -833,6 +905,8 @@ export function ItemBoxes() {
       if (edgeDown) fireBlueShell();
     } else if (heldItem && heldItem.type === "bullet") {
       if (edgeDown) startBulletRide();
+    } else if (heldItem && heldItem.type === "blooper") {
+      if (edgeDown) fireBlooper();
     } else if (
       heldItem &&
       (heldItem.type === "mushroom" ||
@@ -863,8 +937,7 @@ export function ItemBoxes() {
 
     // Bullet Bill expiry (owner ends with a hop) + knock detection.
     // Only the owner's client detects knocks; victims apply on receipt.
-    const ride = st.bulletRide;
-    if (ride && !bulletActive(ride, now)) {
+    const ride = st.bulletRide;    if (ride && !bulletActive(ride, now)) {
       endBulletRide(true);
     } else if (ride && ride.ownerId === myRacerId()) {
       if (knockedRef.current.rideId !== ride.rideId) {
@@ -882,6 +955,11 @@ export function ItemBoxes() {
           });
         }
       }
+    }
+
+    // Blooper squirt visual expires after ~1s.
+    if (st.blooperSquirt && now >= st.blooperSquirt.until) {
+      st.setBlooperSquirt(null);
     }
 
     // Homing shells: every client moves every shell the same way (owner and
@@ -1050,6 +1128,11 @@ export function ItemBoxes() {
           {s.kind === "blue" && <BlueShellModel />}
         </group>
       ))}
+      {blooperSquirt && (
+        <group position={[blooperSquirt.x, blooperSquirt.y, blooperSquirt.z]}>
+          <BlooperModel />
+        </group>
+      )}
       {explosions.map((e) => (
         <ExplosionFx key={e.id} data={e} />
       ))}

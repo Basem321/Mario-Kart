@@ -67,3 +67,10 @@ export function BulletModel(props) {
 }
 
 useGLTF.preload("/models/bullet-bill.glb");
+
+export function BlooperModel(props) {
+  const model = useShadowingScene("/models/blooper.glb");
+  return <primitive object={model} {...props} />;
+}
+
+useGLTF.preload("/models/blooper.glb");

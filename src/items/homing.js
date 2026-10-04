@@ -21,6 +21,33 @@ export const BULLET_KNOCK_RADIUS = 3.5;
 export const bulletActive = (ride, now) =>
   !!ride && Number(ride.until) > Number(now);
 
+// Blooper constants, per spec.
+export const BLOOPER_INK_MS = 6000;
+export const BLOOPER_SQUIRT_MS = 1000;
+
+// Expiry timestamp for a fresh ink hit. Re-fire overwrites (extends), never
+// stacks — there is a single blooperUntil per client.
+export const inkUntil = (now) => Number(now) + BLOOPER_INK_MS;
+
+// Every racer ahead of self (same ahead rule as nearestAhead). Returns ids.
+export const targetsAhead = (self, racers) => {
+  if (!self || !Array.isArray(racers)) return [];
+  const fx = Number(self.fx) || 0;
+  const fz = Number(self.fz) === 0 ? 0 : Number(self.fz) || -1;
+  const out = [];
+  for (const r of racers) {
+    if (!r || r.id === self.id) continue;
+    const laps = Number(r.laps) || 0;
+    const selfLaps = Number(self.laps) || 0;
+    if (laps < selfLaps) continue;
+    const dx = Number(r.x) - Number(self.x);
+    const dz = Number(r.z) - Number(self.z);
+    if (laps === selfLaps && dx * fx + dz * fz <= 0) continue;
+    out.push(r.id);
+  }
+  return out;
+};
+
 const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // Turn dir toward toTarget by at most maxTurn*dt. Returns a unit vector.

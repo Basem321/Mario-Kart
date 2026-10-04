@@ -157,6 +157,11 @@ const GameUI = () => {
 
   const showWind = Boolean(isBoosting || (boostSpeed ?? 0) > 55);
 
+  // Blooper ink: full-screen splat while the timer runs (6s fade via CSS).
+  // Visual only — aiming never changes, exactly like the wind overlay.
+  const blooperUntil = useGameStore((s) => s.blooperUntil);
+  const showInk = blooperUntil > performance.now();
+
   // Battle-item slot: Mario-Kart-style roulette. Icons cycle fast→slow for
   // ROULETTE_MS on every new pickup (visual randomness only — the granted
   // type was already rolled by position weights), then lock on the item.
@@ -198,6 +203,13 @@ const GameUI = () => {
         <div className="wind-vignette" />
         <div className="wind-streaks" />
       </div>
+
+      {/* Blooper ink overlay: splat fades over the 6s window */}
+      {showInk && (
+        <div className="blooper-ink-overlay" aria-hidden="true">
+          <img src="/textures/ink-splat.png" alt="" draggable={false} />
+        </div>
+      )}
 
       {/* Battle-item slot: roulette cycling, then the locked item */}
       {rouletteIcon && (
