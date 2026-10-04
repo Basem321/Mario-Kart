@@ -44,6 +44,7 @@ import {
   publishOnlineRaceEvent,
   subscribeOnlineRaceEvents,
 } from "./onlineRaceTransport";
+import { itemConfig } from "./items/itemConfig.js";
 import { useGameManager } from "./gameManager";
 import { getMergedRoadGeometry, getTrack } from "./tracks";
 import { sampleBlackRoadPoint, trackConfigToTransform } from "./trackRoad";
@@ -52,7 +53,6 @@ const BOX_COUNT = 3;
 const PICKUP_RADIUS = 2.6;
 const BOMB_ARM_SECONDS = 1.0;
 const BOMB_TRIGGER_RADIUS = 3.4;
-const RESPAWN_SECONDS = 25;
 const EXPLOSION_LIFE = 1.05;
 
 const snapRaycaster = new THREE.Raycaster();
@@ -60,6 +60,21 @@ const downDir = new THREE.Vector3(0, -1, 0);
 let nextId = 1;
 
 const bombExplosionId = (bombId) => `explosion-${String(bombId)}`;
+
+// Legacy roll rows map to v3 slots: triple is a mushroom variant, not a type.
+const toSlot = (rolled, nowMs) => {
+  if (rolled === "triple") return makeCarriedItem("mushroom", "triple", nowMs);
+  if (rolled === "golden") return makeCarriedItem("golden", "single", nowMs);
+  return makeCarriedItem(rolled, "single", nowMs);
+};
+
+const publishCarried = (item) => {
+  publishOnlineRaceEvent({
+    type: "item:carried",
+    itemType: item ? item.type : null,
+    variant: item ? item.variant ?? "single" : null,
+  });
+};
 
 // Host owns box positions: publishes the full list; guests apply it.
 const publishBoxes = () => {
@@ -132,10 +147,7 @@ const fireBoostItem = (item) => {
     }
   }
   st.setCarriedItem(r.item);
-  publishOnlineRaceEvent({
-    type: "item:carried",
-    itemType: r.item ? r.item.type : null,
-  });
+  publishCarried(r.item);
 };
 
 const myRacerId = () => useGameManager.getState().onlineSelfId ?? "local";
@@ -683,7 +695,7 @@ export function ItemBoxes() {
                 ? {
                     ...o,
                     active: false,
-                    respawnAt: performance.now() + RESPAWN_SECONDS * 1000,
+                    respawnAt: performance.now() + itemConfig.boxRespawnMs,
                   }
                 : o
             )
@@ -929,11 +941,10 @@ export function ItemBoxes() {
             // Roulette starts: the item commits to the slot only when the
             // spin locks (commit block below) — nothing usable before that.
             st.setRoulette({ type: rollItem(getStanding()), startedAt: now });
-          }
-          st.setItemBoxes(
+          }          st.setItemBoxes(
             st.itemBoxes.map((o) =>
               o.id === b.id
-                ? { ...o, active: false, respawnAt: now + RESPAWN_SECONDS * 1000 }
+                ? { ...o, active: false, respawnAt: now + itemConfig.boxRespawnMs }
                 : o
             )
           );
@@ -1004,10 +1015,10 @@ export function ItemBoxes() {
     // only when the animation stops — never mid-spin.
     const pending = st.roulette;
     if (pending && now - pending.startedAt >= ROULETTE_MS) {
-      const committed = makeCarriedItem(pending.type, now);
+      const committed = toSlot(pending.type, now);
       st.setRoulette(null);
       st.setCarriedItem(committed);
-      publishOnlineRaceEvent({ type: "item:carried", itemType: committed.type });
+      publishCarried(committed);
     }
 
     // Mushroom-family use. Singles/triples fire on edge; golden re-fires
@@ -1029,9 +1040,9 @@ export function ItemBoxes() {
         heldItem.type === "triple" ||
         heldItem.type === "golden")
     ) {
-      if (heldItem.type === "golden" && now >= heldItem.expiresAt) {
+      if (heldItem.type === "golden" && now >= heldItem.windowUntil) {
         st.setCarriedItem(null);
-        publishOnlineRaceEvent({ type: "item:carried", itemType: null });
+        publishCarried(null);
       } else if (heldItem.type === "golden") {
         if (dropDown && now - goldenLastRef.current >= GOLDEN_REUSE_MS) {
           goldenLastRef.current = now;

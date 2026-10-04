@@ -225,12 +225,12 @@ const GameUI = () => {
             draggable={false}
             className={rouletteIcon === "golden" ? "gold" : ""}
           />
-          {carriedItem?.type === "triple" && rouletteIcon === "triple" && (
-            <span className="item-charges">×{carriedItem.charges}</span>
+          {carriedItem?.type === "mushroom" && carriedItem?.variant === "triple" && (
+            <span className="item-charges">×{carriedItem.usesLeft}</span>
           )}
-          {carriedItem?.type === "golden" && rouletteIcon === "golden" && (
+          {carriedItem?.type === "golden" && (
             <span className="item-charges">
-              {Math.max(0, Math.ceil((carriedItem.expiresAt - performance.now()) / 1000))}s
+              {Math.max(0, Math.ceil((carriedItem.windowUntil - performance.now()) / 1000))}s
             </span>
           )}
         </div>

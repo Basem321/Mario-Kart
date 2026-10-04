@@ -8,7 +8,7 @@ import {
 
 test("single mushroom is consumed on use", () => {
   const { item, boosted } = consumeUse({
-    item: { type: "mushroom", charges: 1, expiresAt: 0 },
+    item: { type: "mushroom", variant: "single", usesLeft: 1 },
     now: 1000,
   });
   assert.equal(item, null);
@@ -16,11 +16,11 @@ test("single mushroom is consumed on use", () => {
 });
 
 test("triple counts down 3 to 0 then clears", () => {
-  let item = { type: "triple", charges: 3, expiresAt: 0 };
+  let item = { type: "mushroom", variant: "triple", usesLeft: 3 };
   for (const left of [2, 1]) {
     const r = consumeUse({ item, now: 1000 });
     assert.equal(r.boosted, true);
-    assert.equal(r.item.charges, left);
+    assert.equal(r.item.usesLeft, left);
     item = r.item;
   }
   const last = consumeUse({ item, now: 1000 });
@@ -29,7 +29,7 @@ test("triple counts down 3 to 0 then clears", () => {
 });
 
 test("golden stays usable inside the window, expires after", () => {
-  const item = { type: "golden", charges: -1, expiresAt: 5000 + GOLDEN_MS };
+  const item = { type: "golden", variant: "single", usesLeft: -1, windowUntil: 5000 + GOLDEN_MS };
   const inside = consumeUse({ item, now: 5000 });
   assert.equal(inside.boosted, true);
   assert.equal(inside.item, item);
@@ -38,7 +38,21 @@ test("golden stays usable inside the window, expires after", () => {
   assert.equal(after.item, null);
 });
 
+test("makeCarriedItem builds v3 slot shapes", () => {
+  assert.deepEqual(makeCarriedItem("mushroom", "single"), {
+    type: "mushroom",
+    variant: "single",
+    usesLeft: 1,
+  });
+  assert.deepEqual(makeCarriedItem("mushroom", "triple"), {
+    type: "mushroom",
+    variant: "triple",
+    usesLeft: 3,
+  });
+});
+
 test("makeCarriedItem golden expiry uses the given clock", () => {
-  const golden = makeCarriedItem("golden", 1000);
-  assert.equal(golden.expiresAt, 1000 + GOLDEN_MS);
+  const golden = makeCarriedItem("golden", "single", 1000);
+  assert.equal(golden.windowUntil, 1000 + GOLDEN_MS);
+  assert.equal(golden.usesLeft, -1);
 });

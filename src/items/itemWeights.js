@@ -1,8 +1,10 @@
 // Position-weighted item roulette (pure logic, no React/Three).
 // Consumed by ItemBoxes pickup; each item task relies on these exact shapes.
 
-export const GOLDEN_MS = 7000;
-export const ROULETTE_MS = 1200;
+import { itemConfig } from "./itemConfig.js";
+
+export const GOLDEN_MS = itemConfig.golden.windowMs;
+export const ROULETTE_MS = itemConfig.roulette.durationMs;
 
 const SOLO_TABLE = [
   ["mushroom", 70],
@@ -78,27 +80,53 @@ export const rollItem = (opts) => {
   return entries[entries.length - 1][0];
 };
 
-// Slot shape shared by every item task: {type, charges, expiresAt}.
-// nowMs MUST be performance.now() (same clock as stunUntil and every expiry
-// check). The default is the performance clock — never Date.now().
-export const makeCarriedItem = (type, nowMs = performance.now()) => {
-  if (type === "triple") return { type, charges: 3, expiresAt: 0 };
-  if (type === "golden")
-    return { type, charges: -1, expiresAt: nowMs + GOLDEN_MS };
-  return { type, charges: 1, expiresAt: 0 };
+// v3 slot shape: {type, variant, usesLeft} (+windowUntil for golden).
+// One-time adapter for v2-shaped slots ({type: 'triple', charges}).
+export const migrateSlot = (old) => {
+  if (!old || typeof old !== "object") return null;
+  if (old.variant === "single" || old.variant === "triple") return old;
+  if (old.type === "triple") {
+    return {
+      type: "mushroom",
+      variant: "triple",
+      usesLeft: Number.isInteger(old.charges) ? old.charges : 3,
+    };
+  }
+  if (old.type === "golden") {
+    return {
+      type: "golden",
+      variant: "single",
+      usesLeft: -1,
+      windowUntil: Number(old.expiresAt) || 0,
+    };
+  }
+  if (typeof old.type === "string") {
+    return { type: old.type, variant: "single", usesLeft: 1 };
+  }
+  return null;
 };
 
-// Consume one use of a carried item. Clock must be performance.now()
-// (same clock as stunUntil) — see plan Review Focus.
+// Slot shape shared by every item task: {type, variant, usesLeft}.
+// Golden carries windowUntil instead of a count (usesLeft -1 sentinel).
+// nowMs MUST be performance.now() — never Date.now().
+export const makeCarriedItem = (type, variant = "single", nowMs = performance.now()) => {
+  if (variant === "triple")
+    return { type, variant, usesLeft: 3 };
+  if (type === "golden")
+    return { type, variant: "single", usesLeft: -1, windowUntil: nowMs + GOLDEN_MS };
+  return { type, variant: "single", usesLeft: 1 };
+};
+
+// Consume one use of a carried item. Clock must be performance.now().
 export const consumeUse = ({ item, now = 0 } = {}) => {
   if (!item || typeof item !== "object") return { item: null, boosted: false };
   if (item.type === "golden") {
-    if (now < item.expiresAt) return { item, boosted: true };
+    if (now < item.windowUntil) return { item, boosted: true };
     return { item: null, boosted: false };
   }
-  if (item.type === "triple") {
-    const left = (Number(item.charges) || 1) - 1;
-    if (left > 0) return { item: { ...item, charges: left }, boosted: true };
+  if (item.variant === "triple") {
+    const left = (Number(item.usesLeft) || 1) - 1;
+    if (left > 0) return { item: { ...item, usesLeft: left }, boosted: true };
     return { item: null, boosted: true };
   }
   if (item.type === "mushroom") return { item: null, boosted: true };

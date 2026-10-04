@@ -87,35 +87,36 @@ const RemoteKart = ({ player, playerIndex }) => {
               <BombModel />
             </group>
           )}
-          {(remoteState?.carriedItemType === "mushroom" ||
-            remoteState?.carriedItemType === "golden") && (
-            <group position={[0, 1.0, -1.2]} scale={0.22}>
-              <MushroomModel gold={remoteState.carriedItemType === "golden"} />
-            </group>
-          )}
-          {remoteState?.carriedItemType === "triple" && (
+          {(remoteState?.carriedItem?.type === "mushroom" ||
+            remoteState?.carriedItem?.type === "golden") &&
+            remoteState?.carriedItem?.variant !== "triple" && (
+              <group position={[0, 1.0, -1.2]}>
+                <MushroomModel gold={remoteState.carriedItem.type === "golden"} />
+              </group>
+            )}
+          {remoteState?.carriedItem?.type === "mushroom" &&
+            remoteState?.carriedItem?.variant === "triple" && (
+              <group position={[0, 1.0, -1.2]}>
+                {[90, 210, 330].map((deg) => {
+                  const a = (deg * Math.PI) / 180;
+                  return (
+                    <group
+                      key={deg}
+                      position={[Math.cos(a) * 1.1, 0, Math.sin(a) * 1.1]}
+                    >
+                      <MushroomModel />
+                    </group>
+                  );
+                })}
+              </group>
+            )}
+          {remoteState?.carriedItem?.type === "red" && (
             <group position={[0, 1.0, -1.2]}>
-              {[90, 210, 330].map((deg) => {
-                const a = (deg * Math.PI) / 180;
-                return (
-                  <group
-                    key={deg}
-                    position={[Math.cos(a) * 1.1, 0, Math.sin(a) * 1.1]}
-                    scale={0.22}
-                  >
-                    <MushroomModel />
-                  </group>
-                );
-              })}
-            </group>
-          )}
-          {remoteState?.carriedItemType === "red" && (
-            <group position={[0, 1.0, -1.2]} scale={0.5}>
               <RedShellModel />
             </group>
           )}
-          {remoteState?.carriedItemType === "blue" && (
-            <group position={[0, 1.0, -1.2]} scale={0.5}>
+          {remoteState?.carriedItem?.type === "blue" && (
+            <group position={[0, 1.0, -1.2]}>
               <BlueShellModel />
             </group>
           )}
@@ -155,7 +156,7 @@ const RemoteKart = ({ player, playerIndex }) => {
       </group>
       {remoteState?.bulletRide && (
         <group rotation-y={Math.PI}>
-          <BulletModel scale={2.4} position={[0, 0.1, 0]} />
+          <BulletModel position={[0, 0.1, 0]} />
         </group>
       )}
     </group>

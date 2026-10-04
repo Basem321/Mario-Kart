@@ -135,13 +135,18 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
   if (candidate.type === "item:carried") {
     const itemType =
       candidate.itemType == null ? null : String(candidate.itemType).slice(0, 20);
+    const variant =
+      candidate.variant == null ? null : String(candidate.variant).slice(0, 10);
     if (
       itemType !== null &&
-      !["mushroom", "triple", "golden", "red", "blue", "bullet", "blooper"].includes(itemType)
+      !["mushroom", "golden", "red", "blue", "bullet", "blooper", "bomb"].includes(itemType)
     ) {
       return null;
     }
-    return { type: "item:carried", itemType };
+    if (variant !== null && variant !== "single" && variant !== "triple") {
+      return null;
+    }
+    return { type: "item:carried", itemType, variant };
   }
 
   if (candidate.type === "item:boxes") {
@@ -372,7 +377,12 @@ export const useP2PLobby = () => {
     }
 
     if (event.type === "item:carried") {
-      useOnlineRaceStore.getState().setRemoteRacerCarriedItem(playerId, event.itemType);
+      useOnlineRaceStore.getState().setRemoteRacerCarriedItem(
+        playerId,
+        event.itemType
+          ? { type: event.itemType, variant: event.variant ?? "single" }
+          : null
+      );
     }
 
     if (event.type === "bullet:start") {

@@ -47,13 +47,13 @@ export const useOnlineRaceStore = create((set) => ({
         },
       },
     })),
-  setRemoteRacerCarriedItem: (playerId, itemType) =>
+  setRemoteRacerCarriedItem: (playerId, item) =>
     set((state) => ({
       remoteRacers: {
         ...state.remoteRacers,
         [playerId]: {
           ...state.remoteRacers[playerId],
-          carriedItemType: itemType ?? null,
+          carriedItem: item ?? null,
         },
       },
     })),

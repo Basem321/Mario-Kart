@@ -87,20 +87,20 @@ test("golden window is seven seconds", () => {
 });
 
 test("makeCarriedItem builds slot shapes", () => {
-  assert.deepEqual(makeCarriedItem("mushroom"), {
+  assert.deepEqual(makeCarriedItem("mushroom", "single"), {
     type: "mushroom",
-    charges: 1,
-    expiresAt: 0,
+    variant: "single",
+    usesLeft: 1,
   });
-  assert.deepEqual(makeCarriedItem("triple"), {
-    type: "triple",
-    charges: 3,
-    expiresAt: 0,
+  assert.deepEqual(makeCarriedItem("mushroom", "triple"), {
+    type: "mushroom",
+    variant: "triple",
+    usesLeft: 3,
   });
   const before = 5000;
-  const golden = makeCarriedItem("golden", before);
+  const golden = makeCarriedItem("golden", "single", before);
   assert.equal(golden.type, "golden");
-  assert.equal(golden.expiresAt, before + GOLDEN_MS);
+  assert.equal(golden.windowUntil, before + GOLDEN_MS);
 });
 
 test("roulette starts at first icon and freezes after lock", () => {

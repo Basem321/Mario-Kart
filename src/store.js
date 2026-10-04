@@ -53,8 +53,8 @@ export const useGameStore = create((set) => ({
   setKartScale: (kartScale) => set({ kartScale }),
   carriedBomb: false,
   setCarriedBomb: (carriedBomb) => set({ carriedBomb }),
-  // Battle-items slot (Task 1 foundation): one slot shared with the bomb.
-  // {type: mushroom|triple|golden|red|blue|bullet|blooper, charges, expiresAt}
+  // Battle-items slot (v3): {type, variant, usesLeft} (+windowUntil golden).
+  // One slot shared with the bomb.
   carriedItem: null,
   setCarriedItem: (carriedItem) => set({ carriedItem }),
   // Roulette spin: {type, startedAt} while icons cycle. Commits to

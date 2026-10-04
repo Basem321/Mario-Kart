@@ -33,9 +33,9 @@ test("knock applies only from the sender's live ride", () => {
 });
 
 test("makeCarriedItem defaults to the performance clock", () => {
-  const golden = makeCarriedItem("golden");
+  const golden = makeCarriedItem("golden", "single");
   assert.ok(
-    golden.expiresAt < Date.now(),
-    `golden expiry ${golden.expiresAt} must be on the performance.now clock, not Date.now`
+    golden.windowUntil < Date.now(),
+    `golden windowUntil ${golden.windowUntil} must be on the performance.now clock, not Date.now`
   );
 });

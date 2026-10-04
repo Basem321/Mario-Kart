@@ -135,16 +135,15 @@ export function Kart({
   const carriedItem = useGameStore((state) => state.carriedItem);
   const heldMushroom =
     carriedItem &&
-    (carriedItem.type === "mushroom" ||
-      carriedItem.type === "triple" ||
-      carriedItem.type === "golden")
+    (carriedItem.type === "mushroom" || carriedItem.type === "golden")
       ? carriedItem.type
       : null;
+  const heldTriple = carriedItem?.type === "mushroom" && carriedItem?.variant === "triple";
   const selectedDriver = useGameManager((state) => state.selectedDriver);
   // Throw flourish: 0.25s lean punch whenever a carried slot empties (item
   // used/consumed). Driver GLBs have no animation clips, so this procedural
   // nudge on rotation.x (physics only drives .y) is the throw animation.
-  const slotSignature = `${carriedBomb ? "b" : ""}:${carriedItem?.type ?? ""}:${carriedItem?.charges ?? ""}`;
+  const slotSignature = `${carriedBomb ? "b" : ""}:${carriedItem?.type ?? ""}:${carriedItem?.usesLeft ?? ""}`;
   const prevSlotRef = useRef(slotSignature);
   useEffect(() => {
     const prev = prevSlotRef.current;
@@ -692,7 +691,7 @@ export function Kart({
       <group key={progress} ref={groupRef} dispose={null}>
         {myBulletRide && (
           <group rotation-y={Math.PI}>
-            <BulletModel scale={2.4} position={[0, 0.6, 0]} />
+            <BulletModel position={[0, 0.6, 0]} />
           </group>
         )}
         <group rotation-y={Math.PI} visible={!myBulletRide}>
@@ -760,12 +759,12 @@ export function Kart({
             {/* Carried mushroom-family item (same mount point as the bomb).
                 Mushroom GLB runs large — 0.22 keeps it kart-proportioned.
                 Triple renders three small ones circling the kart. */}
-            {heldMushroom && heldMushroom !== "triple" && (
-              <group position={[0, 1.0, -1.2]} scale={0.22}>
+            {heldMushroom && !heldTriple && (
+              <group position={[0, 1.0, -1.2]} scale={1}>
                 <MushroomModel gold={heldMushroom === "golden"} />
               </group>
             )}
-            {heldMushroom === "triple" && (
+            {heldTriple && (
               <group position={[0, 1.0, -1.2]}>
                 {[90, 210, 330].map((deg) => {
                   const a = (deg * Math.PI) / 180;
@@ -773,7 +772,6 @@ export function Kart({
                     <group
                       key={deg}
                       position={[Math.cos(a) * 1.1, 0, Math.sin(a) * 1.1]}
-                      scale={0.22}
                     >
                       <MushroomModel />
                     </group>
@@ -783,13 +781,13 @@ export function Kart({
             )}
             {/* Carried red shell */}
             {carriedItem?.type === "red" && (
-              <group position={[0, 1.0, -1.2]} scale={0.5}>
+              <group position={[0, 1.0, -1.2]}>
                 <RedShellModel />
               </group>
             )}
             {/* Carried blue shell */}
             {carriedItem?.type === "blue" && (
-              <group position={[0, 1.0, -1.2]} scale={0.5}>
+              <group position={[0, 1.0, -1.2]}>
                 <BlueShellModel />
               </group>
             )}
