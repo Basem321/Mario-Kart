@@ -37,6 +37,16 @@ export const useOnlineRaceStore = create((set) => ({
         },
       },
     })),
+  setRemoteRacerBulletRide: (playerId, ride) =>
+    set((state) => ({
+      remoteRacers: {
+        ...state.remoteRacers,
+        [playerId]: {
+          ...state.remoteRacers[playerId],
+          bulletRide: ride ?? null,
+        },
+      },
+    })),
   setRemoteRaceProgress: (playerId, progress) =>
     set((state) => {
       const previous = state.remoteRaceProgress[playerId];

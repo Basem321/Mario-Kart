@@ -17,7 +17,8 @@ import { Sparks } from "../particles/sparks/Sparks.jsx";
 import { Skate } from "../particles/drift/Skate/Skate.jsx";
 import { Trails } from "../particles/sparks/Trails.jsx";
 import { Driver } from "./Driver.jsx";
-import { BombModel, MushroomModel, RedShellModel, BlueShellModel } from "./Pickups.jsx";
+import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel } from "./Pickups.jsx";
+import { bulletActive } from "../items/homing.js";
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
 const upRaycaster = new Raycaster();
@@ -139,6 +140,16 @@ export function Kart({
       ? carriedItem.type
       : null;
   const selectedDriver = useGameManager((state) => state.selectedDriver);
+  // Bullet Bill: the kart hides inside the bullet envelope for the ride.
+  // Owner-only check (same as PlayerController): a remote ride never hides us.
+  const bulletRide = useGameStore((state) => state.bulletRide);
+  const onlineSelfId = useGameManager((state) => state.onlineSelfId);
+  const myBulletRide =
+    bulletRide &&
+    bulletRide.ownerId === (onlineSelfId ?? "local") &&
+    bulletActive(bulletRide, performance.now())
+      ? bulletRide
+      : null;
   const starsTex = useTexture("/textures/stars.png");
   const starsGroupRef = useRef(null);
   const { scene } = useThree();
@@ -661,7 +672,12 @@ export function Kart({
       {/* <pointLight intensity={2000} position={[0, 10, 0]}/> */}
 
       <group key={progress} ref={groupRef} dispose={null}>
-        <group rotation-y={Math.PI}>
+        {myBulletRide && (
+          <group rotation-y={Math.PI}>
+            <BulletModel scale={2.4} position={[0, 0.6, 0]} />
+          </group>
+        )}
+        <group rotation-y={Math.PI} visible={!myBulletRide}>
           <group ref={leftParticles}>
             <Glow ref={glow1Ref} driftDirection={driftDirection} />
             <Sparks ref={sparksLeftRef} />
@@ -681,7 +697,7 @@ export function Kart({
           </group>
         </group>
 
-        <group position-y={-0.5} scale={1} rotation-y={Math.PI}>
+        <group position-y={-0.5} scale={1} rotation-y={Math.PI} visible={!myBulletRide}>
           <mesh
             castShadow
             receiveShadow

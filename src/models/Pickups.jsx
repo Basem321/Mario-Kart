@@ -60,3 +60,10 @@ export function BlueShellModel(props) {
 }
 
 useGLTF.preload("/models/blue-shell.glb");
+
+export function BulletModel(props) {
+  const model = useShadowingScene("/models/bullet-bill.glb");
+  return <primitive object={model} {...props} />;
+}
+
+useGLTF.preload("/models/bullet-bill.glb");

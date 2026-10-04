@@ -6,7 +6,7 @@ import { getOnlineSpawnSlot } from "./constants";
 import { getTrack } from "./tracks";
 import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
-import { BombModel, MushroomModel, RedShellModel, BlueShellModel } from "./models/Pickups";
+import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel } from "./models/Pickups";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 
 const smoothAngle = (from, to, lambda, delta) => {
@@ -57,7 +57,7 @@ const RemoteKart = ({ player, playerIndex }) => {
       scale={spawnSlot.kartScale ?? 1}
       name={`remote-racer-${player.id}`}
     >
-      <group ref={visualRef} position-y={-0.5} rotation-y={Math.PI}>
+      <group ref={visualRef} position-y={-0.5} rotation-y={Math.PI} visible={!remoteState?.bulletRide}>
         <mesh castShadow receiveShadow geometry={nodes.body.geometry} material={materials.m_Body}>
           <group position={[-0.77, 0, -0.7]} />
           <group position={[0.77, 0, -0.7]} />
@@ -138,6 +138,11 @@ const RemoteKart = ({ player, playerIndex }) => {
           layers={1}
         />
       </group>
+      {remoteState?.bulletRide && (
+        <group rotation-y={Math.PI}>
+          <BulletModel scale={2.4} position={[0, 0.1, 0]} />
+        </group>
+      )}
     </group>
   );
 };

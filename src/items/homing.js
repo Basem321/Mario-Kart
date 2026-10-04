@@ -13,6 +13,14 @@ export const BLUE_FLY_HEIGHT = 6;
 export const BLUE_SPEED = 60;
 export const BLUE_LIFE_MS = 12000;
 
+// Bullet Bill constants, per spec.
+export const BULLET_SPEED = 124; // ~2x pad boost speed (62)
+export const BULLET_RIDE_MS = 5000;
+export const BULLET_KNOCK_RADIUS = 3.5;
+
+export const bulletActive = (ride, now) =>
+  !!ride && Number(ride.until) > Number(now);
+
 const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // Turn dir toward toTarget by at most maxTurn*dt. Returns a unit vector.

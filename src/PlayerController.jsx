@@ -18,6 +18,7 @@ import {
   KART_RADIUS,
   WALL_SKIN,
 } from "./collision";
+import { bulletActive, BULLET_SPEED } from "./items/homing";
 import { findNearestBlackRoadPoint3D, getHighestRoadYAt, trackConfigToTransform } from "./trackRoad";
 import { getTrack, getMergedRoadGeometry } from "./tracks";
 
@@ -44,6 +45,8 @@ export const PlayerController = () => {
   const jumpOffset = useRef(0);
   const driftDirection = useRef(driftDirections.none);
   const driftPower = useRef(0);
+  // Bullet Bill autopilot heading cache (recomputed at 10Hz, damped per frame).
+  const bulletSteerRef = useRef({ heading: 0, lastUpdate: 0, init: false });
   const turbo = useRef(0);
   const isJumping = useRef(false);
   const backWheelOffset = useRef({
@@ -92,6 +95,18 @@ export const PlayerController = () => {
     if (!list || list.length === 0) return;
     const latest = list[list.length - 1];
     if (latest.id === lastExplosionIdRef.current) return;
+    lastExplosionIdRef.current = latest.id;
+    // Soft bursts render only (red-shell hits carry their own precise stun).
+    if (latest.soft) return;
+    // Bullet Bill ride: invincible, blasts wash over the bullet (owner only).
+    const ride0 = st.bulletRide;
+    if (
+      ride0 &&
+      ride0.ownerId === (useGameManager.getState().onlineSelfId ?? "local") &&
+      bulletActive(ride0, performance.now())
+    ) {
+      return;
+    }
     lastExplosionIdRef.current = latest.id;
     const dx = player.position.x - latest.x;
     const dz = player.position.z - latest.z;
@@ -497,6 +512,20 @@ export const PlayerController = () => {
   };
 
   function updateSpeed(forward, backward, delta) {
+    // Bullet Bill: full-throttle autopilot, invincible (skips the stun gate
+    // below so nothing slows the ride). Owner-only: a remote racer's ride
+    // must never drive the local kart.
+    const ride = useGameStore.getState().bulletRide;
+    const myRide =
+      ride &&
+      ride.ownerId === (useGameManager.getState().onlineSelfId ?? "local") &&
+      bulletActive(ride, performance.now());
+    if (myRide) {
+      speedRef.current = BULLET_SPEED * kartScale;
+      setSpeed(speedRef.current);
+      setIsBoosting(true);
+      return;
+    }
     // Stunned by an explosion: no throttle, speed collapses.
     if (performance.now() < useGameStore.getState().stunUntil) {
       speedRef.current = damp(speedRef.current, 0, 6, delta);
@@ -551,6 +580,41 @@ export const PlayerController = () => {
   }
 
   function rotatePlayer(left, right, player, joystickX, delta) {
+    // Bullet Bill autopilot: steer toward road-center-ahead. The road query
+    // walks every triangle, so the heading recomputes at 10Hz and damps
+    // every frame (no per-frame query cost). Owner-only, like updateSpeed.
+    const ride2 = useGameStore.getState().bulletRide;
+    if (
+      ride2 &&
+      ride2.ownerId === (useGameManager.getState().onlineSelfId ?? "local") &&
+      bulletActive(ride2, performance.now())
+    ) {
+      const nowB = performance.now();
+      const steer = bulletSteerRef.current;
+      if (!steer.init || nowB - steer.lastUpdate > 100) {
+        steer.init = true;
+        steer.lastUpdate = nowB;
+        const fx = -Math.sin(player.rotation.y);
+        const fz = -Math.cos(player.rotation.y);
+        const road = blackRoadGeometry
+          ? findNearestBlackRoadPoint3D(
+              blackRoadGeometry,
+              player.position.x + fx * 10,
+              player.position.y,
+              player.position.z + fz * 10,
+              roadTransform
+            )
+          : null;
+        if (road) {
+          steer.heading = Math.atan2(
+            -(road.x - player.position.x),
+            -(road.z - player.position.z)
+          );
+        }
+      }
+      player.rotation.y = damp(player.rotation.y, steer.heading, 3.5, delta);
+      return;
+    }
     // Apply time trial mode handling adjustments
     const isTimeTrialMode = useGameManager.getState().isTimeTrial;
     const handlingFactor = isTimeTrialMode ? 1.5 : 1.0;

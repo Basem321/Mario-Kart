@@ -3,6 +3,7 @@ import { Peer } from "peerjs";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 import { receiveOnlineRaceEvent, setOnlineRaceTransport } from "./onlineRaceTransport";
 import { DEFAULT_TRACK_ID, isKnownTrackId } from "./tracks";
+import { BULLET_RIDE_MS } from "./items/homing";
 
 const LOBBY_ID_PREFIX = "mario-kart-3js-";
 const LOBBY_CODE_LENGTH = 6;
@@ -189,6 +190,26 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     return { type: "blue:explode", ...position, fizzle: Boolean(candidate.fizzle) };
   }
 
+  if (candidate.type === "bullet:start") {
+    const playerId = String(candidate.playerId ?? "").slice(0, 64);
+    const rideId = String(candidate.rideId ?? "").slice(0, 120);
+    if (!playerId || !rideId) return null;
+    return { type: "bullet:start", playerId, rideId };
+  }
+
+  if (candidate.type === "bullet:end") {
+    const playerId = String(candidate.playerId ?? "").slice(0, 64);
+    if (!playerId) return null;
+    return { type: "bullet:end", playerId };
+  }
+
+  if (candidate.type === "bullet:knock") {
+    const victimId = String(candidate.victimId ?? "").slice(0, 64);
+    const rideId = String(candidate.rideId ?? "").slice(0, 120);
+    if (!victimId || !rideId) return null;
+    return { type: "bullet:knock", victimId, rideId };
+  }
+
   if (candidate.type === "race:progress") {
     const lapLimit = Math.min(5, Math.max(1, Math.floor(Number(maxLapCount) || 3)));
     const completedLaps = Number(candidate.completedLaps);
@@ -327,6 +348,18 @@ export const useP2PLobby = () => {
 
     if (event.type === "item:carried") {
       useOnlineRaceStore.getState().setRemoteRacerCarriedItem(playerId, event.itemType);
+    }
+
+    if (event.type === "bullet:start") {
+      useOnlineRaceStore.getState().setRemoteRacerBulletRide(event.playerId, {
+        rideId: event.rideId,
+        ownerId: event.playerId,
+        until: performance.now() + BULLET_RIDE_MS,
+      });
+    }
+
+    if (event.type === "bullet:end") {
+      useOnlineRaceStore.getState().setRemoteRacerBulletRide(event.playerId, null);
     }
 
     if (event.type === "race:progress") {

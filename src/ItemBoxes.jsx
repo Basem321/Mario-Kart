@@ -10,11 +10,14 @@ import {
   BLUE_FLY_HEIGHT,
   BLUE_LIFE_MS,
   BLUE_SPEED,
+  BULLET_KNOCK_RADIUS,
+  BULLET_RIDE_MS,
   RED_HIT_RADIUS,
   RED_LIFE_MS,
   RED_MAX_TURN,
   RED_SPEED,
   RED_STUN_MS,
+  bulletActive,
   nearestAhead,
   resolveBlueBlast,
   steerShell,
@@ -110,14 +113,14 @@ const shellHitFxId = (shellId) => `shellhit-${String(shellId)}`;
 
 // Stun the LOCAL kart from a shell hit + small burst. Remote victims apply
 // this themselves when their shell:hit arrives (owner never stuns remotes).
-const applyShellStun = ({ x, y, z, shellId, scale = 0.6 }) => {
+const applyShellStun = ({ x, y, z, shellId, scale = 0.6, soft = false, stun = true }) => {
   const st = useGameStore.getState();
-  st.setStunUntil(performance.now() + RED_STUN_MS);
+  if (stun) st.setStunUntil(performance.now() + RED_STUN_MS);
   const fxId = shellHitFxId(shellId);
   if (!st.explosions.some((e) => e.id === fxId)) {
     st.setExplosions([
       ...st.explosions,
-      { id: fxId, x, y, z, scale, at: performance.now() },
+      { id: fxId, x, y, z, scale, soft, at: performance.now() },
     ]);
   }
   try {
@@ -145,7 +148,7 @@ const onRemoteShellHit = (event) => {
   const shell = st.activeShells.find((s) => s.id === shellId);
   st.setActiveShells(st.activeShells.filter((s) => s.id !== shellId));
   if (String(event?.victimId ?? "") === myRacerId() && shell) {
-    applyShellStun({ x: shell.x, y: shell.y, z: shell.z, shellId });
+    applyShellStun({ x: shell.x, y: shell.y, z: shell.z, shellId, soft: true });
   }
 };
 
@@ -216,6 +219,45 @@ const fireRedShell = () => {
     // ignore — audio must never break firing
   }
   return true;
+};
+
+// Bullet Bill: 5s self-drive. Start clears the slot; end adds a hop.
+// Only the owner's client runs knock detection (victims apply on receipt).
+const startBulletRide = () => {
+  const st = useGameStore.getState();
+  const me = myRacerId();
+  const ride = {
+    rideId: `ride-${me}-${Date.now().toString(36)}`,
+    ownerId: me,
+    until: performance.now() + BULLET_RIDE_MS,
+  };
+  st.setBulletRide(ride);
+  st.setCarriedItem(null);
+  publishOnlineRaceEvent({ type: "item:carried", itemType: null });
+  publishOnlineRaceEvent({ type: "bullet:start", rideId: ride.rideId, playerId: me });
+  try {
+    const rawVol = Number(useGameManager.getState().sfxVolume);
+    const launch = new Audio("/music/bullet-launch.mp3");
+    launch.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+    launch.play().catch(() => {});
+  } catch {
+    // ignore — audio must never break the ride
+  }
+  return true;
+};
+
+const endBulletRide = (hop = true) => {
+  const st = useGameStore.getState();
+  if (!st.bulletRide) return;
+  const ownerId = st.bulletRide.ownerId;
+  st.setBulletRide(null);
+  publishOnlineRaceEvent({ type: "bullet:end", playerId: ownerId });
+  if (hop) {
+    const scale = useGameStore.getState().kartScale ?? 1;
+    window.dispatchEvent(
+      new CustomEvent("mario-kart:launch-jump", { detail: { launchVy: 6 * scale } })
+    );
+  }
 };
 
 let blueAlarmAudio = null;
@@ -484,6 +526,7 @@ export function ItemBoxes() {
   const boxNodesRef = useRef(new Map());
   const dropHeldRef = useRef(false);
   const goldenLastRef = useRef(0);
+  const knockedRef = useRef({ rideId: null, ids: new Set() });
   const tickAudioRef = useRef(null);
   const blackRoadGeometry = getMergedRoadGeometry(nodes, activeTrack);
   const roadTransform = trackConfigToTransform(activeTrack);
@@ -537,6 +580,39 @@ export function ItemBoxes() {
           // Alarm loops ONLY on the targeted client, per spec.
           if (event.leaderId === myRacerId()) startBlueAlarm();
           return;
+        }
+
+        if (event.type === "bullet:start" && event.playerId) {
+          useOnlineRaceStore
+            .getState()
+            .setRemoteRacerBulletRide(event.playerId, {
+              rideId: event.rideId,
+              ownerId: event.playerId,
+              until: performance.now() + BULLET_RIDE_MS,
+            });
+          return;
+        }
+
+        if (event.type === "bullet:end" && event.playerId) {
+          const cur = useOnlineRaceStore.getState().remoteRacers[event.playerId];
+          if (cur?.bulletRide) {
+            useOnlineRaceStore.getState().setRemoteRacerBulletRide(event.playerId, null);
+          }
+          return;
+        }
+
+        if (event.type === "bullet:knock" && event.victimId) {
+          if (event.victimId === myRacerId()) {
+            const p = useGameStore.getState().playerPosition;
+            applyShellStun({
+              x: p?.x ?? 0,
+              y: p?.y ?? 0,
+              z: p?.z ?? 0,
+              shellId: `knock-${event.rideId}`,
+              scale: 0.8,
+              soft: true,
+            });
+          }
         }
 
         if (event.type === "blue:explode" && Number.isFinite(event.x)) {
@@ -755,6 +831,8 @@ export function ItemBoxes() {
       if (edgeDown) fireRedShell();
     } else if (heldItem && heldItem.type === "blue") {
       if (edgeDown) fireBlueShell();
+    } else if (heldItem && heldItem.type === "bullet") {
+      if (edgeDown) startBulletRide();
     } else if (
       heldItem &&
       (heldItem.type === "mushroom" ||
@@ -781,6 +859,29 @@ export function ItemBoxes() {
       if (bombAgeMs(bomb, now) < BOMB_ARM_SECONDS * 1000) continue;
       const d = Math.hypot(px - bomb.x, pz - bomb.z);
       if (d < triggerRadius) triggerBombExplosion(bomb, { broadcast: true });
+    }
+
+    // Bullet Bill expiry (owner ends with a hop) + knock detection.
+    // Only the owner's client detects knocks; victims apply on receipt.
+    const ride = st.bulletRide;
+    if (ride && !bulletActive(ride, now)) {
+      endBulletRide(true);
+    } else if (ride && ride.ownerId === myRacerId()) {
+      if (knockedRef.current.rideId !== ride.rideId) {
+        knockedRef.current = { rideId: ride.rideId, ids: new Set() };
+      }
+      const orsRide = useOnlineRaceStore.getState();
+      for (const [id, r] of Object.entries(orsRide.remoteRacers)) {
+        const d = Math.hypot(px - (Number(r?.x) || 0), pz - (Number(r?.z) || 0));
+        if (d < BULLET_KNOCK_RADIUS && !knockedRef.current.ids.has(id)) {
+          knockedRef.current.ids.add(id);
+          publishOnlineRaceEvent({
+            type: "bullet:knock",
+            rideId: ride.rideId,
+            victimId: id,
+          });
+        }
+      }
     }
 
     // Homing shells: every client moves every shell the same way (owner and
@@ -899,7 +1000,11 @@ export function ItemBoxes() {
               z: moved.z,
             });
             if (hit.id === me) {
-              applyShellStun({ x: moved.x, y: moved.y, z: moved.z, shellId: shell.id });
+              applyShellStun({ x: moved.x, y: moved.y, z: moved.z, shellId: shell.id, soft: true });
+            } else {
+              // Owner-side visual only (soft + no stun — the victim applies
+              // their own precise stun on receipt).
+              applyShellStun({ x: moved.x, y: moved.y, z: moved.z, shellId: shell.id, soft: true, stun: false });
             }
             continue;
           }
