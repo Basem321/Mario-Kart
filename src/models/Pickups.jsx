@@ -53,3 +53,10 @@ export function RedShellModel(props) {
 }
 
 useGLTF.preload("/models/red-shell.glb");
+
+export function BlueShellModel(props) {
+  const model = useShadowingScene("/models/blue-shell.glb");
+  return <primitive object={model} {...props} />;
+}
+
+useGLTF.preload("/models/blue-shell.glb");

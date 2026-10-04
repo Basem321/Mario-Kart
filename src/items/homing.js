@@ -7,6 +7,12 @@ export const RED_LIFE_MS = 6000;
 export const RED_SPEED = 93; // 1.5x pad boost speed (62), per spec
 export const RED_STUN_MS = 1600;
 
+// Blue shell constants, per spec.
+export const BLUE_BLAST_RADIUS = 8;
+export const BLUE_FLY_HEIGHT = 6;
+export const BLUE_SPEED = 60;
+export const BLUE_LIFE_MS = 12000;
+
 const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // Turn dir toward toTarget by at most maxTurn*dt. Returns a unit vector.
@@ -28,6 +34,18 @@ export const steerShell = ({ dir, toTarget, maxTurn, dt } = {}) => {
   );
   const next = cur + step;
   return { x: Math.sin(next), z: Math.cos(next) };
+};
+
+// Ids of racers within the blue blast radius of {x, z}.
+export const resolveBlueBlast = (racers, blast, radius = BLUE_BLAST_RADIUS) => {
+  if (!Array.isArray(racers) || !blast) return [];
+  const r = Number(radius) || 0;
+  return racers
+    .filter(
+      (v) =>
+        v && Math.hypot(Number(v.x) - blast.x, Number(v.z) - blast.z) <= r
+    )
+    .map((v) => v.id);
 };
 
 // Closest opponent ahead: higher lap count wins outright, otherwise must be

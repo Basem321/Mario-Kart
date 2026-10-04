@@ -17,7 +17,7 @@ import { Sparks } from "../particles/sparks/Sparks.jsx";
 import { Skate } from "../particles/drift/Skate/Skate.jsx";
 import { Trails } from "../particles/sparks/Trails.jsx";
 import { Driver } from "./Driver.jsx";
-import { BombModel, MushroomModel, RedShellModel } from "./Pickups.jsx";
+import { BombModel, MushroomModel, RedShellModel, BlueShellModel } from "./Pickups.jsx";
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
 const upRaycaster = new Raycaster();
@@ -733,6 +733,12 @@ export function Kart({
             {carriedItem?.type === "red" && (
               <group position={[0, 1.0, -1.2]} scale={0.5}>
                 <RedShellModel />
+              </group>
+            )}
+            {/* Carried blue shell */}
+            {carriedItem?.type === "blue" && (
+              <group position={[0, 1.0, -1.2]} scale={0.5}>
+                <BlueShellModel />
               </group>
             )}
             {/* Dizzy stars while stunned by an explosion */}

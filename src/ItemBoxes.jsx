@@ -4,16 +4,22 @@ import { useGLTF, useTexture, useKeyboardControls } from "@react-three/drei";
 import * as THREE from "three";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
-import { ItemBoxModel, BombModel, RedShellModel } from "./models/Pickups";
+import { ItemBoxModel, BombModel, RedShellModel, BlueShellModel } from "./models/Pickups";
 import {
+  BLUE_BLAST_RADIUS,
+  BLUE_FLY_HEIGHT,
+  BLUE_LIFE_MS,
+  BLUE_SPEED,
   RED_HIT_RADIUS,
   RED_LIFE_MS,
   RED_MAX_TURN,
   RED_SPEED,
   RED_STUN_MS,
   nearestAhead,
+  resolveBlueBlast,
   steerShell,
 } from "./items/homing";
+import { leaderOf } from "./items/itemWeights";
 import {
   canGrant,
   consumeUse,
@@ -104,14 +110,14 @@ const shellHitFxId = (shellId) => `shellhit-${String(shellId)}`;
 
 // Stun the LOCAL kart from a shell hit + small burst. Remote victims apply
 // this themselves when their shell:hit arrives (owner never stuns remotes).
-const applyShellStun = ({ x, y, z, shellId }) => {
+const applyShellStun = ({ x, y, z, shellId, scale = 0.6 }) => {
   const st = useGameStore.getState();
   st.setStunUntil(performance.now() + RED_STUN_MS);
   const fxId = shellHitFxId(shellId);
   if (!st.explosions.some((e) => e.id === fxId)) {
     st.setExplosions([
       ...st.explosions,
-      { id: fxId, x, y, z, scale: 0.6, at: performance.now() },
+      { id: fxId, x, y, z, scale, at: performance.now() },
     ]);
   }
   try {
@@ -201,6 +207,93 @@ const fireRedShell = () => {
       ownerId: me,
     },
   });
+  try {
+    const rawVol = Number(gm.sfxVolume);
+    const fire = new Audio("/music/shell-fire.mp3");
+    fire.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+    fire.play().catch(() => {});
+  } catch {
+    // ignore — audio must never break firing
+  }
+  return true;
+};
+
+let blueAlarmAudio = null;
+const startBlueAlarm = () => {
+  try {
+    stopBlueAlarm();
+    blueAlarmAudio = new Audio("/music/blue-alarm.mp3");
+    blueAlarmAudio.loop = true;
+    blueAlarmAudio.volume = 0.6;
+    blueAlarmAudio.play().catch(() => {});
+  } catch {
+    blueAlarmAudio = null;
+  }
+};
+const stopBlueAlarm = () => {
+  try {
+    blueAlarmAudio?.pause();
+  } catch {
+    // ignore — alarm is best-effort
+  }
+  blueAlarmAudio = null;
+};
+
+// Blue shell: targets whoever leads RIGHT NOW (including self if the owner
+// took the lead after the pickup — MK-accurate). Refuses to fire solo.
+const fireBlueShell = () => {
+  const st = useGameStore.getState();
+  const gm = useGameManager.getState();
+  const playerPos = st.playerPosition;
+  if (!playerPos || !gm.isOnlineRace) return false;
+  const me = myRacerId();
+  const ors = useOnlineRaceStore.getState();
+  const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
+  const rows = [{ id: me, laps: localCompleted, finished: false }];
+  for (const [id, p] of Object.entries(ors.remoteRaceProgress)) {
+    rows.push({
+      id,
+      laps: Number(p?.completedLaps) || 0,
+      finished: Boolean(p?.finished),
+    });
+  }
+  const leaderId = leaderOf(rows);
+  if (!leaderId) return false;
+
+  const gy = st.groundPosition ?? playerPos.y ?? 0;
+  const shell = {
+    id: `blue-${me}-${Date.now().toString(36)}`,
+    kind: "blue",
+    x: playerPos.x,
+    y: gy + 1,
+    z: playerPos.z,
+    dx: 0,
+    dz: 0,
+    targetId: leaderId,
+    top: gy + 1 + BLUE_FLY_HEIGHT,
+    phase: "fly",
+    ownerId: me,
+    owner: true,
+    at: performance.now(),
+  };
+  st.setActiveShells([...st.activeShells, shell]);
+  st.setCarriedItem(null);
+  publishOnlineRaceEvent({ type: "item:carried", itemType: null });
+  publishOnlineRaceEvent({
+    type: "shell:fired",
+    shell: {
+      id: shell.id,
+      kind: "blue",
+      x: shell.x,
+      y: shell.y,
+      z: shell.z,
+      dx: 0,
+      dz: 0,
+      targetId: leaderId,
+      ownerId: me,
+    },
+  });
+  publishOnlineRaceEvent({ type: "blue:incoming", leaderId });
   try {
     const rawVol = Number(gm.sfxVolume);
     const fire = new Audio("/music/shell-fire.mp3");
@@ -437,6 +530,43 @@ export function ItemBoxes() {
 
         if (event.type === "shell:hit" && event.shellId) {
           onRemoteShellHit(event);
+          return;
+        }
+
+        if (event.type === "blue:incoming" && event.leaderId) {
+          // Alarm loops ONLY on the targeted client, per spec.
+          if (event.leaderId === myRacerId()) startBlueAlarm();
+          return;
+        }
+
+        if (event.type === "blue:explode" && Number.isFinite(event.x)) {
+          stopBlueAlarm();
+          const st2 = useGameStore.getState();
+          st2.setActiveShells(
+            st2.activeShells.filter(
+              (s) =>
+                !(
+                  s.kind === "blue" &&
+                  Math.hypot(s.x - event.x, s.z - event.z) < 20
+                )
+            )
+          );
+          if (!event.fizzle) {
+            const me2 = myRacerId();
+            const p2 = st2.playerPosition;
+            if (
+              p2 &&
+              resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2)
+            ) {
+              applyShellStun({
+                x: event.x,
+                y: event.y,
+                z: event.z,
+                shellId: `blue-${event.x}-${event.z}`,
+                scale: 1.2,
+              });
+            }
+          }
         }
       }),
     [],
@@ -485,6 +615,10 @@ export function ItemBoxes() {
     if (spots.length > 0) useGameStore.getState().setItemBoxes(spots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, scene, selectedTrackId]);
+
+  // Blue alarm is module-level audio: always stop on unmount (exit) so it
+  // never loops into the menu or the next race.
+  useEffect(() => () => stopBlueAlarm(), []);
 
   // Ticking loop while carrying the bomb.
   useEffect(() => {
@@ -619,6 +753,8 @@ export function ItemBoxes() {
     const heldItem = st.carriedItem;
     if (heldItem && heldItem.type === "red") {
       if (edgeDown) fireRedShell();
+    } else if (heldItem && heldItem.type === "blue") {
+      if (edgeDown) fireBlueShell();
     } else if (
       heldItem &&
       (heldItem.type === "mushroom" ||
@@ -663,7 +799,70 @@ export function ItemBoxes() {
       ];
       const next = [];
       for (const shell of st.activeShells) {
-        if (now - shell.at >= RED_LIFE_MS) continue;
+        const life = shell.kind === "blue" ? BLUE_LIFE_MS : RED_LIFE_MS;
+        if (now - shell.at >= life) continue;
+        if (shell.kind === "blue") {
+          // Leader gone or finished → fizzle (alarm stops via explode).
+          const leader = victims.find((v) => v.id === shell.targetId);
+          const leaderProg = ors.remoteRaceProgress[shell.targetId];
+          if (!leader || leaderProg?.finished) {
+            if (shell.owner) {
+              publishOnlineRaceEvent({
+                type: "blue:explode",
+                x: shell.x,
+                y: shell.y,
+                z: shell.z,
+                fizzle: true,
+              });
+            }
+            continue;
+          }
+          const dxl = leader.x - shell.x;
+          const dzl = leader.z - shell.z;
+          const distXZ = Math.hypot(dxl, dzl) || 1;
+          const phase = shell.phase === "drop" || distXZ < 4 ? "drop" : "fly";
+          let moved;
+          if (phase === "fly") {
+            const top = Number(shell.top) || shell.y;
+            moved = {
+              ...shell,
+              phase,
+              x: shell.x + (dxl / distXZ) * BLUE_SPEED * step,
+              y: shell.y + (top - shell.y) * Math.min(1, 2 * step),
+              z: shell.z + (dzl / distXZ) * BLUE_SPEED * step,
+            };
+          } else {
+            const ground = st.groundPosition ?? shell.top - BLUE_FLY_HEIGHT;
+            moved = { ...shell, phase, y: shell.y - 45 * step };
+            if (moved.y <= ground) {
+              if (shell.owner) {
+                publishOnlineRaceEvent({
+                  type: "blue:explode",
+                  x: moved.x,
+                  y: ground,
+                  z: moved.z,
+                  fizzle: false,
+                });
+                const hitIds = resolveBlueBlast(victims, {
+                  x: moved.x,
+                  z: moved.z,
+                });
+                if (hitIds.includes(me)) {
+                  applyShellStun({
+                    x: moved.x,
+                    y: ground,
+                    z: moved.z,
+                    shellId: shell.id,
+                    scale: 1.2,
+                  });
+                }
+              }
+              continue;
+            }
+          }
+          next.push(moved);
+          continue;
+        }
         let { dx, dz } = shell;
         if (shell.targetId) {
           const target = victims.find((v) => v.id === shell.targetId);
@@ -743,6 +942,7 @@ export function ItemBoxes() {
       {activeShells.map((s) => (
         <group key={s.id} position={[s.x, s.y, s.z]}>
           {s.kind === "red" && <RedShellModel />}
+          {s.kind === "blue" && <BlueShellModel />}
         </group>
       ))}
       {explosions.map((e) => (

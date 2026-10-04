@@ -105,6 +105,18 @@ export const consumeUse = ({ item, now = 0 } = {}) => {
   return { item, boosted: false };
 };
 
+// Current leader id from standings rows [{id, laps, finished}].
+// Finished racers no longer lead (race over for them). Null when empty.
+export const leaderOf = (rows) => {
+  if (!Array.isArray(rows)) return null;
+  let best = null;
+  for (const r of rows) {
+    if (!r || r.finished) continue;
+    if (!best || Number(r.laps) > Number(best.laps)) best = r;
+  }
+  return best ? best.id : null;
+};
+
 // Decelerating roulette frame for the pickup animation. Pure so the UI
 // timing is testable: advances through icons, frozen once elapsed passes
 // ROULETTE_MS (the UI locks on the rolled item then).

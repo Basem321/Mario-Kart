@@ -177,6 +177,18 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     return { type: "shell:hit", shellId, victimId, ...position };
   }
 
+  if (candidate.type === "blue:incoming") {
+    const leaderId = String(candidate.leaderId ?? "").slice(0, 64);
+    if (!leaderId) return null;
+    return { type: "blue:incoming", leaderId };
+  }
+
+  if (candidate.type === "blue:explode") {
+    const position = toRacePosition(candidate);
+    if (!position) return null;
+    return { type: "blue:explode", ...position, fizzle: Boolean(candidate.fizzle) };
+  }
+
   if (candidate.type === "race:progress") {
     const lapLimit = Math.min(5, Math.max(1, Math.floor(Number(maxLapCount) || 3)));
     const completedLaps = Number(candidate.completedLaps);
