@@ -88,10 +88,10 @@ test("makeCarriedItem builds slot shapes", () => {
     charges: 3,
     expiresAt: 0,
   });
-  const before = Date.now();
-  const golden = makeCarriedItem("golden");
+  const before = 5000;
+  const golden = makeCarriedItem("golden", before);
   assert.equal(golden.type, "golden");
-  assert.ok(golden.expiresAt - before >= GOLDEN_MS - 50);
+  assert.equal(golden.expiresAt, before + GOLDEN_MS);
 });
 
 test("roulette starts at first icon and freezes after lock", () => {

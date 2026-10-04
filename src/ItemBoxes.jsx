@@ -22,8 +22,10 @@ import {
   bulletActive,
   cruiseSettle,
   inkUntil,
+  isValidKnock,
   nearestAhead,
   resolveBlueBlast,
+  shouldApplyHit,
   steerShell,
   targetsAhead,
 } from "./items/homing";
@@ -114,6 +116,12 @@ const fireBoostItem = (item) => {
 
 const myRacerId = () => useGameManager.getState().onlineSelfId ?? "local";
 
+// Late/duplicate P2P hits must never stun behind the results screen.
+const raceLive = () => {
+  const gm = useGameManager.getState();
+  return shouldApplyHit({ gameStarted: gm.gameStarted, gameOver: gm.gameOver });
+};
+
 const shellHitFxId = (shellId) => `shellhit-${String(shellId)}`;
 
 // Stun the LOCAL kart from a shell hit + small burst. Remote victims apply
@@ -156,7 +164,7 @@ const onRemoteShellHit = (event) => {
   if (!shellId) return;
   const shell = st.activeShells.find((s) => s.id === shellId);
   st.setActiveShells(st.activeShells.filter((s) => s.id !== shellId));
-  if (String(event?.victimId ?? "") === myRacerId() && shell) {
+  if (String(event?.victimId ?? "") === myRacerId() && shell && raceLive()) {
     applyShellStun({ x: shell.x, y: shell.y, z: shell.z, shellId, soft: true });
   }
 };
@@ -396,6 +404,9 @@ const fireBlueShell = () => {
     },
   });
   publishOnlineRaceEvent({ type: "blue:incoming", leaderId });
+  // Self-target (took the lead after pickup): the owner never processes its
+  // own publish, so start the warning loop locally too.
+  if (leaderId === me) startBlueAlarm();
   try {
     const rawVol = Number(gm.sfxVolume);
     const fire = new Audio("/music/shell-fire.mp3");
@@ -663,7 +674,15 @@ export function ItemBoxes() {
         }
 
         if (event.type === "bullet:knock" && event.victimId) {
-          if (event.victimId === myRacerId()) {
+          // Sender must own that exact live ride — otherwise anyone could
+          // stun anyone at any range with a forged event.
+          const senderRide =
+            useOnlineRaceStore.getState().remoteRacers[event.playerId]?.bulletRide;
+          if (
+            event.victimId === myRacerId() &&
+            raceLive() &&
+            isValidKnock({ senderRide, rideId: event.rideId, now: performance.now() })
+          ) {
             const p = useGameStore.getState().playerPosition;
             applyShellStun({
               x: p?.x ?? 0,
@@ -709,6 +728,7 @@ export function ItemBoxes() {
             const me2 = myRacerId();
             const p2 = st2.playerPosition;
             if (
+              raceLive() &&
               p2 &&
               resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2)
             ) {
@@ -773,6 +793,12 @@ export function ItemBoxes() {
   // Blue alarm is module-level audio: always stop on unmount (exit) so it
   // never loops into the menu or the next race.
   useEffect(() => () => stopBlueAlarm(), []);
+  // A race reset while a blue is airborne must also kill the loop: the
+  // fizzle explode never fires once activeShells is cleared.
+  const raceRunning = useGameManager((s) => s.gameStarted);
+  useEffect(() => {
+    if (!raceRunning) stopBlueAlarm();
+  }, [raceRunning]);
 
   // Ticking loop while carrying the bomb.
   useEffect(() => {
@@ -988,9 +1014,12 @@ export function ItemBoxes() {
         if (now - shell.at >= life) continue;
         if (shell.kind === "blue") {
           // Leader gone or finished → fizzle (alarm stops via explode).
+          // Self-targets finish locally: remoteRaceProgress never holds self.
           const leader = victims.find((v) => v.id === shell.targetId);
           const leaderProg = ors.remoteRaceProgress[shell.targetId];
-          if (!leader || leaderProg?.finished) {
+          const selfDone =
+            shell.targetId === me && useGameManager.getState().gameOver;
+          if (!leader || leaderProg?.finished || selfDone) {
             if (shell.owner) {
               publishOnlineRaceEvent({
                 type: "blue:explode",
@@ -1032,7 +1061,7 @@ export function ItemBoxes() {
                   x: moved.x,
                   z: moved.z,
                 });
-                if (hitIds.includes(me)) {
+                if (hitIds.includes(me) && raceLive()) {
                   applyShellStun({
                     x: moved.x,
                     y: ground,
@@ -1084,7 +1113,9 @@ export function ItemBoxes() {
               z: moved.z,
             });
             if (hit.id === me) {
-              applyShellStun({ x: moved.x, y: moved.y, z: moved.z, shellId: shell.id, soft: true });
+              if (raceLive()) {
+                applyShellStun({ x: moved.x, y: moved.y, z: moved.z, shellId: shell.id, soft: true });
+              }
             } else {
               // Owner-side visual only (soft + no stun — the victim applies
               // their own precise stun on receipt).

@@ -79,9 +79,9 @@ export const rollItem = (opts) => {
 };
 
 // Slot shape shared by every item task: {type, charges, expiresAt}.
-// nowMs must be performance.now() (same clock as stunUntil) — the ItemBoxes
-// grant path passes it; the Date.now() default only serves plain callers.
-export const makeCarriedItem = (type, nowMs = Date.now()) => {
+// nowMs MUST be performance.now() (same clock as stunUntil and every expiry
+// check). The default is the performance clock — never Date.now().
+export const makeCarriedItem = (type, nowMs = performance.now()) => {
   if (type === "triple") return { type, charges: 3, expiresAt: 0 };
   if (type === "golden")
     return { type, charges: -1, expiresAt: nowMs + GOLDEN_MS };

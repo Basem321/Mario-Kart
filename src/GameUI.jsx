@@ -165,10 +165,13 @@ const GameUI = () => {
   // Battle-item slot: Mario-Kart-style roulette. Icons cycle fast→slow for
   // ROULETTE_MS on every new pickup (visual randomness only — the granted
   // type was already rolled by position weights), then lock on the item.
+  // Keyed on type+expiresAt (NOT charges): triple ticks 3→2 must not replay.
   const carriedItem = useGameStore((s) => s.carriedItem);
+  const itemKey = `${carriedItem?.type ?? ""}:${carriedItem?.expiresAt ?? ""}`;
   const [rouletteIcon, setRouletteIcon] = useState(null);
   useEffect(() => {
-    if (!carriedItem) {
+    const cur = useGameStore.getState().carriedItem;
+    if (!cur) {
       setRouletteIcon(null);
       return;
     }
@@ -177,7 +180,7 @@ const GameUI = () => {
     const tick = () => {
       const elapsed = performance.now() - start;
       if (elapsed >= ROULETTE_MS) {
-        setRouletteIcon(carriedItem.type);
+        setRouletteIcon(cur.type);
         return;
       }
       setRouletteIcon(ITEM_ICON_ORDER[rouletteFrame(elapsed, ITEM_ICON_ORDER.length)]);
@@ -185,7 +188,7 @@ const GameUI = () => {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [carriedItem]);
+  }, [itemKey]);
 
   const requestReset = () => {
     window.dispatchEvent(new CustomEvent("mario-kart:reset"));

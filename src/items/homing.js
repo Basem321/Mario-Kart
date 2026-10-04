@@ -21,6 +21,19 @@ export const BULLET_KNOCK_RADIUS = 3.5;
 export const bulletActive = (ride, now) =>
   !!ride && Number(ride.until) > Number(now);
 
+// Victim-side hits (shell:hit, bullet:knock, blue:explode) apply ONLY while
+// the local race is live — late/duplicate events must not stun behind the
+// results screen or after disconnect.
+export const shouldApplyHit = (race) =>
+  !!race && race.gameStarted === true && race.gameOver === false;
+
+// A bullet:knock is valid only when the SENDER currently owns that exact
+// live ride — otherwise anyone could stun anyone at any range.
+export const isValidKnock = ({ senderRide, rideId, now } = {}) =>
+  !!senderRide &&
+  senderRide.rideId === rideId &&
+  bulletActive(senderRide, now);
+
 // Blooper constants, per spec.
 export const BLOOPER_INK_MS = 6000;
 export const BLOOPER_SQUIRT_MS = 1000;
