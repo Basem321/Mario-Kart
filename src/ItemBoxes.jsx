@@ -3,7 +3,13 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useGLTF, useTexture, useKeyboardControls } from "@react-three/drei";
 import * as THREE from "three";
 import { useGameStore } from "./store";
+import { useOnlineRaceStore } from "./onlineRaceStore";
 import { ItemBoxModel, BombModel } from "./models/Pickups";
+import {
+  canGrant,
+  makeCarriedItem,
+  rollItem,
+} from "./items/itemWeights";
 import {
   publishOnlineRaceEvent,
   subscribeOnlineRaceEvents,
@@ -24,6 +30,34 @@ const downDir = new THREE.Vector3(0, -1, 0);
 let nextId = 1;
 
 const bombExplosionId = (bombId) => `explosion-${String(bombId)}`;
+
+// Local standing for the item roulette. Solo = 1 of 1. Online mirrors the
+// leaderboard inputs (completed laps) without subscribing the canvas loop.
+const getStanding = () => {
+  const gm = useGameManager.getState();
+  if (!gm.isOnlineRace || !gm.onlinePlayers?.length) {
+    return {
+      position: 1,
+      totalRacers: 1,
+      hasOpponents: false,
+      hasOpponentsAhead: false,
+    };
+  }
+  const ors = useOnlineRaceStore.getState();
+  const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
+  let ahead = 0;
+  for (const p of gm.onlinePlayers) {
+    if (p.id === gm.onlineSelfId) continue;
+    const c = Number(ors.remoteRaceProgress[p.id]?.completedLaps) || 0;
+    if (c > localCompleted) ahead += 1;
+  }
+  return {
+    position: ahead + 1,
+    totalRacers: gm.onlinePlayers.length,
+    hasOpponents: gm.onlinePlayers.length > 1,
+    hasOpponentsAhead: ahead > 0,
+  };
+};
 
 const bombAgeMs = (bomb, now) => {
   if (Number.isFinite(bomb?.createdAt)) {
@@ -332,13 +366,16 @@ export function ItemBoxes() {
     const pickupRadius = Math.max(1.2, PICKUP_RADIUS * myScale);
     const triggerRadius = Math.max(1.2, BOMB_TRIGGER_RADIUS * myScale);
 
-    // Pickup.
-    if (!st.carriedBomb) {
+    // Pickup: single slot shared by the bomb and battle items. The bomb
+    // keeps its exact legacy grant path when it wins the roll; otherwise a
+    // position-weighted item fills the new carriedItem slot (Task 1).
+    if (
+      canGrant({ carriedBomb: st.carriedBomb, carriedItem: st.carriedItem })
+    ) {
       for (const b of st.itemBoxes) {
         if (!b.active) continue;
         const d = Math.hypot(px - b.x, pz - b.z);
         if (d < pickupRadius) {
-          st.setCarriedBomb(true);
           try {
             const rawVol = Number(useGameManager.getState().sfxVolume);
             const vol = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
@@ -348,7 +385,12 @@ export function ItemBoxes() {
           } catch {
             // ignore — audio must never break the pickup loop
           }
-          publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
+          if (Math.random() < 0.3) {
+            st.setCarriedBomb(true);
+            publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
+          } else {
+            st.setCarriedItem(makeCarriedItem(rollItem(getStanding())));
+          }
           st.setItemBoxes(
             st.itemBoxes.map((o) =>
               o.id === b.id

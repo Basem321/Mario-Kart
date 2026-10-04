@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { useGameManager } from "./gameManager";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
+import { ROULETTE_MS, rouletteFrame } from "./items/itemWeights";
 import { MiniMap } from "./MiniMap";
 import { OnlineRaceLeaderboard } from "./OnlineRaceLeaderboard";
 import { RaceResults } from "./RaceResults";
@@ -13,6 +14,29 @@ const ordinalShort = (n) => {
   if (n === 2) return "2nd";
   if (n === 3) return "3rd";
   return `${n}th`;
+};
+
+// Roulette order + icon sources. Triple/golden have no dedicated PNGs yet:
+// triple reuses the mushroom icon (×3 badge added in Task 7), golden reuses
+// it with a gold tint (also Task 7).
+const ITEM_ICON_ORDER = [
+  "mushroom",
+  "triple",
+  "golden",
+  "red",
+  "blue",
+  "bullet",
+  "blooper",
+];
+
+const ITEM_ICON_SRC = {
+  mushroom: "/images/items/mushroom.png",
+  triple: "/images/items/mushroom.png",
+  golden: "/images/items/mushroom.png",
+  red: "/images/items/red-shell.png",
+  blue: "/images/items/blue-shell.png",
+  bullet: "/images/items/bullet-bill.png",
+  blooper: "/images/items/blooper.png",
 };
 
 const GameUI = () => {
@@ -133,6 +157,31 @@ const GameUI = () => {
 
   const showWind = Boolean(isBoosting || (boostSpeed ?? 0) > 55);
 
+  // Battle-item slot: Mario-Kart-style roulette. Icons cycle fast→slow for
+  // ROULETTE_MS on every new pickup (visual randomness only — the granted
+  // type was already rolled by position weights), then lock on the item.
+  const carriedItem = useGameStore((s) => s.carriedItem);
+  const [rouletteIcon, setRouletteIcon] = useState(null);
+  useEffect(() => {
+    if (!carriedItem) {
+      setRouletteIcon(null);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = () => {
+      const elapsed = performance.now() - start;
+      if (elapsed >= ROULETTE_MS) {
+        setRouletteIcon(carriedItem.type);
+        return;
+      }
+      setRouletteIcon(ITEM_ICON_ORDER[rouletteFrame(elapsed, ITEM_ICON_ORDER.length)]);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [carriedItem]);
+
   const requestReset = () => {
     window.dispatchEvent(new CustomEvent("mario-kart:reset"));
   };
@@ -149,6 +198,16 @@ const GameUI = () => {
         <div className="wind-vignette" />
         <div className="wind-streaks" />
       </div>
+
+      {/* Battle-item slot: roulette cycling, then the locked item */}
+      {rouletteIcon && (
+        <div className="item-slot" aria-live="polite">
+          <img src={ITEM_ICON_SRC[rouletteIcon]} alt={rouletteIcon} draggable={false} />
+          {carriedItem?.type === "triple" && rouletteIcon === "triple" && (
+            <span className="item-charges">×{carriedItem.charges}</span>
+          )}
+        </div>
+      )}
 
       {isTimeTrial && gameStarted && !gameOver && (
         <div className="game-ui time-trial">
