@@ -214,9 +214,19 @@ const GameUI = () => {
       {/* Battle-item slot: roulette cycling, then the locked item */}
       {rouletteIcon && (
         <div className="item-slot" aria-live="polite">
-          <img src={ITEM_ICON_SRC[rouletteIcon]} alt={rouletteIcon} draggable={false} />
+          <img
+            src={ITEM_ICON_SRC[rouletteIcon]}
+            alt={rouletteIcon}
+            draggable={false}
+            className={rouletteIcon === "golden" ? "gold" : ""}
+          />
           {carriedItem?.type === "triple" && rouletteIcon === "triple" && (
             <span className="item-charges">×{carriedItem.charges}</span>
+          )}
+          {carriedItem?.type === "golden" && rouletteIcon === "golden" && (
+            <span className="item-charges">
+              {Math.max(0, Math.ceil((carriedItem.expiresAt - performance.now()) / 1000))}s
+            </span>
           )}
         </div>
       )}

@@ -20,6 +20,7 @@ import {
   RED_SPEED,
   RED_STUN_MS,
   bulletActive,
+  cruiseSettle,
   inkUntil,
   nearestAhead,
   resolveBlueBlast,
@@ -141,7 +142,11 @@ const addRemoteShell = (shell) => {
   const st = useGameStore.getState();
   const id = String(shell?.id ?? "");
   if (!id || st.activeShells.some((s) => s.id === id)) return false;
-  st.setActiveShells([...st.activeShells, { ...shell, id, owner: false }]);
+  // Remotes derive the cruise height (spawn is always cruise + 1.2).
+  st.setActiveShells([
+    ...st.activeShells,
+    { ...shell, id, owner: false, cruiseY: shell.y - 1.2 },
+  ]);
   return true;
 };
 
@@ -188,8 +193,9 @@ const fireRedShell = () => {
     id: `shell-${me}-${Date.now().toString(36)}`,
     kind: "red",
     x: playerPos.x + fx * 2,
-    y: gy + 0.9,
+    y: gy + 0.9 + 1.2,
     z: playerPos.z + fz * 2,
+    cruiseY: gy + 0.9,
     dx: fx,
     dz: fz,
     targetId,
@@ -1059,7 +1065,7 @@ export function ItemBoxes() {
         const moved = {
           ...shell,
           x: shell.x + dx * RED_SPEED * step,
-          y: shell.y,
+          y: cruiseSettle(shell.y, shell.cruiseY ?? shell.y, step),
           z: shell.z + dz * RED_SPEED * step,
           dx,
           dz,

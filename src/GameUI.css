@@ -467,6 +467,11 @@
   object-fit: contain;
 }
 
+/* Golden mushroom fallback tint (until a dedicated golden.png lands) */
+.item-slot img.gold {
+  filter: sepia(1) saturate(4) hue-rotate(-10deg) brightness(1.1);
+}
+
 .item-slot .item-charges {
   position: absolute;
   right: 6px;

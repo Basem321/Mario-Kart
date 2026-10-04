@@ -4,6 +4,7 @@ Command: npx gltfjsx@6.5.3 --shadows ./models/kart.glb
 */
 
 import { useEffect, useRef } from "react";
+import gsap from "gsap";
 import { useGLTF, useKeyboardControls, useProgress, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { damp } from "three/src/math/MathUtils.js";
@@ -140,6 +141,23 @@ export function Kart({
       ? carriedItem.type
       : null;
   const selectedDriver = useGameManager((state) => state.selectedDriver);
+  // Throw flourish: 0.25s lean punch whenever a carried slot empties (item
+  // used/consumed). Driver GLBs have no animation clips, so this procedural
+  // nudge on rotation.x (physics only drives .y) is the throw animation.
+  const slotSignature = `${carriedBomb ? "b" : ""}:${carriedItem?.type ?? ""}:${carriedItem?.charges ?? ""}`;
+  const prevSlotRef = useRef(slotSignature);
+  useEffect(() => {
+    const prev = prevSlotRef.current;
+    prevSlotRef.current = slotSignature;
+    // Punch on any use (slot emptied OR charges dropped), never on pickup.
+    if (prev !== "::" && prev !== slotSignature && groupRef.current) {
+      gsap.fromTo(
+        groupRef.current.rotation,
+        { x: 0 },
+        { x: -0.14, duration: 0.12, yoyo: true, repeat: 1, overwrite: "auto" }
+      );
+    }
+  }, [slotSignature]);
   // Bullet Bill: the kart hides inside the bullet envelope for the ride.
   // Owner-only check (same as PlayerController): a remote ride never hides us.
   const bulletRide = useGameStore((state) => state.bulletRide);

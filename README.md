@@ -59,7 +59,7 @@ bun run dev
 - <kbd>W</kbd> or <kbd>↑</kbd> - Accelerate
 - <kbd>A</kbd>/<kbd>D</kbd> or <kbd>←</kbd>/<kbd>→</kbd> - Steer left/right
 - <kbd>Space</kbd> - Drift (Hold and steer to maintain drift, release for mini-turbo)
-- <kbd>E</kbd>/<kbd>G</kbd> - Drop bomb
+- <kbd>E</kbd>/<kbd>G</kbd> - Use item / drop bomb (item box roulette: mushroom, triple, golden, red shell, blue shell, Bullet Bill, blooper)
 - <kbd>H</kbd> - Honk
 - <kbd>R</kbd> - Reset to the nearest checkpoint (or nearest road point on courses without checkpoints)
 - <kbd>Q</kbd> - Look behind (hold)
@@ -97,17 +97,22 @@ bun run dev
 - [x] Add live online minimap with every racer's track position
 - [x] Add Reset recovery to the nearest safe point on the black road
 - [x] Restrict item-box spawns to the black road surface
-- [ ] Add more items
+- [x] Add more items (bomb: drop with E/G, online sync)
+- [x] Add Skid marks
+- [x] Add wind screen effect when boosting
+- [x] Battle items v2 (spec: `docs/superpowers/specs/2026-10-04-battle-items-design.md`, plan: `docs/superpowers/plans/2026-10-04-battle-items.md`):
+  - [x] Mushroom (short boost)
+  - [x] Triple Mushrooms / Golden Mushroom (3 charges / ~7s reusable)
+  - [x] Blooper (ink on the screens of players ahead)
+  - [x] Red Shell (homing, hits the racer ahead)
+  - [x] Blue Shell (targets 1st place, AoE blast, rare comeback item)
+  - [x] Bullet Bill (auto-drive + knock, last-place comeback)
+  - [x] Throw animation for items/character (procedural flourish)
+
+## Later backlog (non-item)
 - [ ] Add texture to the flame shaders
 - [ ] Add curve/length modifiers to drift particles
-- [ ] Add Skid marks
-- [ ] Add wind screen effect when boosting
 - [ ] Design additional tracks and checkpoints
-- [ ] Add more items:
-  - [ ] Tennis ball
-  - [ ] Bomb
-  - [ ] Red shell
-  - [ ] Treats
 
 ## Project Information
 

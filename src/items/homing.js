@@ -83,6 +83,11 @@ export const resolveBlueBlast = (racers, blast, radius = BLUE_BLAST_RADIUS) => {
     .map((v) => v.id);
 };
 
+// Throw arc: shells spawn above cruise height and ease down. Pure so the
+// settle curve is testable; the sim applies it every frame.
+export const cruiseSettle = (y, cruise, dt) =>
+  y + (Number(cruise) - Number(y)) * Math.min(1, 6 * (Number(dt) || 0));
+
 // Closest opponent ahead: higher lap count wins outright, otherwise must be
 // in front of the self forward vector. Returns the racer or null.
 export const nearestAhead = (self, racers) => {
