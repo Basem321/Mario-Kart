@@ -17,7 +17,7 @@ import { Sparks } from "../particles/sparks/Sparks.jsx";
 import { Skate } from "../particles/drift/Skate/Skate.jsx";
 import { Trails } from "../particles/sparks/Trails.jsx";
 import { Driver } from "./Driver.jsx";
-import { BombModel } from "./Pickups.jsx";
+import { BombModel, MushroomModel } from "./Pickups.jsx";
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
 const upRaycaster = new Raycaster();
@@ -130,6 +130,14 @@ export function Kart({
   const setGroundPosition = useGameStore((state) => state.setGroundPosition);
   const setWheelPositions = useGameStore((state) => state.setWheelPositions);
   const carriedBomb = useGameStore((state) => state.carriedBomb);
+  const carriedItem = useGameStore((state) => state.carriedItem);
+  const heldMushroom =
+    carriedItem &&
+    (carriedItem.type === "mushroom" ||
+      carriedItem.type === "triple" ||
+      carriedItem.type === "golden")
+      ? carriedItem.type
+      : null;
   const selectedDriver = useGameManager((state) => state.selectedDriver);
   const starsTex = useTexture("/textures/stars.png");
   const starsGroupRef = useRef(null);
@@ -713,6 +721,12 @@ export function Kart({
             {carriedBomb && (
               <group position={[0, 1.0, -1.2]} scale={0.5}>
                 <BombModel />
+              </group>
+            )}
+            {/* Carried mushroom-family item (same mount point as the bomb) */}
+            {heldMushroom && (
+              <group position={[0, 1.0, -1.2]} scale={0.5}>
+                <MushroomModel gold={heldMushroom === "golden"} />
               </group>
             )}
             {/* Dizzy stars while stunned by an explosion */}

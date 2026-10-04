@@ -6,7 +6,7 @@ import { getOnlineSpawnSlot } from "./constants";
 import { getTrack } from "./tracks";
 import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
-import { BombModel } from "./models/Pickups";
+import { BombModel, MushroomModel } from "./models/Pickups";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 
 const smoothAngle = (from, to, lambda, delta) => {
@@ -85,6 +85,13 @@ const RemoteKart = ({ player, playerIndex }) => {
           {remoteState?.carriedBomb && (
             <group position={[0, 1.0, -1.2]} scale={0.5}>
               <BombModel />
+            </group>
+          )}
+          {(remoteState?.carriedItemType === "mushroom" ||
+            remoteState?.carriedItemType === "triple" ||
+            remoteState?.carriedItemType === "golden") && (
+            <group position={[0, 1.0, -1.2]} scale={0.5}>
+              <MushroomModel gold={remoteState.carriedItemType === "golden"} />
             </group>
           )}
         </mesh>

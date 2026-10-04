@@ -7,6 +7,7 @@ import { useOnlineRaceStore } from "./onlineRaceStore";
 import { ItemBoxModel, BombModel } from "./models/Pickups";
 import {
   canGrant,
+  consumeUse,
   makeCarriedItem,
   rollItem,
 } from "./items/itemWeights";
@@ -57,6 +58,35 @@ const getStanding = () => {
     hasOpponents: gm.onlinePlayers.length > 1,
     hasOpponentsAhead: ahead > 0,
   };
+};
+
+const GOLDEN_REUSE_MS = 1200;
+
+// Fire one boost from a carried mushroom-family item. Boosts ride the exact
+// pad channel PlayerController already listens to (mario-kart:boost).
+const fireBoostItem = (item) => {
+  const st = useGameStore.getState();
+  const r = consumeUse({ item, now: performance.now() });
+  if (r.boosted) {
+    window.dispatchEvent(
+      new CustomEvent("mario-kart:boost", {
+        detail: { duration: 1.8, speed: 62, launchVy: 4 },
+      })
+    );
+    try {
+      const rawVol = Number(useGameManager.getState().sfxVolume);
+      const sfx = new Audio("/music/mushroom-boost.mp3");
+      sfx.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+      sfx.play().catch(() => {});
+    } catch {
+      // ignore — audio must never break item use
+    }
+  }
+  st.setCarriedItem(r.item);
+  publishOnlineRaceEvent({
+    type: "item:carried",
+    itemType: r.item ? r.item.type : null,
+  });
 };
 
 const bombAgeMs = (bomb, now) => {
@@ -237,6 +267,7 @@ export function ItemBoxes() {
   const collidersRef = useRef(null);
   const boxNodesRef = useRef(new Map());
   const dropHeldRef = useRef(false);
+  const goldenLastRef = useRef(0);
   const tickAudioRef = useRef(null);
   const blackRoadGeometry = getMergedRoadGeometry(nodes, activeTrack);
   const roadTransform = trackConfigToTransform(activeTrack);
@@ -389,7 +420,13 @@ export function ItemBoxes() {
             st.setCarriedBomb(true);
             publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
           } else {
-            st.setCarriedItem(makeCarriedItem(rollItem(getStanding())));
+            st.setCarriedItem(
+              makeCarriedItem(rollItem(getStanding()), now)
+            );
+            publishOnlineRaceEvent({
+              type: "item:carried",
+              itemType: useGameStore.getState().carriedItem?.type ?? null,
+            });
           }
           st.setItemBoxes(
             st.itemBoxes.map((o) =>
@@ -441,6 +478,30 @@ export function ItemBoxes() {
       publishOnlineRaceEvent({ type: "bomb:carried", carried: false });
       publishOnlineRaceEvent({ type: "bomb:dropped", bomb });
     }
+    // Mushroom-family use. Singles/triples fire on edge; golden re-fires
+    // while held (GOLDEN_REUSE_MS) and expires on the performance.now clock.
+    // Edge is computed BEFORE dropHeldRef updates below.
+    const edgeDown = dropDown && !dropHeldRef.current;
+    const heldItem = st.carriedItem;
+    if (
+      heldItem &&
+      (heldItem.type === "mushroom" ||
+        heldItem.type === "triple" ||
+        heldItem.type === "golden")
+    ) {
+      if (heldItem.type === "golden" && now >= heldItem.expiresAt) {
+        st.setCarriedItem(null);
+        publishOnlineRaceEvent({ type: "item:carried", itemType: null });
+      } else if (heldItem.type === "golden") {
+        if (dropDown && now - goldenLastRef.current >= GOLDEN_REUSE_MS) {
+          goldenLastRef.current = now;
+          fireBoostItem(useGameStore.getState().carriedItem);
+        }
+      } else if (edgeDown) {
+        fireBoostItem(heldItem);
+      }
+    }
+
     dropHeldRef.current = dropDown;
 
     // Live bombs explode when the kart touches them (after arm time).

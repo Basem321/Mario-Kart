@@ -79,11 +79,30 @@ export const rollItem = (opts) => {
 };
 
 // Slot shape shared by every item task: {type, charges, expiresAt}.
-export const makeCarriedItem = (type) => {
+// nowMs must be performance.now() (same clock as stunUntil) — the ItemBoxes
+// grant path passes it; the Date.now() default only serves plain callers.
+export const makeCarriedItem = (type, nowMs = Date.now()) => {
   if (type === "triple") return { type, charges: 3, expiresAt: 0 };
   if (type === "golden")
-    return { type, charges: -1, expiresAt: Date.now() + GOLDEN_MS };
+    return { type, charges: -1, expiresAt: nowMs + GOLDEN_MS };
   return { type, charges: 1, expiresAt: 0 };
+};
+
+// Consume one use of a carried item. Clock must be performance.now()
+// (same clock as stunUntil) — see plan Review Focus.
+export const consumeUse = ({ item, now = 0 } = {}) => {
+  if (!item || typeof item !== "object") return { item: null, boosted: false };
+  if (item.type === "golden") {
+    if (now < item.expiresAt) return { item, boosted: true };
+    return { item: null, boosted: false };
+  }
+  if (item.type === "triple") {
+    const left = (Number(item.charges) || 1) - 1;
+    if (left > 0) return { item: { ...item, charges: left }, boosted: true };
+    return { item: null, boosted: true };
+  }
+  if (item.type === "mushroom") return { item: null, boosted: true };
+  return { item, boosted: false };
 };
 
 // Decelerating roulette frame for the pickup animation. Pure so the UI

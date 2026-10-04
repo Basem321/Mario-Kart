@@ -130,6 +130,18 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     return { type: "bomb:explode", bombId, ...position };
   }
 
+  if (candidate.type === "item:carried") {
+    const itemType =
+      candidate.itemType == null ? null : String(candidate.itemType).slice(0, 20);
+    if (
+      itemType !== null &&
+      !["mushroom", "triple", "golden", "red", "blue", "bullet", "blooper"].includes(itemType)
+    ) {
+      return null;
+    }
+    return { type: "item:carried", itemType };
+  }
+
   if (candidate.type === "race:progress") {
     const lapLimit = Math.min(5, Math.max(1, Math.floor(Number(maxLapCount) || 3)));
     const completedLaps = Number(candidate.completedLaps);
@@ -264,6 +276,10 @@ export const useP2PLobby = () => {
   const applyIncomingRaceEvent = useCallback((playerId, event) => {
     if (event.type === "bomb:carried") {
       useOnlineRaceStore.getState().setRemoteRacerCarriedBomb(playerId, event.carried);
+    }
+
+    if (event.type === "item:carried") {
+      useOnlineRaceStore.getState().setRemoteRacerCarriedItem(playerId, event.itemType);
     }
 
     if (event.type === "race:progress") {
