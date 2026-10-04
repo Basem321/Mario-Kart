@@ -66,6 +66,10 @@ export const useGameStore = create((set) => ({
   // Explosions to render/react to: [{id, x, y, z, at}]
   explosions: [],
   setExplosions: (explosions) => set({ explosions }),
+  // Live homing shells (red/blue): [{id, kind, x,y,z, dx,dz, targetId, owner, ownerId, at}]
+  // Owner simulates + detects hits; remotes render the same entries.
+  activeShells: [],
+  setActiveShells: (activeShells) => set({ activeShells }),
   // Timestamp (performance.now) until which the kart is stunned.
   stunUntil: 0,
   setStunUntil: (stunUntil) => set({ stunUntil }),
@@ -75,6 +79,7 @@ export const useGameStore = create((set) => ({
     set({
       carriedBomb: false,
       carriedItem: null,
+      activeShells: [],
       itemBoxes: [],
       droppedBombs: [],
       explosions: [],

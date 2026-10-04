@@ -142,6 +142,41 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     return { type: "item:carried", itemType };
   }
 
+  if (candidate.type === "shell:fired") {
+    const shell = candidate.shell;
+    if (!shell || typeof shell !== "object") return null;
+    const shellId = String(shell.id ?? "").slice(0, 120);
+    const kind = String(shell.kind ?? "");
+    const position = toRacePosition(shell);
+    const dx = Number(shell.dx);
+    const dz = Number(shell.dz);
+    const ownerId = String(shell.ownerId ?? "").slice(0, 64);
+    const targetId =
+      shell.targetId == null ? null : String(shell.targetId).slice(0, 64);
+    if (
+      !shellId ||
+      (kind !== "red" && kind !== "blue") ||
+      !position ||
+      !Number.isFinite(dx) ||
+      !Number.isFinite(dz) ||
+      !ownerId
+    ) {
+      return null;
+    }
+    return {
+      type: "shell:fired",
+      shell: { id: shellId, kind, ...position, dx, dz, targetId, ownerId },
+    };
+  }
+
+  if (candidate.type === "shell:hit") {
+    const shellId = String(candidate.shellId ?? "").slice(0, 120);
+    const victimId = String(candidate.victimId ?? "").slice(0, 64);
+    const position = toRacePosition(candidate);
+    if (!shellId || !victimId || !position) return null;
+    return { type: "shell:hit", shellId, victimId, ...position };
+  }
+
   if (candidate.type === "race:progress") {
     const lapLimit = Math.min(5, Math.max(1, Math.floor(Number(maxLapCount) || 3)));
     const completedLaps = Number(candidate.completedLaps);

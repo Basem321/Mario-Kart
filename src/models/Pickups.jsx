@@ -25,8 +25,7 @@ export function BombModel(props) {
   return <primitive object={model} {...props} />;
 }
 
-export function MushroomModel({ gold = false, ...props }) {
-  const base = useShadowingScene("/models/mushroom.glb");
+export function MushroomModel({ gold = false, ...props }) {  const base = useShadowingScene("/models/mushroom.glb");
   const model = useMemo(() => {
     if (!gold) return base;
     // Gold is a code-side tint of the same mesh (no separate GLB).
@@ -47,3 +46,10 @@ export function MushroomModel({ gold = false, ...props }) {
 useGLTF.preload("/models/item-box.glb");
 useGLTF.preload("/models/bomb.glb");
 useGLTF.preload("/models/mushroom.glb");
+
+export function RedShellModel(props) {
+  const model = useShadowingScene("/models/red-shell.glb");
+  return <primitive object={model} {...props} />;
+}
+
+useGLTF.preload("/models/red-shell.glb");

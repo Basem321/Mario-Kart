@@ -4,7 +4,16 @@ import { useGLTF, useTexture, useKeyboardControls } from "@react-three/drei";
 import * as THREE from "three";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
-import { ItemBoxModel, BombModel } from "./models/Pickups";
+import { ItemBoxModel, BombModel, RedShellModel } from "./models/Pickups";
+import {
+  RED_HIT_RADIUS,
+  RED_LIFE_MS,
+  RED_MAX_TURN,
+  RED_SPEED,
+  RED_STUN_MS,
+  nearestAhead,
+  steerShell,
+} from "./items/homing";
 import {
   canGrant,
   consumeUse,
@@ -87,6 +96,120 @@ const fireBoostItem = (item) => {
     type: "item:carried",
     itemType: r.item ? r.item.type : null,
   });
+};
+
+const myRacerId = () => useGameManager.getState().onlineSelfId ?? "local";
+
+const shellHitFxId = (shellId) => `shellhit-${String(shellId)}`;
+
+// Stun the LOCAL kart from a shell hit + small burst. Remote victims apply
+// this themselves when their shell:hit arrives (owner never stuns remotes).
+const applyShellStun = ({ x, y, z, shellId }) => {
+  const st = useGameStore.getState();
+  st.setStunUntil(performance.now() + RED_STUN_MS);
+  const fxId = shellHitFxId(shellId);
+  if (!st.explosions.some((e) => e.id === fxId)) {
+    st.setExplosions([
+      ...st.explosions,
+      { id: fxId, x, y, z, scale: 0.6, at: performance.now() },
+    ]);
+  }
+  try {
+    const rawVol = Number(useGameManager.getState().sfxVolume);
+    const hit = new Audio("/music/shell-hit.mp3");
+    hit.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+    hit.play().catch(() => {});
+  } catch {
+    // ignore — audio must never break hit feedback
+  }
+};
+
+const addRemoteShell = (shell) => {
+  const st = useGameStore.getState();
+  const id = String(shell?.id ?? "");
+  if (!id || st.activeShells.some((s) => s.id === id)) return false;
+  st.setActiveShells([...st.activeShells, { ...shell, id, owner: false }]);
+  return true;
+};
+
+const onRemoteShellHit = (event) => {
+  const st = useGameStore.getState();
+  const shellId = String(event?.shellId ?? "");
+  if (!shellId) return;
+  const shell = st.activeShells.find((s) => s.id === shellId);
+  st.setActiveShells(st.activeShells.filter((s) => s.id !== shellId));
+  if (String(event?.victimId ?? "") === myRacerId() && shell) {
+    applyShellStun({ x: shell.x, y: shell.y, z: shell.z, shellId });
+  }
+};
+
+const fireRedShell = () => {
+  const st = useGameStore.getState();
+  const gm = useGameManager.getState();
+  const playerPos = st.playerPosition;
+  if (!playerPos) return false;
+  const ry = st.playerRotationY || 0;
+  const fx = -Math.sin(ry);
+  const fz = -Math.cos(ry);
+  const me = myRacerId();
+  const gy = st.groundPosition ?? playerPos.y ?? 0;
+
+  let targetId = null;
+  if (gm.isOnlineRace) {
+    const ors = useOnlineRaceStore.getState();
+    const racers = Object.entries(ors.remoteRacers).map(([id, r]) => ({
+      id,
+      x: Number(r?.x) || 0,
+      z: Number(r?.z) || 0,
+      laps: Number(ors.remoteRaceProgress[id]?.completedLaps) || 0,
+    }));
+    const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
+    const target = nearestAhead(
+      { id: me, x: playerPos.x, z: playerPos.z, laps: localCompleted, fx, fz },
+      racers
+    );
+    targetId = target ? target.id : null;
+  }
+
+  const shell = {
+    id: `shell-${me}-${Date.now().toString(36)}`,
+    kind: "red",
+    x: playerPos.x + fx * 2,
+    y: gy + 0.9,
+    z: playerPos.z + fz * 2,
+    dx: fx,
+    dz: fz,
+    targetId,
+    ownerId: me,
+    owner: true,
+    at: performance.now(),
+  };
+  st.setActiveShells([...st.activeShells, shell]);
+  st.setCarriedItem(null);
+  publishOnlineRaceEvent({ type: "item:carried", itemType: null });
+  publishOnlineRaceEvent({
+    type: "shell:fired",
+    shell: {
+      id: shell.id,
+      kind: "red",
+      x: shell.x,
+      y: shell.y,
+      z: shell.z,
+      dx: shell.dx,
+      dz: shell.dz,
+      targetId,
+      ownerId: me,
+    },
+  });
+  try {
+    const rawVol = Number(gm.sfxVolume);
+    const fire = new Audio("/music/shell-fire.mp3");
+    fire.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+    fire.play().catch(() => {});
+  } catch {
+    // ignore — audio must never break firing
+  }
+  return true;
 };
 
 const bombAgeMs = (bomb, now) => {
@@ -275,6 +398,7 @@ export function ItemBoxes() {
   const itemBoxes = useGameStore((s) => s.itemBoxes);
   const droppedBombs = useGameStore((s) => s.droppedBombs);
   const explosions = useGameStore((s) => s.explosions);
+  const activeShells = useGameStore((s) => s.activeShells);
   const carriedBomb = useGameStore((s) => s.carriedBomb);
   // Pickups render at the local kart's size so a mini kart meets a mini box.
   const boxVisualScale = useGameStore((s) => s.kartScale) ?? 1;
@@ -303,6 +427,16 @@ export function ItemBoxes() {
             },
             { broadcast: false },
           );
+          return;
+        }
+
+        if (event.type === "shell:fired" && event.shell) {
+          addRemoteShell(event.shell);
+          return;
+        }
+
+        if (event.type === "shell:hit" && event.shellId) {
+          onRemoteShellHit(event);
         }
       }),
     [],
@@ -483,7 +617,9 @@ export function ItemBoxes() {
     // Edge is computed BEFORE dropHeldRef updates below.
     const edgeDown = dropDown && !dropHeldRef.current;
     const heldItem = st.carriedItem;
-    if (
+    if (heldItem && heldItem.type === "red") {
+      if (edgeDown) fireRedShell();
+    } else if (
       heldItem &&
       (heldItem.type === "mushroom" ||
         heldItem.type === "triple" ||
@@ -511,6 +647,72 @@ export function ItemBoxes() {
       if (d < triggerRadius) triggerBombExplosion(bomb, { broadcast: true });
     }
 
+    // Homing shells: every client moves every shell the same way (owner and
+    // remotes share constants); ONLY the owner detects hits and broadcasts.
+    if (st.activeShells.length > 0) {
+      const step = Math.min(delta, 0.05);
+      const me = myRacerId();
+      const ors = useOnlineRaceStore.getState();
+      const victims = [
+        { id: me, x: px, z: pz },
+        ...Object.entries(ors.remoteRacers).map(([id, r]) => ({
+          id,
+          x: Number(r?.x) || 0,
+          z: Number(r?.z) || 0,
+        })),
+      ];
+      const next = [];
+      for (const shell of st.activeShells) {
+        if (now - shell.at >= RED_LIFE_MS) continue;
+        let { dx, dz } = shell;
+        if (shell.targetId) {
+          const target = victims.find((v) => v.id === shell.targetId);
+          if (target) {
+            const steered = steerShell({
+              dir: { x: dx, z: dz },
+              toTarget: { x: target.x - shell.x, z: target.z - shell.z },
+              maxTurn: RED_MAX_TURN,
+              dt: step,
+            });
+            dx = steered.x;
+            dz = steered.z;
+          }
+        }
+        const moved = {
+          ...shell,
+          x: shell.x + dx * RED_SPEED * step,
+          y: shell.y,
+          z: shell.z + dz * RED_SPEED * step,
+          dx,
+          dz,
+        };
+        if (shell.owner) {
+          const hit = victims.find(
+            (v) => Math.hypot(v.x - moved.x, v.z - moved.z) < RED_HIT_RADIUS
+          );
+          if (hit) {
+            publishOnlineRaceEvent({
+              type: "shell:hit",
+              shellId: shell.id,
+              victimId: hit.id,
+              x: moved.x,
+              y: moved.y,
+              z: moved.z,
+            });
+            if (hit.id === me) {
+              applyShellStun({ x: moved.x, y: moved.y, z: moved.z, shellId: shell.id });
+            }
+            continue;
+          }
+        }
+        next.push(moved);
+      }
+      if (next.length !== st.activeShells.length) st.setActiveShells(next);
+      else if (next.some((s, i) => s.x !== st.activeShells[i].x)) {
+        st.setActiveShells(next);
+      }
+    }
+
     void delta;
   });
 
@@ -536,6 +738,11 @@ export function ItemBoxes() {
       {droppedBombs.map((b) => (
         <group key={b.id} position={[b.x, b.y, b.z]} scale={0.75 * (b.scale ?? 1)}>
           <BombModel />
+        </group>
+      ))}
+      {activeShells.map((s) => (
+        <group key={s.id} position={[s.x, s.y, s.z]}>
+          {s.kind === "red" && <RedShellModel />}
         </group>
       ))}
       {explosions.map((e) => (
