@@ -18,7 +18,7 @@ import {
   KART_RADIUS,
   WALL_SKIN,
 } from "./collision";
-import { bulletActive, BULLET_SPEED } from "./items/homing";
+import { bulletActive, bulletPhase, BULLET_SPEED } from "./items/homing";
 import { boostTargetSpeed } from "./items/itemWeights";
 import { findNearestBlackRoadPoint3D, getHighestRoadYAt, trackConfigToTransform } from "./trackRoad";
 import { getTrack, getMergedRoadGeometry } from "./tracks";
@@ -518,14 +518,32 @@ export const PlayerController = () => {
     // below so nothing slows the ride). Owner-only: a remote racer's ride
     // must never drive the local kart.
     const ride = useGameStore.getState().bulletRide;
+    const myId = useGameManager.getState().onlineSelfId ?? "local";
     const myRide =
       ride &&
-      ride.ownerId === (useGameManager.getState().onlineSelfId ?? "local") &&
+      ride.ownerId === myId &&
       bulletActive(ride, performance.now());
     if (myRide) {
       speedRef.current = BULLET_SPEED * kartScale;
       setSpeed(speedRef.current);
       setIsBoosting(true);
+      return;
+    }
+    // Ramp-out: control is back (normal steering), speed eases to normal.
+    if (
+      ride &&
+      ride.ownerId === myId &&
+      bulletPhase(ride, performance.now()) === "ramp"
+    ) {
+      const baseMaxSpeed = kartSettings.speed.max;
+      speedRef.current = damp(
+        speedRef.current,
+        baseMaxSpeed * kartScale,
+        3,
+        delta
+      );
+      setSpeed(speedRef.current);
+      setIsBoosting(speedRef.current > baseMaxSpeed * kartScale);
       return;
     }
     // Mushroom boost: exact 1.5x-max target (no stacking — re-use resets the

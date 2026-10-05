@@ -16,13 +16,26 @@ export const BLUE_FLY_HEIGHT = itemConfig.blueShell.altitude;
 export const BLUE_SPEED = itemConfig.blueShell.speedMult * kartSettings.speed.max;
 export const BLUE_LIFE_MS = 12000;
 
-// Bullet Bill constants, per spec.
-export const BULLET_SPEED = 124; // ~2x pad boost speed (62)
+// Bullet Bill constants — owned by itemConfig (§8). NOTE: 1.6x base max is
+// slower than boost pads; flagged for playtest tuning (one config line).
+export const BULLET_SPEED = itemConfig.bullet.speedMult * kartSettings.speed.max;
 export const BULLET_RIDE_MS = 5000;
 export const BULLET_KNOCK_RADIUS = 3.5;
 
 export const bulletActive = (ride, now) =>
   !!ride && Number(ride.until) > Number(now);
+
+// Ride phase with ramp-out: full autopilot, then 600ms speed ease while the
+// player steers again, then done. endingUntil set by endBulletRide.
+export const bulletPhase = (ride, now) => {
+  if (!ride) return "done";
+  const t = Number(now);
+  if (t < Number(ride.until)) return "ride";
+  if (Number.isFinite(Number(ride.endingUntil)) && t < Number(ride.endingUntil)) {
+    return "ramp";
+  }
+  return "done";
+};
 
 // Victim-side hits (shell:hit, bullet:knock, blue:explode) apply ONLY while
 // the local race is live — late/duplicate events must not stun behind the

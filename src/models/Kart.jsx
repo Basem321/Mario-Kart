@@ -20,6 +20,12 @@ import { Trails } from "../particles/sparks/Trails.jsx";
 import { Driver } from "./Driver.jsx";
 import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel } from "./Pickups.jsx";
 import { bulletActive } from "../items/homing.js";
+import { itemConfig, modelNativeSizes } from "../items/itemConfig.js";
+
+// Mini bullet scale from spec ratios (held 0.38 × kart length).
+const BULLET_MINI_SCALE =
+  (itemConfig.sizes.bulletHeldLength * modelNativeSizes.kartLength) /
+  modelNativeSizes.bulletLength;
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
 const upRaycaster = new Raycaster();
@@ -789,6 +795,12 @@ export function Kart({
             {carriedItem?.type === "blue" && (
               <group position={[0, 1.0, -1.2]}>
                 <BlueShellModel />
+              </group>
+            )}
+            {/* Carried bullet: mini on the rack, nose forward */}
+            {carriedItem?.type === "bullet" && (
+              <group position={[0, 1.0, -1.2]} scale={BULLET_MINI_SCALE}>
+                <BulletModel />
               </group>
             )}
             {/* Dizzy stars while stunned by an explosion */}

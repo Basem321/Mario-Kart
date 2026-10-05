@@ -7,6 +7,12 @@ import { getTrack } from "./tracks";
 import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
 import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel } from "./models/Pickups";
+import { itemConfig, modelNativeSizes } from "./items/itemConfig.js";
+
+// Mini bullet scale from spec ratios (held 0.38 × kart length).
+const BULLET_MINI_SCALE =
+  (itemConfig.sizes.bulletHeldLength * modelNativeSizes.kartLength) /
+  modelNativeSizes.bulletLength;
 import { useOnlineRaceStore } from "./onlineRaceStore";
 
 const smoothAngle = (from, to, lambda, delta) => {
@@ -118,6 +124,11 @@ const RemoteKart = ({ player, playerIndex }) => {
           {remoteState?.carriedItem?.type === "blue" && (
             <group position={[0, 1.0, -1.2]}>
               <BlueShellModel />
+            </group>
+          )}
+          {remoteState?.carriedItem?.type === "bullet" && (
+            <group position={[0, 1.0, -1.2]} scale={BULLET_MINI_SCALE}>
+              <BulletModel />
             </group>
           )}
         </mesh>

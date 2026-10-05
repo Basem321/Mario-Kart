@@ -96,6 +96,17 @@ const queueBlueThrow = (now) => {
   ]);
 };
 
+// Bullet start, two-phase: mesh swap at 100ms (spec transform timing).
+const queueBulletRide = (now) => {
+  const st = useGameStore.getState();
+  st.setCarriedItem(null);
+  publishCarried(null);
+  st.setPendingSpawns([
+    ...st.pendingSpawns,
+    { kind: "bullet", pressAt: now, releaseMs: itemConfig.bulletTransform.swapMs },
+  ]);
+};
+
 const bombExplosionId = (bombId) => `explosion-${String(bombId)}`;
 
 // Instant mini-boost for skid/wind roulette wins (TODO(decide): differentiate).
@@ -331,7 +342,11 @@ const startBulletRide = () => {
     rideId: `ride-${me}-${Date.now().toString(36)}`,
     ownerId: me,
     until: performance.now() + BULLET_RIDE_MS,
+    endingUntil: 0,
   };
+  // Starting cancels any spin-out in progress (§4.4).
+  st.setSpin(null);
+  st.setStunUntil(0);
   st.setBulletRide(ride);
   st.setCarriedItem(null);
   publishOnlineRaceEvent({ type: "item:carried", itemType: null });
@@ -397,11 +412,18 @@ const fireBlooper = () => {
   }
   return true;
 };
-
-const endBulletRide = (hop = true) => {  const st = useGameStore.getState();
-  if (!st.bulletRide) return;
+const endBulletRide = (hop = true) => {
+  const st = useGameStore.getState();
+  if (!st.bulletRide || st.bulletRide.endingUntil) return;
+  const now = performance.now();
   const ownerId = st.bulletRide.ownerId;
-  st.setBulletRide(null);
+  // Ramp-out: keep the ride entry with an expired `until` so speed eases
+  // over 600ms, then clear. Plus 1.0 s hit-invulnerability.
+  st.setBulletRide({
+    ...st.bulletRide,
+    endingUntil: now + itemConfig.bullet.rampOutMs,
+  });
+  st.setInvulnUntil(now + itemConfig.bullet.endInvulnMs);
   publishOnlineRaceEvent({ type: "bullet:end", playerId: ownerId });
   if (hop) {
     const scale = useGameStore.getState().kartScale ?? 1;
@@ -1142,7 +1164,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     } else if (heldItem && heldItem.type === "blue") {
       if (edgeDown) queueBlueThrow(now);
     } else if (heldItem && heldItem.type === "bullet") {
-      if (edgeDown) startBulletRide();
+      if (edgeDown) queueBulletRide(now);
     } else if (heldItem && heldItem.type === "blooper") {
       if (edgeDown) fireBlooper();
     } else if (
@@ -1175,6 +1197,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       for (const p of due) {
         if (p.kind === "red") fireRedShell(p.backward);
         else if (p.kind === "blue") fireBlueShell();
+        else if (p.kind === "bullet") startBulletRide();
       }
     }
 
@@ -1184,12 +1207,15 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       const d = Math.hypot(px - bomb.x, pz - bomb.z);
       if (d < triggerRadius) triggerBombExplosion(bomb, { broadcast: true });
     }
-
     // Bullet Bill expiry (owner ends with a hop) + knock detection.
     // Only the owner's client detects knocks; victims apply on receipt.
-    const ride = st.bulletRide;    if (ride && !bulletActive(ride, now)) {
+    // Knocks run during the full ride only — never on the ramp.
+    const ride = st.bulletRide;
+    if (ride && ride.endingUntil && now >= ride.endingUntil) {
+      st.setBulletRide(null);
+    } else if (ride && !bulletActive(ride, now) && !ride.endingUntil) {
       endBulletRide(true);
-    } else if (ride && ride.ownerId === myRacerId()) {
+    } else if (ride && ride.ownerId === myRacerId() && bulletActive(ride, now)) {
       if (knockedRef.current.rideId !== ride.rideId) {
         knockedRef.current = { rideId: ride.rideId, ids: new Set() };
       }
