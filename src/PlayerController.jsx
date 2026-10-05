@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 import { Vector3, Raycaster } from "three";
 import { damp, clamp } from "three/src/math/MathUtils.js";
 import { getOnlineSpawnSlot, kartSettings } from "./constants";
-import { useGameStore } from "./store";
+import { useGameStore, applySpin, absorbWithOrbit } from "./store";
 import gsap from "gsap";
 import { useTouchScreen } from "./hooks/useTouchScreen";
 import VFXEmitter from "./wawa-vfx/VFXEmitter";
@@ -89,7 +89,7 @@ export const PlayerController = () => {
   }, [kartScale]);
 
   // Blast reaction: if a new explosion appeared near the kart, shove the
-  // kart away, kill its speed and stun the throttle briefly.
+  // kart away and spin it out (v3 heavy). Triple-red orbit absorbs bombs.
   function reactToExplosions(player) {
     const st = useGameStore.getState();
     const list = st.explosions;
@@ -108,7 +108,10 @@ export const PlayerController = () => {
     ) {
       return;
     }
-    lastExplosionIdRef.current = latest.id;
+    // Triple-red orbit absorbs bomb blasts (no shove, no spin).
+    if (String(latest.id).startsWith("explosion-") && absorbWithOrbit("bomb")) {
+      return;
+    }
     const dx = player.position.x - latest.x;
     const dz = player.position.z - latest.z;
     const d = Math.hypot(dx, dz);
@@ -130,10 +133,8 @@ export const PlayerController = () => {
     );
     player.position.x = resolved.x;
     player.position.z = resolved.z;
-    // Full stop + 3s stun (throttle dead, see updateSpeed) + spin sound.
-    speedRef.current = 0;
-    setSpeed(speedRef.current);
-    st.setStunUntil(performance.now() + 3000);
+    // Heavy spin-out (throttle dead while spinning, see updateSpeed).
+    applySpin({ victim: "self", heavy: true, now: performance.now() });
     const spin = new Audio("/music/spin.mp3");
     spin.loop = true;
     spin.volume = 0.9;
@@ -631,6 +632,9 @@ export const PlayerController = () => {
       player.rotation.y = damp(player.rotation.y, steer.heading, 3.5, delta);
       return;
     }
+    // Spin-out: no steering while tumbling (v3 §5).
+    const spinNow = useGameStore.getState().spin;
+    if (spinNow && performance.now() < spinNow.until) return;
     // Apply time trial mode handling adjustments
     const isTimeTrialMode = useGameManager.getState().isTimeTrial;
     const handlingFactor = isTimeTrialMode ? 1.5 : 1.0;

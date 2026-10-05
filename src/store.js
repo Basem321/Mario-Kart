@@ -1,4 +1,47 @@
 import { create } from "zustand";
+import { spinWindows } from "./items/homing.js";
+import { publishOnlineRaceEvent } from "./onlineRaceTransport.js";
+
+// THE single hit path (v3 §5, frozen signature): spins the LOCAL kart and
+// opens hit-invulnerability. Remote victims call this on receipt — the owner
+// never stuns remotes directly. Also mirrors stunUntil for legacy readers.
+export const applySpin = ({ victim = "self", heavy = false, ms = null, now = performance.now() } = {}) => {
+  if (victim !== "self") return false;
+  const st = useGameStore.getState();
+  const w = spinWindows({ heavy, ms, now });
+  st.setSpin({ until: w.spinUntil, heavy: !!heavy });
+  st.setInvulnUntil(w.invulnUntil);
+  st.setStunUntil(w.spinUntil);
+  return true;
+};
+
+// Triple-red orbit absorb (§4.3 matrix): eats one orbiting shell instead of
+// the hit. Returns true when absorbed (caller skips stun/shove).
+export const absorbWithOrbit = (incomingKind, notify = true) => {
+  const st = useGameStore.getState();
+  const held = st.carriedItem;
+  if (
+    held?.type !== "red" ||
+    held?.variant !== "triple" ||
+    (held?.usesLeft ?? 0) <= 0
+  ) {
+    return false;
+  }
+  // Matrix lives in homing.absorbedByOrbit — replicate the two allowed
+  // kinds here to keep store.js free of extra imports (same rule).
+  if (incomingKind !== "red" && incomingKind !== "bomb") return false;
+  const left = held.usesLeft - 1;
+  const next = left > 0 ? { ...held, usesLeft: left } : null;
+  st.setCarriedItem(next);
+  if (notify) {
+    publishOnlineRaceEvent({
+      type: "item:carried",
+      itemType: next ? next.type : null,
+      variant: next ? next.variant ?? "single" : null,
+    });
+  }
+  return true;
+};
 
 export const useGameStore = create((set) => ({
   playerPosition: null,
@@ -99,6 +142,16 @@ export const useGameStore = create((set) => ({
   // Timestamp (performance.now) until which the kart is stunned.
   stunUntil: 0,
   setStunUntil: (stunUntil) => set({ stunUntil }),
+  // Spin-out (v3 §5): {until, heavy} while tumbling; inputs dead.
+  spin: null,
+  setSpin: (spin) => set({ spin }),
+  // Hit-invulnerability window end (shells/bombs pass through).
+  invulnUntil: 0,
+  setInvulnUntil: (invulnUntil) => set({ invulnUntil }),
+  // Release-time spawn queue: [{kind, backward, pressAt, releaseAt}].
+  // Press commits instantly; the projectile appears at release.
+  pendingSpawns: [],
+  setPendingSpawns: (pendingSpawns) => set({ pendingSpawns }),
   // Fresh session state: called on start/exit so stale boxes, live bombs,
   // explosions, carried bombs and stuns never leak into the next run.
   resetBattleState: () =>
@@ -112,6 +165,9 @@ export const useGameStore = create((set) => ({
       blooperSquirt: null,
       selfDistance: 0,
       shroomUntil: 0,
+      spin: null,
+      invulnUntil: 0,
+      pendingSpawns: [],
       itemBoxes: [],
       droppedBombs: [],
       explosions: [],

@@ -172,6 +172,8 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     const ownerId = String(shell.ownerId ?? "").slice(0, 64);
     const targetId =
       shell.targetId == null ? null : String(shell.targetId).slice(0, 64);
+    const bounces = Number(shell.bounces);
+    const homing = shell.homing !== false;
     if (
       !shellId ||
       (kind !== "red" && kind !== "blue") ||
@@ -184,7 +186,11 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     }
     return {
       type: "shell:fired",
-      shell: { id: shellId, kind, ...position, dx, dz, targetId, ownerId },
+      shell: {
+        id: shellId, kind, ...position, dx, dz, targetId, ownerId,
+        homing,
+        bounces: Number.isInteger(bounces) ? Math.max(0, Math.min(3, bounces)) : 3,
+      },
     };
   }
 

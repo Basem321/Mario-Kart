@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useGLTF, useTexture, useKeyboardControls } from "@react-three/drei";
 import * as THREE from "three";
-import { useGameStore } from "./store";
-import { useOnlineRaceStore } from "./onlineRaceStore";
+import { useGameStore, applySpin, absorbWithOrbit } from "./store";import { useOnlineRaceStore } from "./onlineRaceStore";
 import { ItemBoxModel, BombModel, RedShellModel, BlueShellModel, BlooperModel } from "./models/Pickups";
 import {
   BLOOPER_INK_MS,
@@ -20,14 +19,17 @@ import {
   RED_SPEED,
   RED_STUN_MS,
   bulletActive,
+  bounceShell,
+  coneLock,
   cruiseSettle,
   inkUntil,
   isValidKnock,
-  nearestAhead,
   resolveBlueBlast,
   shouldApplyHit,
+  spawnDue,
   steerShell,
   targetsAhead,
+  wallHitNormal,
 } from "./items/homing";
 import {
   ROULETTE_MS,
@@ -61,6 +63,25 @@ const EXPLOSION_LIFE = 1.05;
 const snapRaycaster = new THREE.Raycaster();
 const downDir = new THREE.Vector3(0, -1, 0);
 let nextId = 1;
+// Last committed item-use press (performance.now). Global min-use gap (§10.6).
+let lastUseAt = 0;
+
+// Red throw, two-phase: the press consumes the slot NOW, the shell spawns at
+// the throw animation's release time (spec: 180ms forward).
+const queueRedThrow = (backward, now) => {
+  const st = useGameStore.getState();
+  st.setCarriedItem(null);
+  publishCarried(null);
+  st.setPendingSpawns([
+    ...st.pendingSpawns,
+    {
+      kind: "red",
+      backward: Boolean(backward),
+      pressAt: now,
+      releaseMs: itemConfig.throwForward.releaseMs,
+    },
+  ]);
+};
 
 const bombExplosionId = (bombId) => `explosion-${String(bombId)}`;
 
@@ -171,9 +192,9 @@ const shellHitFxId = (shellId) => `shellhit-${String(shellId)}`;
 
 // Stun the LOCAL kart from a shell hit + small burst. Remote victims apply
 // this themselves when their shell:hit arrives (owner never stuns remotes).
-const applyShellStun = ({ x, y, z, shellId, scale = 0.6, soft = false, stun = true }) => {
+const applyShellStun = ({ x, y, z, shellId, scale = 0.6, soft = false, stun = true, ms = null }) => {
   const st = useGameStore.getState();
-  if (stun) st.setStunUntil(performance.now() + RED_STUN_MS);
+  if (stun) applySpin({ victim: "self", heavy: false, ms, now: performance.now() });
   const fxId = shellHitFxId(shellId);
   if (!st.explosions.some((e) => e.id === fxId)) {
     st.setExplosions([
@@ -210,11 +231,14 @@ const onRemoteShellHit = (event) => {
   const shell = st.activeShells.find((s) => s.id === shellId);
   st.setActiveShells(st.activeShells.filter((s) => s.id !== shellId));
   if (String(event?.victimId ?? "") === myRacerId() && shell && raceLive()) {
-    applyShellStun({ x: shell.x, y: shell.y, z: shell.z, shellId, soft: true });
+    // Triple orbit absorbs red shells instead of spinning (matrix §4.3).
+    if (shell.kind !== "red" || !absorbWithOrbit("red")) {
+      applyShellStun({ x: shell.x, y: shell.y, z: shell.z, shellId, soft: true });
+    }
   }
 };
 
-const fireRedShell = () => {
+const fireRedShell = (backward = false) => {
   const st = useGameStore.getState();
   const gm = useGameManager.getState();
   const playerPos = st.playerPosition;
@@ -222,43 +246,42 @@ const fireRedShell = () => {
   const ry = st.playerRotationY || 0;
   const fx = -Math.sin(ry);
   const fz = -Math.cos(ry);
+  // Backward throw (back held + use): straight back, no homing.
+  const dx = backward ? -fx : fx;
+  const dz = backward ? -fz : fz;
   const me = myRacerId();
   const gy = st.groundPosition ?? playerPos.y ?? 0;
 
   let targetId = null;
-  if (gm.isOnlineRace) {
+  if (gm.isOnlineRace && !backward) {
     const ors = useOnlineRaceStore.getState();
     const racers = Object.entries(ors.remoteRacers).map(([id, r]) => ({
       id,
       x: Number(r?.x) || 0,
       z: Number(r?.z) || 0,
-      laps: Number(ors.remoteRaceProgress[id]?.completedLaps) || 0,
     }));
-    const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
-    const target = nearestAhead(
-      { id: me, x: playerPos.x, z: playerPos.z, laps: localCompleted, fx, fz },
-      racers
-    );
+    const target = coneLock({ id: me, x: playerPos.x, z: playerPos.z, fx, fz }, racers);
     targetId = target ? target.id : null;
   }
 
   const shell = {
     id: `shell-${me}-${Date.now().toString(36)}`,
     kind: "red",
-    x: playerPos.x + fx * 2,
+    x: playerPos.x + dx * 2,
     y: gy + 0.9 + 1.2,
-    z: playerPos.z + fz * 2,
+    z: playerPos.z + dz * 2,
     cruiseY: gy + 0.9,
-    dx: fx,
-    dz: fz,
+    dx,
+    dz,
     targetId,
+    homing: !backward && targetId !== null,
+    bounces: itemConfig.redShell.maxBounces,
     ownerId: me,
     owner: true,
     at: performance.now(),
   };
   st.setActiveShells([...st.activeShells, shell]);
-  st.setCarriedItem(null);
-  publishOnlineRaceEvent({ type: "item:carried", itemType: null });
+  publishCarried(null);
   publishOnlineRaceEvent({
     type: "shell:fired",
     shell: {
@@ -270,6 +293,8 @@ const fireRedShell = () => {
       dx: shell.dx,
       dz: shell.dz,
       targetId,
+      homing: shell.homing,
+      bounces: shell.bounces,
       ownerId: me,
     },
   });
@@ -762,6 +787,7 @@ export function ItemBoxes() {
               shellId: `knock-${event.rideId}`,
               scale: 0.8,
               soft: true,
+              ms: itemConfig.bullet.hitSpinMs,
             });
           }
           return;
@@ -1007,10 +1033,14 @@ export function ItemBoxes() {
       }
     }
 
-    // Drop with G or E (edge trigger).
+    // Drop with G or E (edge trigger). Spin-out and the global use gap
+    // gate every use (§10.6); lastUseAt is stamped on any committed press.
     const keys = getKeys();
     const dropDown = Boolean(keys?.dropBomb || keys?.useItem);
-    if (dropDown && !dropHeldRef.current && st.carriedBomb) {
+    const spinningNow = st.spin && now < st.spin.until;
+    const gapOk = now - lastUseAt >= itemConfig.minUseGapMs;
+    if (dropDown && !dropHeldRef.current && st.carriedBomb && !spinningNow && gapOk) {
+      lastUseAt = now;
       const ry = st.playerRotationY || 0;
       const myScale = useGameStore.getState().kartScale ?? 1;
       const fx = -Math.sin(ry);
@@ -1051,11 +1081,14 @@ export function ItemBoxes() {
 
     // Mushroom-family use. Singles/triples fire on edge; golden re-fires
     // while held (GOLDEN_REUSE_MS) and expires on the performance.now clock.
-    // Edge is computed BEFORE dropHeldRef updates below.
-    const edgeDown = dropDown && !dropHeldRef.current;
+    // Edge is computed BEFORE dropHeldRef updates below. Spin-out blocks
+    // every use; presses closer than minUseGapMs are ignored (§10.6).
+    const spinning = spinningNow;
+    const edgeDown = dropDown && !dropHeldRef.current && !spinning && gapOk;
     const heldItem = st.carriedItem;
+    if (edgeDown && (st.carriedBomb || heldItem)) lastUseAt = now;
     if (heldItem && heldItem.type === "red") {
-      if (edgeDown) fireRedShell();
+      if (edgeDown) queueRedThrow(Boolean(keys?.backward), now);
     } else if (heldItem && heldItem.type === "blue") {
       if (edgeDown) fireBlueShell();
     } else if (heldItem && heldItem.type === "bullet") {
@@ -1064,9 +1097,7 @@ export function ItemBoxes() {
       if (edgeDown) fireBlooper();
     } else if (
       heldItem &&
-      (heldItem.type === "mushroom" ||
-        heldItem.type === "triple" ||
-        heldItem.type === "golden")
+      (heldItem.type === "mushroom" || heldItem.type === "golden")
     ) {
       if (heldItem.type === "golden" && now >= heldItem.windowUntil) {
         st.setCarriedItem(null);
@@ -1074,6 +1105,7 @@ export function ItemBoxes() {
       } else if (heldItem.type === "golden") {
         if (
           dropDown &&
+          !spinning &&
           refireAllowed(goldenLastRef.current, now, itemConfig.golden.minGapMs)
         ) {
           goldenLastRef.current = now;
@@ -1085,6 +1117,15 @@ export function ItemBoxes() {
     }
 
     dropHeldRef.current = dropDown;
+
+    // Release-time spawns: committed presses materialize at release.
+    const due = st.pendingSpawns.filter((p) => spawnDue(p, now));
+    if (due.length > 0) {
+      st.setPendingSpawns(st.pendingSpawns.filter((p) => !spawnDue(p, now)));
+      for (const p of due) {
+        if (p.kind === "red") fireRedShell(p.backward);
+      }
+    }
 
     // Live bombs explode when the kart touches them (after arm time).
     for (const bomb of [...st.droppedBombs]) {
@@ -1136,7 +1177,8 @@ export function ItemBoxes() {
       ];
       const next = [];
       for (const shell of st.activeShells) {
-        const life = shell.kind === "blue" ? BLUE_LIFE_MS : RED_LIFE_MS;
+        const life =
+          shell.kind === "blue" ? BLUE_LIFE_MS : itemConfig.redShell.lifetimeMs;
         if (now - shell.at >= life) continue;
         if (shell.kind === "blue") {
           // Leader gone or finished → fizzle (alarm stops via explode).
@@ -1204,7 +1246,9 @@ export function ItemBoxes() {
           continue;
         }
         let { dx, dz } = shell;
-        if (shell.targetId) {
+        let bounces = shell.bounces ?? itemConfig.redShell.maxBounces;
+        // Homing steers only with a live target; backward/untargeted fly straight.
+        if (shell.homing && shell.targetId) {
           const target = victims.find((v) => v.id === shell.targetId);
           if (target) {
             const steered = steerShell({
@@ -1217,18 +1261,39 @@ export function ItemBoxes() {
             dz = steered.z;
           }
         }
+        const shellSpeed =
+          itemConfig.redShell.speedMult * kartSettings.speed.max;
         const moved = {
           ...shell,
-          x: shell.x + dx * RED_SPEED * step,
+          x: shell.x + dx * shellSpeed * step,
           y: cruiseSettle(shell.y, shell.cruiseY ?? shell.y, step),
-          z: shell.z + dz * RED_SPEED * step,
+          z: shell.z + dz * shellSpeed * step,
           dx,
           dz,
         };
+        // Wall bounce (up to maxBounces, then the shell drops).
+        const wallN = wallHitNormal(moved.x, moved.z, st.wallSegments, 1);
+        if (wallN) {
+          const bounced = bounceShell({ x: dx, z: dz }, wallN, bounces);
+          if (!bounced) continue;
+          moved.dx = bounced.dx;
+          moved.dz = bounced.dz;
+          moved.bounces = bounced.left;
+        }
         if (shell.owner) {
-          const hit = victims.find(
-            (v) => Math.hypot(v.x - moved.x, v.z - moved.z) < RED_HIT_RADIUS
-          );
+          // First racer TOUCHED (nearest in radius), owner grace 0.5 s.
+          let hit = null;
+          let hitDist = Infinity;
+          for (const v of victims) {
+            if (v.id === me && now - shell.at < itemConfig.redShell.ownerGraceMs) {
+              continue;
+            }
+            const d = Math.hypot(v.x - moved.x, v.z - moved.z);
+            if (d < RED_HIT_RADIUS && d < hitDist) {
+              hit = v;
+              hitDist = d;
+            }
+          }
           if (hit) {
             publishOnlineRaceEvent({
               type: "shell:hit",
@@ -1239,7 +1304,8 @@ export function ItemBoxes() {
               z: moved.z,
             });
             if (hit.id === me) {
-              if (raceLive()) {
+              // Triple orbit absorbs instead of spinning (matrix §4.3).
+              if (raceLive() && !absorbWithOrbit("red")) {
                 applyShellStun({ x: moved.x, y: moved.y, z: moved.z, shellId: shell.id, soft: true });
               }
             } else {

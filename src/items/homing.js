@@ -1,6 +1,8 @@
 // Red-shell homing steering (pure math on plain {x, z} vectors).
 // Simulation + rendering live in ItemBoxes.jsx; P2P in useP2PLobby.js.
 
+import { itemConfig } from "./itemConfig.js";
+
 export const RED_MAX_TURN = 2.2; // rad/s, per spec
 export const RED_HIT_RADIUS = 3.4; // same as BOMB_TRIGGER_RADIUS
 export const RED_LIFE_MS = 6000;
@@ -126,4 +128,104 @@ export const nearestAhead = (self, racers) => {
     }
   }
   return best;
+};
+
+// Red-shell target lock (v3 §4.3): nearest racer AHEAD inside lockRange
+// units and the lockConeDeg cone around the shooter forward, else null.
+export const coneLock = (self, racers) => {
+  if (!self || !Array.isArray(racers)) return null;
+  const cfg = itemConfig.redShell;
+  const fx = Number(self.fx) || 0;
+  const fz = Number(self.fz) === 0 ? 0 : Number(self.fz) || -1;
+  const cosLimit = Math.cos(((cfg.lockConeDeg / 2) * Math.PI) / 180);
+  let best = null;
+  let bestDist = Infinity;
+  for (const r of racers) {
+    if (!r || r.id === self.id) continue;
+    const dx = Number(r.x) - Number(self.x);
+    const dz = Number(r.z) - Number(self.z);
+    const dist = Math.hypot(dx, dz);
+    if (dist > cfg.lockRange || dist < 1e-6) continue;
+    if ((dx * fx + dz * fz) / dist < cosLimit) continue;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = r;
+    }
+  }
+  return best;
+};
+
+// Wall bounce: reflect dir on the wall normal, spend one bounce.
+// Returns {dx, dz, left} or null when bounces are exhausted (shell drops).
+export const bounceShell = (dir, normal, bouncesLeft) => {
+  const left = Number(bouncesLeft) || 0;
+  if (left <= 0) return null;
+  const dx = Number(dir?.x) || 0;
+  const dz = Number(dir?.z) || 0;
+  const nx = Number(normal?.x) || 0;
+  const nz = Number(normal?.z) || 0;
+  const dot = dx * nx + dz * nz;
+  return { dx: dx - 2 * dot * nx, dz: dz - 2 * dot * nz, left: left - 1 };
+};
+
+// Wall face for shell bounces: first flat XZ segment within radius of the
+// point, normal facing back toward the point. Null when no wall is near.
+export const wallHitNormal = (x, z, segments, radius = 1) => {
+  if (!Array.isArray(segments)) return null;
+  const px = Number(x);
+  const pz = Number(z);
+  for (const s of segments) {
+    const ax = Number(s?.ax);
+    const az = Number(s?.az);
+    const bx = Number(s?.bx);
+    const bz = Number(s?.bz);
+    if (![ax, az, bx, bz].every(Number.isFinite)) continue;
+    const abx = bx - ax;
+    const abz = bz - az;
+    const lenSq = abx * abx + abz * abz || 1;
+    const t = Math.max(0, Math.min(1, ((px - ax) * abx + (pz - az) * abz) / lenSq));
+    const cx = ax + abx * t;
+    const cz = az + abz * t;
+    const dx = px - cx;
+    const dz = pz - cz;
+    const d = Math.hypot(dx, dz);
+    if (d <= radius && d > 1e-6) return { x: dx / d, z: dz / d };
+  }
+  return null;
+};
+
+// Triple orbit angle from the SHARED race clock (degrees): peers never send
+// orbit data, phases stay in sync through raceTimeMs.
+export const orbitAngle = (raceTimeMs, index) => {
+  const deg = (Number(raceTimeMs) / 1000) * itemConfig.orbit.degPerSec;
+  return (((deg + Number(index) * 120) % 360) + 360) % 360;
+};
+
+// Triple absorb matrix (§4.3): orbiting shells eat red shells and bomb
+// blasts only. Everything else passes through.
+const ABSORBABLE = new Set(["red", "bomb"]);
+export const absorbedByOrbit = (incomingKind) => ABSORBABLE.has(incomingKind);
+
+// Release-time spawns: the press commits immediately, the projectile appears
+// at pressAt + releaseMs (throw animation sync).
+export const spawnDue = (pending, now) =>
+  !!pending && Number(now) >= Number(pending.pressAt) + Number(pending.releaseMs);
+
+// Spin-out windows (T8 core, frozen name): light/heavy spin then shared
+// hit-invulnerability. All on the performance.now clock. ms overrides the
+// preset (bullet touch = 1000ms) with the same invuln tail.
+export const spinWindows = ({ heavy = false, ms = null, now = 0 } = {}) => {
+  const spinMs = Number.isFinite(ms) ? ms : heavy ? itemConfig.hit.heavyMs : itemConfig.hit.lightMs;
+  return {
+    spinUntil: Number(now) + spinMs,
+    invulnUntil: Number(now) + spinMs + itemConfig.hitInvulnMs,
+  };
+};
+
+// Input gates during spin/invuln: no steering or item use while spinning;
+// mushrooms stay usable while merely invulnerable.
+export const spinBlocked = ({ spinUntil = 0, invulnUntil = 0, now = 0 } = {}) => {
+  void invulnUntil;
+  if (Number(now) < Number(spinUntil)) return { steer: false, use: false };
+  return { steer: true, use: true };
 };
