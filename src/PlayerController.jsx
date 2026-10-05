@@ -18,7 +18,7 @@ import {
   KART_RADIUS,
   WALL_SKIN,
 } from "./collision";
-import { bulletActive, bulletPhase, BULLET_SPEED } from "./items/homing";
+import { bulletActive, bulletPhase, hitApplies, BULLET_SPEED } from "./items/homing";
 import { boostTargetSpeed } from "./items/itemWeights";
 import { findNearestBlackRoadPoint3D, getHighestRoadYAt, trackConfigToTransform } from "./trackRoad";
 import { getTrack, getMergedRoadGeometry } from "./tracks";
@@ -110,6 +110,10 @@ export const PlayerController = () => {
     }
     // Triple-red orbit absorbs bomb blasts (no shove, no spin).
     if (String(latest.id).startsWith("explosion-") && absorbWithOrbit("bomb")) {
+      return;
+    }
+    // Hit-invulnerability: shells and bombs pass through (v3 §5).
+    if (!hitApplies({ invulnUntil: st.invulnUntil }, performance.now())) {
       return;
     }
     const dx = player.position.x - latest.x;

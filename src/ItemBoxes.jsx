@@ -23,6 +23,7 @@ import {
   blueShouldDive,
   coneLock,
   cruiseSettle,
+  hitApplies,
   inkUntil,
   isValidKnock,
   resolveBlueBlast,
@@ -206,6 +207,10 @@ const fireBoostItem = (item) => {
 
 const myRacerId = () => useGameManager.getState().onlineSelfId ?? "local";
 
+// Local vulnerability: hits pass through while invulnerable (v3 §5).
+const myVulnerable = (now = performance.now()) =>
+  hitApplies({ invulnUntil: useGameStore.getState().invulnUntil }, now);
+
 // Late/duplicate P2P hits must never stun behind the results screen.
 const raceLive = () => {
   const gm = useGameManager.getState();
@@ -254,7 +259,7 @@ const onRemoteShellHit = (event) => {
   if (!shellId) return;
   const shell = st.activeShells.find((s) => s.id === shellId);
   st.setActiveShells(st.activeShells.filter((s) => s.id !== shellId));
-  if (String(event?.victimId ?? "") === myRacerId() && shell && raceLive()) {
+  if (String(event?.victimId ?? "") === myRacerId() && shell && raceLive() && myVulnerable()) {
     // Triple orbit absorbs red shells instead of spinning (matrix §4.3).
     if (shell.kind !== "red" || !absorbWithOrbit("red")) {
       applyShellStun({ x: shell.x, y: shell.y, z: shell.z, shellId, soft: true });
@@ -838,6 +843,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           if (
             event.victimId === myRacerId() &&
             raceLive() &&
+            myVulnerable() &&
             isValidKnock({ senderRide, rideId: event.rideId, now: performance.now() })
           ) {
             const p = useGameStore.getState().playerPosition;
@@ -898,12 +904,13 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               myRide &&
               myRide.ownerId === me2 &&
               bulletActive(myRide, performance.now());
-            if (
-              !immune &&
-              raceLive() &&
-              p2 &&
-              resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2)
-            ) {
+          if (
+            !immune &&
+            raceLive() &&
+            myVulnerable() &&
+            p2 &&
+            resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2)
+          ) {
               applyShellStun({
                 x: event.x,
                 y: event.y,
@@ -1354,7 +1361,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                     x: moved.x,
                     z: moved.z,
                   });
-                  if (hitIds.includes(me) && raceLive()) {
+                  if (hitIds.includes(me) && raceLive() && myVulnerable(now)) {
                     applyShellStun({
                       x: moved.x,
                       y: ground,
@@ -1432,7 +1439,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
             });
             if (hit.id === me) {
               // Triple orbit absorbs instead of spinning (matrix §4.3).
-              if (raceLive() && !absorbWithOrbit("red")) {
+              if (raceLive() && myVulnerable(now) && !absorbWithOrbit("red")) {
                 applyShellStun({ x: moved.x, y: moved.y, z: moved.z, shellId: shell.id, soft: true });
               }
             } else {

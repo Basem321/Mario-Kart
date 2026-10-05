@@ -265,6 +265,11 @@ export const spinWindows = ({ heavy = false, ms = null, now = 0 } = {}) => {
   };
 };
 
+// Hit gate: shells/bombs/knocks/blasts pass through invulnerable racers.
+// Expired, missing, or null windows never block.
+export const hitApplies = (gate, now = 0) =>
+  !(Number(gate?.invulnUntil) > Number(now));
+
 // Input gates during spin/invuln: no steering or item use while spinning;
 // mushrooms stay usable while merely invulnerable.
 export const spinBlocked = ({ spinUntil = 0, invulnUntil = 0, now = 0 } = {}) => {

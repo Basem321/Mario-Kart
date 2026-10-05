@@ -146,6 +146,9 @@ export function Kart({
       : null;
   const heldTriple = carriedItem?.type === "mushroom" && carriedItem?.variant === "triple";
   const selectedDriver = useGameManager((state) => state.selectedDriver);
+  // Held visuals hide while spinning out (the slot itself is untouched).
+  const spinState = useGameStore((state) => state.spin);
+  const hideHeld = Boolean(spinState);
   // Throw flourish: 0.25s lean punch whenever a carried slot empties (item
   // used/consumed). Driver GLBs have no animation clips, so this procedural
   // nudge on rotation.x (physics only drives .y) is the throw animation.
@@ -555,16 +558,26 @@ export function Kart({
     bodyRef.current.position.y = averageYPos / ksBody + jumpOffset.current * 0.1;
   }
   useFrame((_, delta) => {
-    // Dizzy stars orbit while the explosion stun is active.
+    // Dizzy stars orbit while spinning out.
     if (starsGroupRef.current) {
-      const stunned =
-        performance.now() < useGameStore.getState().stunUntil;
-      starsGroupRef.current.visible = stunned;
-      if (stunned) {
+      const spinning =
+        performance.now() < (useGameStore.getState().spin?.until ?? 0);
+      starsGroupRef.current.visible = spinning;
+      if (spinning) {
         starsGroupRef.current.rotation.y += delta * 7;
         starsGroupRef.current.position.y =
           1.35 + Math.sin(performance.now() / 90) * 0.08;
       }
+    }
+    // Hit-invulnerability blink (8 Hz) once the spin ends. Whole-group
+    // visible toggle: no shared-material surgery, held items blink too.
+    if (groupRef.current) {
+      const gs = useGameStore.getState();
+      const spinningNow = performance.now() < (gs.spin?.until ?? 0);
+      const blinking =
+        !spinningNow && !myBulletRide && performance.now() < (gs.invulnUntil ?? 0);
+      groupRef.current.visible =
+        !blinking || Math.floor(performance.now() / (1000 / 8 / 2)) % 2 === 0;
     }
     if (wheel0.current && wheel1.current && wheel2.current && wheel3.current) {
       // One-shot rescue snap from Reset: place every wheel on the rescued
@@ -757,7 +770,7 @@ export function Kart({
               <Driver character={selectedDriver} />
             </group>
             {/* Carried bomb, visible on the back until dropped with G */}
-            {carriedBomb && (
+            {carriedBomb && !hideHeld && (
               <group position={[0, 1.0, -1.2]} scale={0.5}>
                 <BombModel />
               </group>
@@ -765,12 +778,12 @@ export function Kart({
             {/* Carried mushroom-family item (same mount point as the bomb).
                 Mushroom GLB runs large — 0.22 keeps it kart-proportioned.
                 Triple renders three small ones circling the kart. */}
-            {heldMushroom && !heldTriple && (
+            {heldMushroom && !heldTriple && !hideHeld && (
               <group position={[0, 1.0, -1.2]} scale={1}>
                 <MushroomModel gold={heldMushroom === "golden"} />
               </group>
             )}
-            {heldTriple && (
+            {heldTriple && !hideHeld && (
               <group position={[0, 1.0, -1.2]}>
                 {[90, 210, 330].map((deg) => {
                   const a = (deg * Math.PI) / 180;
@@ -786,19 +799,19 @@ export function Kart({
               </group>
             )}
             {/* Carried red shell */}
-            {carriedItem?.type === "red" && (
+            {carriedItem?.type === "red" && !hideHeld && (
               <group position={[0, 1.0, -1.2]}>
                 <RedShellModel />
               </group>
             )}
             {/* Carried blue shell */}
-            {carriedItem?.type === "blue" && (
+            {carriedItem?.type === "blue" && !hideHeld && (
               <group position={[0, 1.0, -1.2]}>
                 <BlueShellModel />
               </group>
             )}
             {/* Carried bullet: mini on the rack, nose forward */}
-            {carriedItem?.type === "bullet" && (
+            {carriedItem?.type === "bullet" && !hideHeld && (
               <group position={[0, 1.0, -1.2]} scale={BULLET_MINI_SCALE}>
                 <BulletModel />
               </group>
