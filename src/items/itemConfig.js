@@ -48,6 +48,7 @@ export const itemConfig = {
   redShell: {
     speedMult: 1.6, lifetimeMs: 8000, lockRange: 60, lockConeDeg: 50,
     maxBounces: 3, spinMs: 1500, ownerGraceMs: 500,
+    hitRadius: 3.4, maxTurnRad: 2.2,
   },
   blueShell: { speedMult: 2.2, altitude: 14, minFlightMs: 2000, radius: 8, spinMs: 2500 },
   bullet: { durationMs: 5000, speedMult: 1.6, rampOutMs: 600, hitSpinMs: 1000, endInvulnMs: 1000 },

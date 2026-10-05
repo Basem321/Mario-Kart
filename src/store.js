@@ -38,6 +38,9 @@ export const absorbWithOrbit = (incomingKind, notify = true) => {
       type: "item:carried",
       itemType: next ? next.type : null,
       variant: next ? next.variant ?? "single" : null,
+      // Remotes track the orbit count + golden window from these.
+      usesLeft: next && Number.isInteger(next.usesLeft) ? next.usesLeft : null,
+      windowUntil: next && Number.isFinite(next.windowUntil) ? next.windowUntil : null,
     });
   }
   return true;

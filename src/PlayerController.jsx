@@ -18,7 +18,7 @@ import {
   KART_RADIUS,
   WALL_SKIN,
 } from "./collision";
-import { bulletActive, bulletPhase, hitApplies, BULLET_SPEED } from "./items/homing";
+import { bulletActive, bulletPhase, hitApplies, shouldApplyHit, BULLET_SPEED } from "./items/homing";
 import { boostTargetSpeed } from "./items/itemWeights";
 import { findNearestBlackRoadPoint3D, getHighestRoadYAt, trackConfigToTransform } from "./trackRoad";
 import { getTrack, getMergedRoadGeometry } from "./tracks";
@@ -90,8 +90,17 @@ export const PlayerController = () => {
 
   // Blast reaction: if a new explosion appeared near the kart, shove the
   // kart away and spin it out (v3 heavy). Triple-red orbit absorbs bombs.
+  // Never behind the results screen.
   function reactToExplosions(player) {
     const st = useGameStore.getState();
+    const gm = useGameManager.getState();
+    if (!shouldApplyHit({ gameStarted: gm.gameStarted, gameOver: gm.gameOver })) {
+      const list0 = st.explosions;
+      if (list0 && list0.length > 0) {
+        lastExplosionIdRef.current = list0[list0.length - 1].id;
+      }
+      return;
+    }
     const list = st.explosions;
     if (!list || list.length === 0) return;
     const latest = list[list.length - 1];

@@ -221,6 +221,39 @@ export const refireAllowed = (lastAt, now, gapMs) =>
 export const boostTargetSpeed = (kartMax, kartScale) =>
   Number(kartMax) * itemConfig.mushroom.speedMult * Number(kartScale);
 
+// Fix-pass helpers (review contract tests): press/commit/grant/immunity as
+// pure functions so the Review Focus gates stay pinned, not just hoped for.
+
+// Red press: consumes ONE use now (triple counts down), queues the spawn.
+// Returns {slot, queued} or null when nothing to throw.
+export const pressRedThrow = (held) => {
+  if (!held || held.type !== "red") return null;
+  const left = (Number(held.usesLeft) || 1) - 1;
+  return {
+    slot: left > 0 ? { ...held, usesLeft: left } : null,
+    queued: true,
+  };
+};
+
+// Roulette lock gate: commit only while racing; post-race spins drop with
+// no grant and no publish. Returns {action, type?} or null (not due).
+export const commitRoulette = ({ pending, raceLive, now } = {}) => {
+  if (!pending) return null;
+  if (!raceLive) return { action: "drop" };
+  if (Number(now) - Number(pending.startedAt) < itemConfig.roulette.durationMs) {
+    return null;
+  }
+  return { action: "commit", type: pending.type };
+};
+
+// Full slot + box touch: the box is still consumed (player gets nothing).
+export const pickupGrant = ({ occupied, row } = {}) =>
+  occupied ? { consume: true } : { grant: row };
+
+// Bullet-immune riders can't be red-hit (spec §4.4): filter them first.
+export const excludeImmune = (victims) =>
+  Array.isArray(victims) ? victims.filter((v) => v && !v.bullet) : [];
+
 // Race rank: laps dominate, distance driven breaks ties. Rows are
 // [{id, laps, dist}]; missing dist counts as 0.
 export const compareRacers = (a, b) => {

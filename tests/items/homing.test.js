@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { itemConfig } from "../../src/items/itemConfig.js";
 import {
-  RED_HIT_RADIUS,
-  RED_LIFE_MS,
-  RED_MAX_TURN,
   nearestAhead,
   steerShell,
 } from "../../src/items/homing.js";
+
+const RED_MAX_TURN = itemConfig.redShell.maxTurnRad;
+const RED_HIT_RADIUS = itemConfig.redShell.hitRadius;
 
 const approx = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
@@ -41,7 +42,7 @@ test("shell already aimed keeps its heading", () => {
 
 test("direct hit registers inside the trigger radius", () => {
   assert.equal(RED_HIT_RADIUS, 3.4);
-  assert.equal(RED_LIFE_MS, 6000);
+  assert.equal(itemConfig.redShell.lifetimeMs, 8000);
 });
 
 test("nearestAhead picks the closest racer ahead, not behind", () => {

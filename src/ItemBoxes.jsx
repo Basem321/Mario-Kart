@@ -13,11 +13,6 @@ import {
   BLUE_SPEED,
   BULLET_KNOCK_RADIUS,
   BULLET_RIDE_MS,
-  RED_HIT_RADIUS,
-  RED_LIFE_MS,
-  RED_MAX_TURN,
-  RED_SPEED,
-  RED_STUN_MS,
   bulletActive,
   bounceShell,
   blueShouldDive,
@@ -35,12 +30,15 @@ import {
   wallHitNormal,
 } from "./items/homing";
 import {
-  ROULETTE_MS,
   canGrant,
+  commitRoulette,
   compareRacers,
   consumeUse,
+  excludeImmune,
   nextBoostUntil,
   normalizeBoxList,
+  pickupGrant,
+  pressRedThrow,
   rankOf,
   refireAllowed,
   rollItem,
@@ -69,12 +67,14 @@ let nextId = 1;
 // Last committed item-use press (performance.now). Global min-use gap (§10.6).
 let lastUseAt = 0;
 
-// Red throw, two-phase: the press consumes the slot NOW, the shell spawns at
-// the throw animation's release time (spec: 180ms forward).
+// Red throw, two-phase: the press consumes ONE use NOW (triple counts down,
+// slot clears at zero), the shell spawns at the release time.
 const queueRedThrow = (backward, now) => {
   const st = useGameStore.getState();
-  st.setCarriedItem(null);
-  publishCarried(null);
+  const pressed = pressRedThrow(st.carriedItem);
+  if (!pressed) return false;
+  st.setCarriedItem(pressed.slot);
+  publishCarried(pressed.slot);
   st.setPendingSpawns([
     ...st.pendingSpawns,
     {
@@ -84,6 +84,7 @@ const queueRedThrow = (backward, now) => {
       releaseMs: itemConfig.throwForward.releaseMs,
     },
   ]);
+  return true;
 };
 
 // Blue throw, two-phase: release at the throw-up apex (150ms).
@@ -1038,20 +1039,29 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     const pickupRadius = Math.max(1.2, PICKUP_RADIUS * myScale);
     const triggerRadius = Math.max(1.2, BOMB_TRIGGER_RADIUS * myScale);
 
-    // Pickup: single slot shared by the bomb and battle items. The bomb
-    // keeps its exact legacy grant path when it wins the roll; otherwise a
-    // position-weighted item fills the new carriedItem slot (Task 1).
-    if (
-      canGrant({
-        carriedBomb: st.carriedBomb,
-        carriedItem: st.carriedItem,
-        roulette: st.roulette,
-      })
-    ) {
-      for (const b of st.itemBoxes) {
-        if (!b.active) continue;
-        const d = Math.hypot(px - b.x, pz - b.z);
-        if (d < pickupRadius) {
+    // Pickup: a box touch ALWAYS consumes the box (even with a full slot —
+    // then the player gets nothing). A free slot starts the roulette; the
+    // bomb legacy path grants at lock like every other row.
+    const slotFree = canGrant({
+      carriedBomb: st.carriedBomb,
+      carriedItem: st.carriedItem,
+      roulette: st.roulette,
+    });
+    for (const b of st.itemBoxes) {
+      if (!b.active) continue;
+      const d = Math.hypot(px - b.x, pz - b.z);
+      if (d < pickupRadius) {
+        st.setItemBoxes(
+          st.itemBoxes.map((o) =>
+            o.id === b.id
+              ? { ...o, active: false, respawnAt: now + itemConfig.boxRespawnMs }
+              : o
+          )
+        );
+        // Tell everyone the box is gone (offline publish is a no-op).
+        publishOnlineRaceEvent({ type: "item:boxTaken", boxId: b.id });
+        // Free slot → roulette; full slot → consumed, player gets nothing.
+        if (pickupGrant({ occupied: !slotFree, row: "roulette" }).grant) {
           try {
             const rawVol = Number(useGameManager.getState().sfxVolume);
             const vol = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
@@ -1061,34 +1071,20 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           } catch {
             // ignore — audio must never break the pickup loop
           }
-          if (Math.random() < 0.3) {
-            st.setCarriedBomb(true);
-            publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
-          } else {
-            // Roulette starts: the row commits only when the spin locks.
-            const activeBlue = st.activeShells.some((s) => s.kind === "blue");
-            if (useGameManager.getState().gameStarted && !matchStartRef.current) {
-              matchStartRef.current = now;
-            }
-            st.setRoulette({
-              type: rollItem({
-                ...getStanding(),
-                activeBlue,
-                raceAgeMs: now - matchStartRef.current,
-              }),
-              startedAt: now,
-            });
-          }          st.setItemBoxes(
-            st.itemBoxes.map((o) =>
-              o.id === b.id
-                ? { ...o, active: false, respawnAt: now + itemConfig.boxRespawnMs }
-                : o
-            )
-          );
-          // Tell everyone the box is gone (offline publish is a no-op).
-          publishOnlineRaceEvent({ type: "item:boxTaken", boxId: b.id });
-          break;
+          const activeBlue = st.activeShells.some((s) => s.kind === "blue");
+          if (useGameManager.getState().gameStarted && !matchStartRef.current) {
+            matchStartRef.current = now;
+          }
+          st.setRoulette({
+            type: rollItem({
+              ...getStanding(),
+              activeBlue,
+              raceAgeMs: now - matchStartRef.current,
+            }),
+            startedAt: now,
+          });
         }
+        break;
       }
     }
 
@@ -1152,10 +1148,13 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       publishOnlineRaceEvent({ type: "bomb:carried", carried: false });
       publishOnlineRaceEvent({ type: "bomb:dropped", bomb });
     }
-    // Roulette lock: the spun row resolves (bomb legacy path, instant
-    // mini-boosts, or a carried slot) only when the animation stops.
+    // Roulette lock: commit while racing, drop post-race (never grant or
+    // publish after gameOver).
     const pending = st.roulette;
-    if (pending && now - pending.startedAt >= ROULETTE_MS) {
+    const verdict = commitRoulette({ pending, raceLive: raceLive(), now });
+    if (verdict?.action === "drop") {
+      st.setRoulette(null);
+    } else if (verdict?.action === "commit") {
       st.setRoulette(null);
       const slot = rowToSlot(pending.type, now);
       if (slot.bomb) {
@@ -1227,8 +1226,10 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     }
 
     // Live bombs explode when the kart touches them (after arm time).
+    // Never behind the results screen.
     for (const bomb of [...st.droppedBombs]) {
       if (bombAgeMs(bomb, now) < BOMB_ARM_SECONDS * 1000) continue;
+      if (!raceLive()) continue;
       const d = Math.hypot(px - bomb.x, pz - bomb.z);
       if (d < triggerRadius) triggerBombExplosion(bomb, { broadcast: true });
     }
@@ -1270,13 +1271,24 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       const me = myRacerId();
       const ors = useOnlineRaceStore.getState();
       const victims = [
-        { id: me, x: px, z: pz },
+        {
+          id: me,
+          x: px,
+          z: pz,
+          bullet:
+            st.bulletRide &&
+            st.bulletRide.ownerId === me &&
+            bulletActive(st.bulletRide, now),
+        },
         ...Object.entries(ors.remoteRacers).map(([id, r]) => ({
           id,
           x: Number(r?.x) || 0,
           z: Number(r?.z) || 0,
+          bullet: Boolean(r?.bulletRide),
         })),
       ];
+      // Red shells cannot touch bullet riders (§4.4): filter before searching.
+      const hittable = excludeImmune(victims);
       const next = [];
       for (const shell of st.activeShells) {
         const life =
@@ -1392,7 +1404,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
             const steered = steerShell({
               dir: { x: dx, z: dz },
               toTarget: { x: target.x - shell.x, z: target.z - shell.z },
-              maxTurn: RED_MAX_TURN,
+              maxTurn: itemConfig.redShell.maxTurnRad,
               dt: step,
             });
             dx = steered.x;
@@ -1420,14 +1432,15 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         }
         if (shell.owner) {
           // First racer TOUCHED (nearest in radius), owner grace 0.5 s.
+          // Bullet riders are already filtered out of hittable (§4.4).
           let hit = null;
           let hitDist = Infinity;
-          for (const v of victims) {
+          for (const v of hittable) {
             if (v.id === me && now - shell.at < itemConfig.redShell.ownerGraceMs) {
               continue;
             }
             const d = Math.hypot(v.x - moved.x, v.z - moved.z);
-            if (d < RED_HIT_RADIUS && d < hitDist) {
+            if (d < itemConfig.redShell.hitRadius && d < hitDist) {
               hit = v;
               hitDist = d;
             }

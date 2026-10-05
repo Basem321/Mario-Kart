@@ -4,11 +4,8 @@
 import { itemConfig } from "./itemConfig.js";
 import { kartSettings } from "../constants.js";
 
-export const RED_MAX_TURN = 2.2; // rad/s, per spec
-export const RED_HIT_RADIUS = 3.4; // same as BOMB_TRIGGER_RADIUS
-export const RED_LIFE_MS = 6000;
-export const RED_SPEED = 93; // 1.5x pad boost speed (62), per spec
-export const RED_STUN_MS = 1600;
+// Red-shell tuning lives in itemConfig.redShell (single source of truth).
+// Only the steering helper keeps a local default through its maxTurn param.
 
 // Blue shell constants — owned by itemConfig (§8), re-exported for compat.
 export const BLUE_BLAST_RADIUS = itemConfig.blueShell.radius;
