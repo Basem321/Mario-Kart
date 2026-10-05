@@ -210,6 +210,17 @@ export const normalizeBoxList = (raw) => {
   return out;
 };
 
+// Mushroom boost helpers (v3 §4.1/4.2). All durations on performance.now.
+// Re-use always resets the window (never stacks); golden re-fire needs gap.
+export const nextBoostUntil = (/* currentUntil */ _cur, now, durationMs) =>
+  Number(now) + Number(durationMs);
+
+export const refireAllowed = (lastAt, now, gapMs) =>
+  Number(now) - Number(lastAt) >= Number(gapMs);
+
+export const boostTargetSpeed = (kartMax, kartScale) =>
+  Number(kartMax) * itemConfig.mushroom.speedMult * Number(kartScale);
+
 // Race rank: laps dominate, distance driven breaks ties. Rows are
 // [{id, laps, dist}]; missing dist counts as 0.
 export const compareRacers = (a, b) => {

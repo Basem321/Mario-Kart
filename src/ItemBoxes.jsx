@@ -34,8 +34,10 @@ import {
   canGrant,
   compareRacers,
   consumeUse,
+  nextBoostUntil,
   normalizeBoxList,
   rankOf,
+  refireAllowed,
   rollItem,
   rowToSlot,
   leaderOf,
@@ -131,19 +133,19 @@ const getStanding = () => {
   };
 };
 
-const GOLDEN_REUSE_MS = 1200;
-
-// Fire one boost from a carried mushroom-family item. Boosts ride the exact
-// pad channel PlayerController already listens to (mario-kart:boost).
+// Fire one boost from a carried mushroom-family item. Sets an exact
+// 1.5x-max window (PlayerController targets it precisely, no stacking —
+// re-use resets the timer). Golden uses its own shorter boost window.
 const fireBoostItem = (item) => {
   const st = useGameStore.getState();
-  const r = consumeUse({ item, now: performance.now() });
+  const now = performance.now();
+  const r = consumeUse({ item, now });
   if (r.boosted) {
-    window.dispatchEvent(
-      new CustomEvent("mario-kart:boost", {
-        detail: { duration: 1.8, speed: 62, launchVy: 4 },
-      })
-    );
+    const durationMs =
+      item.type === "golden"
+        ? itemConfig.golden.boostMs
+        : itemConfig.mushroom.boostMs;
+    st.setShroomUntil(nextBoostUntil(st.shroomUntil, now, durationMs));
     try {
       const rawVol = Number(useGameManager.getState().sfxVolume);
       const sfx = new Audio("/music/mushroom-boost.mp3");
@@ -1070,7 +1072,10 @@ export function ItemBoxes() {
         st.setCarriedItem(null);
         publishCarried(null);
       } else if (heldItem.type === "golden") {
-        if (dropDown && now - goldenLastRef.current >= GOLDEN_REUSE_MS) {
+        if (
+          dropDown &&
+          refireAllowed(goldenLastRef.current, now, itemConfig.golden.minGapMs)
+        ) {
           goldenLastRef.current = now;
           fireBoostItem(useGameStore.getState().carriedItem);
         }

@@ -19,6 +19,7 @@ import {
   WALL_SKIN,
 } from "./collision";
 import { bulletActive, BULLET_SPEED } from "./items/homing";
+import { boostTargetSpeed } from "./items/itemWeights";
 import { findNearestBlackRoadPoint3D, getHighestRoadYAt, trackConfigToTransform } from "./trackRoad";
 import { getTrack, getMergedRoadGeometry } from "./tracks";
 
@@ -522,6 +523,21 @@ export const PlayerController = () => {
       bulletActive(ride, performance.now());
     if (myRide) {
       speedRef.current = BULLET_SPEED * kartScale;
+      setSpeed(speedRef.current);
+      setIsBoosting(true);
+      return;
+    }
+    // Mushroom boost: exact 1.5x-max target (no stacking — re-use resets the
+    // window). Damp-out gives the ease-out tail for free when it expires.
+    // Dirt never slows it: this branch returns before any surface factor.
+    const shroom = useGameStore.getState().shroomUntil;
+    if (shroom && performance.now() < shroom) {
+      speedRef.current = damp(
+        speedRef.current,
+        boostTargetSpeed(kartSettings.speed.max, kartScale),
+        4,
+        delta
+      );
       setSpeed(speedRef.current);
       setIsBoosting(true);
       return;

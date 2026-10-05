@@ -92,13 +92,18 @@ export const useGameStore = create((set) => ({
       selfDistance:
         s.selfDistance + (Number(d) > 0 ? Math.min(30, Number(d)) : 0),
     })),
+  // Mushroom boost window end (performance.now). While active the kart
+  // targets exactly 1.5x max (no stacking, eases out naturally after).
+  shroomUntil: 0,
+  setShroomUntil: (shroomUntil) => set({ shroomUntil }),
   // Timestamp (performance.now) until which the kart is stunned.
   stunUntil: 0,
   setStunUntil: (stunUntil) => set({ stunUntil }),
   // Fresh session state: called on start/exit so stale boxes, live bombs,
   // explosions, carried bombs and stuns never leak into the next run.
   resetBattleState: () =>
-    set({      carriedBomb: false,
+    set({
+      carriedBomb: false,
       carriedItem: null,
       roulette: null,
       activeShells: [],
@@ -106,6 +111,7 @@ export const useGameStore = create((set) => ({
       blooperUntil: 0,
       blooperSquirt: null,
       selfDistance: 0,
+      shroomUntil: 0,
       itemBoxes: [],
       droppedBombs: [],
       explosions: [],
