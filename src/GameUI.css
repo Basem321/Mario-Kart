@@ -420,7 +420,7 @@
   to { transform: scale(1.12) rotate(2deg); opacity: 0.5; }
 }
 
-/* Blooper ink overlay: splat covers the screen, fades over the 6s window */
+/* Blooper ink overlay: ~60% coverage, 0.3s fade in, hold, 1.0s fade out (5s) */
 .blooper-ink-overlay {
   position: fixed;
   inset: 0;
@@ -429,18 +429,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: ink-fade 6s linear forwards;
+  animation: ink-fade 5s linear forwards;
 }
 
 .blooper-ink-overlay img {
-  width: 135vmax;
-  height: 135vmax;
+  width: 85vmax;
+  height: 85vmax;
   object-fit: cover;
 }
 
 @keyframes ink-fade {
-  from { opacity: 0.97; }
-  70% { opacity: 0.75; }
+  from { opacity: 0; }
+  6% { opacity: 0.97; }
+  80% { opacity: 0.97; }
   to { opacity: 0; }
 }
 

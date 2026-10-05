@@ -50,8 +50,8 @@ export const isValidKnock = ({ senderRide, rideId, now } = {}) =>
   senderRide.rideId === rideId &&
   bulletActive(senderRide, now);
 
-// Blooper constants, per spec.
-export const BLOOPER_INK_MS = 6000;
+// Blooper constants — owned by itemConfig (§8).
+export const BLOOPER_INK_MS = itemConfig.blooper.durationMs;
 export const BLOOPER_SQUIRT_MS = 1000;
 
 // Expiry timestamp for a fresh ink hit. Re-fire overwrites (extends), never
@@ -66,6 +66,8 @@ export const targetsAhead = (self, racers) => {
   const out = [];
   for (const r of racers) {
     if (!r || r.id === self.id) continue;
+    // Bullet Bill riders are immune to ink (§4.5) — never targeted.
+    if (r.bullet) continue;
     const laps = Number(r.laps) || 0;
     const selfLaps = Number(self.laps) || 0;
     if (laps < selfLaps) continue;

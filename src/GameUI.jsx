@@ -169,7 +169,7 @@ const GameUI = () => {
 
   const showWind = Boolean(isBoosting || (boostSpeed ?? 0) > 55);
 
-  // Blooper ink: full-screen splat while the timer runs (6s fade via CSS).
+  // Blooper ink: 5s splat (0.3s in, hold, 1.0s out), ~60% coverage.
   // Visual only — aiming never changes, exactly like the wind overlay.
   const blooperUntil = useGameStore((s) => s.blooperUntil);
   const showInk = blooperUntil > performance.now();
@@ -225,7 +225,7 @@ const GameUI = () => {
         <div className="wind-streaks" />
       </div>
 
-      {/* Blooper ink overlay: splat fades over the 6s window */}
+      {/* Blooper ink overlay: 5s splat with fades */}
       {showInk && (
         <div className="blooper-ink-overlay" aria-hidden="true">
           <img src="/textures/ink-splat.png" alt="" draggable={false} />

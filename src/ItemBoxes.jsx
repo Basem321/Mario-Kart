@@ -383,6 +383,7 @@ const fireBlooper = () => {
       x: Number(r?.x) || 0,
       z: Number(r?.z) || 0,
       laps: Number(ors.remoteRaceProgress[id]?.completedLaps) || 0,
+      bullet: Boolean(r?.bulletRide),
     }));
     const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
     targetIds = targetsAhead(
@@ -854,7 +855,13 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         }
 
         if (event.type === "blooper:ink" && Array.isArray(event.targetIds)) {
-          if (event.targetIds.includes(myRacerId())) {
+          // Bullet riders are immune (§4.5).
+          const myRide = useGameStore.getState().bulletRide;
+          const immune =
+            myRide &&
+            myRide.ownerId === myRacerId() &&
+            bulletActive(myRide, performance.now());
+          if (!immune && event.targetIds.includes(myRacerId())) {
             useGameStore.getState().setBlooperUntil(inkUntil(performance.now()));
             try {
               const rawVol = Number(useGameManager.getState().sfxVolume);
@@ -1156,7 +1163,13 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     // Edge is computed BEFORE dropHeldRef updates below. Spin-out blocks
     // every use; presses closer than minUseGapMs are ignored (§10.6).
     const spinning = spinningNow;
-    const edgeDown = dropDown && !dropHeldRef.current && !spinning && gapOk;
+    // Bullet Bill active: no item use at all, slot kept (§10.6).
+    const myBulletRide =
+      st.bulletRide &&
+      st.bulletRide.ownerId === myRacerId() &&
+      bulletActive(st.bulletRide, now);
+    const edgeDown =
+      dropDown && !dropHeldRef.current && !spinning && !myBulletRide && gapOk;
     const heldItem = st.carriedItem;
     if (edgeDown && (st.carriedBomb || heldItem)) lastUseAt = now;
     if (heldItem && heldItem.type === "red") {
@@ -1178,6 +1191,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         if (
           dropDown &&
           !spinning &&
+          !myBulletRide &&
           refireAllowed(goldenLastRef.current, now, itemConfig.golden.minGapMs)
         ) {
           goldenLastRef.current = now;
@@ -1477,7 +1491,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         ))}
       {blooperSquirt && (
         <group position={[blooperSquirt.x, blooperSquirt.y, blooperSquirt.z]}>
-          <BlooperModel />
+          {/* Cast moment = full size (1.95u vs 0.84u held → ×2.3). */}
+          <BlooperModel scale={2.3} />
         </group>
       )}
       {explosions.map((e) => (
