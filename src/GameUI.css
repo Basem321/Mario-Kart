@@ -488,6 +488,30 @@
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
+/* Blue-shell incoming warning: flashing icon under the item slot */
+.blue-warning {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 172px;
+  z-index: 95;
+  width: 56px;
+  height: 56px;
+  pointer-events: none;
+  animation: blue-warn-blink 0.5s steps(2, jump-none) infinite;
+}
+
+.blue-warning img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+@keyframes blue-warn-blink {
+  from { opacity: 1; }
+  to { opacity: 0.25; }
+}
+
 /* Game Over Modal */
 .game-over-modal {
   position: fixed;

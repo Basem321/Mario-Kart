@@ -20,11 +20,13 @@ import {
   RED_STUN_MS,
   bulletActive,
   bounceShell,
+  blueShouldDive,
   coneLock,
   cruiseSettle,
   inkUntil,
   isValidKnock,
   resolveBlueBlast,
+  retargetBlue,
   shouldApplyHit,
   spawnDue,
   steerShell,
@@ -80,6 +82,17 @@ const queueRedThrow = (backward, now) => {
       pressAt: now,
       releaseMs: itemConfig.throwForward.releaseMs,
     },
+  ]);
+};
+
+// Blue throw, two-phase: release at the throw-up apex (150ms).
+const queueBlueThrow = (now) => {
+  const st = useGameStore.getState();
+  st.setCarriedItem(null);
+  publishCarried(null);
+  st.setPendingSpawns([
+    ...st.pendingSpawns,
+    { kind: "blue", pressAt: now, releaseMs: itemConfig.throwUp.releaseMs },
   ]);
 };
 
@@ -192,9 +205,9 @@ const shellHitFxId = (shellId) => `shellhit-${String(shellId)}`;
 
 // Stun the LOCAL kart from a shell hit + small burst. Remote victims apply
 // this themselves when their shell:hit arrives (owner never stuns remotes).
-const applyShellStun = ({ x, y, z, shellId, scale = 0.6, soft = false, stun = true, ms = null }) => {
+const applyShellStun = ({ x, y, z, shellId, scale = 0.6, soft = false, stun = true, ms = null, heavy = false }) => {
   const st = useGameStore.getState();
-  if (stun) applySpin({ victim: "self", heavy: false, ms, now: performance.now() });
+  if (stun) applySpin({ victim: "self", heavy, ms, now: performance.now() });
   const fxId = shellHitFxId(shellId);
   if (!st.explosions.some((e) => e.id === fxId)) {
     st.setExplosions([
@@ -658,8 +671,30 @@ function ExplosionFx({ data }) {
   );
 }
 
-export function ItemBoxes() {
-  const selectedTrackId = useGameManager((s) => s.selectedTrackId);
+// Ground ring under the blue shell's target (all peers see it). Shrinks as
+// the shell approaches: full radius far away, tight at impact.
+function BlueTargetRing({ shell }) {
+  const playerPosition = useGameStore((s) => s.playerPosition);
+  const remoteRacers = useOnlineRaceStore((s) => s.remoteRacers);
+  const me = myRacerId();
+  const target =
+    shell.targetId === me
+      ? { x: playerPosition?.x ?? shell.x, y: playerPosition?.y ?? shell.y, z: playerPosition?.z ?? shell.z }
+      : remoteRacers[shell.targetId];
+  if (!target) return null;
+  const distXZ = Math.hypot((target.x ?? shell.x) - shell.x, (target.z ?? shell.z) - shell.z);
+  const scale = Math.max(0.15, Math.min(1, distXZ / 60)) * itemConfig.blueShell.radius;
+  return (
+    <group position={[target.x ?? shell.x, (target.y ?? shell.y) + 0.15, target.z ?? shell.z]}>
+      <mesh rotation-x={-Math.PI / 2} scale={scale}>
+        <ringGeometry args={[0.9, 1, 40]} />
+        <meshBasicMaterial color="#ff3b30" transparent opacity={0.8} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.selectedTrackId);
   const activeTrack = getTrack(selectedTrackId);
   const { nodes } = useGLTF(activeTrack.glb);
   const scene = useThree((s) => s.scene);
@@ -746,7 +781,10 @@ export function ItemBoxes() {
 
         if (event.type === "blue:incoming" && event.leaderId) {
           // Alarm loops ONLY on the targeted client, per spec.
-          if (event.leaderId === myRacerId()) startBlueAlarm();
+          if (event.leaderId === myRacerId()) {
+            startBlueAlarm();
+            useGameStore.getState().setBlueWarning({ since: performance.now() });
+          }
           return;
         }
 
@@ -811,6 +849,7 @@ export function ItemBoxes() {
 
         if (event.type === "blue:explode" && Number.isFinite(event.x)) {
           stopBlueAlarm();
+          useGameStore.getState().setBlueWarning(null);
           const st2 = useGameStore.getState();
           st2.setActiveShells(
             st2.activeShells.filter(
@@ -824,7 +863,14 @@ export function ItemBoxes() {
           if (!event.fizzle) {
             const me2 = myRacerId();
             const p2 = st2.playerPosition;
+            // Bullet riders are immune to the blast (alarm already stopped).
+            const myRide = st2.bulletRide;
+            const immune =
+              myRide &&
+              myRide.ownerId === me2 &&
+              bulletActive(myRide, performance.now());
             if (
+              !immune &&
               raceLive() &&
               p2 &&
               resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2)
@@ -835,6 +881,7 @@ export function ItemBoxes() {
                 z: event.z,
                 shellId: `blue-${event.x}-${event.z}`,
                 scale: 1.2,
+                heavy: true,
               });
             }
           }
@@ -900,7 +947,10 @@ export function ItemBoxes() {
   // fizzle explode never fires once activeShells is cleared.
   const raceRunning = useGameManager((s) => s.gameStarted);
   useEffect(() => {
-    if (!raceRunning) stopBlueAlarm();
+    if (!raceRunning) {
+      stopBlueAlarm();
+      useGameStore.getState().setBlueWarning(null);
+    }
   }, [raceRunning]);
 
   // Ticking loop while carrying the bomb.
@@ -1090,7 +1140,7 @@ export function ItemBoxes() {
     if (heldItem && heldItem.type === "red") {
       if (edgeDown) queueRedThrow(Boolean(keys?.backward), now);
     } else if (heldItem && heldItem.type === "blue") {
-      if (edgeDown) fireBlueShell();
+      if (edgeDown) queueBlueThrow(now);
     } else if (heldItem && heldItem.type === "bullet") {
       if (edgeDown) startBulletRide();
     } else if (heldItem && heldItem.type === "blooper") {
@@ -1124,6 +1174,7 @@ export function ItemBoxes() {
       st.setPendingSpawns(st.pendingSpawns.filter((p) => !spawnDue(p, now)));
       for (const p of due) {
         if (p.kind === "red") fireRedShell(p.backward);
+        else if (p.kind === "blue") fireBlueShell();
       }
     }
 
@@ -1181,6 +1232,24 @@ export function ItemBoxes() {
           shell.kind === "blue" ? BLUE_LIFE_MS : itemConfig.redShell.lifetimeMs;
         if (now - shell.at >= life) continue;
         if (shell.kind === "blue") {
+          // Stable re-target: switch only on laps-greater or +5 dist, so ties
+          // never flap the target (and the alarm) every frame.
+          const orsB = useOnlineRaceStore.getState();
+          const rows = victims.map((v) => ({
+            id: v.id,
+            laps:
+              v.id === me
+                ? Array.isArray(useGameManager.getState().lapTimes)
+                  ? useGameManager.getState().lapTimes.length
+                  : 0
+                : Number(orsB.remoteRaceProgress[v.id]?.completedLaps) || 0,
+            dist:
+              v.id === me
+                ? useGameStore.getState().selfDistance || 0
+                : orsB.remoteDistances[v.id] || 0,
+          }));
+          const leaderId = retargetBlue(shell.targetId, rows);
+          if (leaderId !== shell.targetId) shell.targetId = leaderId;
           // Leader gone or finished → fizzle (alarm stops via explode).
           // Self-targets finish locally: remoteRaceProgress never holds self.
           const leader = victims.find((v) => v.id === shell.targetId);
@@ -1202,7 +1271,10 @@ export function ItemBoxes() {
           const dxl = leader.x - shell.x;
           const dzl = leader.z - shell.z;
           const distXZ = Math.hypot(dxl, dzl) || 1;
-          const phase = shell.phase === "drop" || distXZ < 4 ? "drop" : "fly";
+          const diving =
+            shell.phase === "drop" ||
+            blueShouldDive({ distXZ, flightMs: now - shell.at });
+          const phase = diving ? "drop" : "fly";
           let moved;
           if (phase === "fly") {
             const top = Number(shell.top) || shell.y;
@@ -1217,26 +1289,41 @@ export function ItemBoxes() {
             const ground = st.groundPosition ?? shell.top - BLUE_FLY_HEIGHT;
             moved = { ...shell, phase, y: shell.y - 45 * step };
             if (moved.y <= ground) {
+              // Bullet-immune target: harmless pop, nobody spins.
+              const targetRide =
+                shell.targetId === me
+                  ? st.bulletRide
+                  : ors.remoteRacers[shell.targetId]?.bulletRide;
+              const immune =
+                targetRide && bulletActive(targetRide, now);
               if (shell.owner) {
                 publishOnlineRaceEvent({
                   type: "blue:explode",
                   x: moved.x,
                   y: ground,
                   z: moved.z,
-                  fizzle: false,
+                  fizzle: Boolean(immune),
                 });
-                const hitIds = resolveBlueBlast(victims, {
-                  x: moved.x,
-                  z: moved.z,
-                });
-                if (hitIds.includes(me) && raceLive()) {
+                if (immune) {
                   applyShellStun({
-                    x: moved.x,
-                    y: ground,
-                    z: moved.z,
-                    shellId: shell.id,
-                    scale: 1.2,
+                    x: moved.x, y: ground, z: moved.z,
+                    shellId: shell.id, scale: 0.5, soft: true, stun: false,
                   });
+                } else {
+                  const hitIds = resolveBlueBlast(victims, {
+                    x: moved.x,
+                    z: moved.z,
+                  });
+                  if (hitIds.includes(me) && raceLive()) {
+                    applyShellStun({
+                      x: moved.x,
+                      y: ground,
+                      z: moved.z,
+                      shellId: shell.id,
+                      scale: 1.2,
+                      heavy: true,
+                    });
+                  }
                 }
               }
               continue;
@@ -1357,6 +1444,11 @@ export function ItemBoxes() {
           {s.kind === "blue" && <BlueShellModel />}
         </group>
       ))}
+      {activeShells
+        .filter((s) => s.kind === "blue")
+        .map((s) => (
+          <BlueTargetRing key={`ring-${s.id}`} shell={s} />
+        ))}
       {blooperSquirt && (
         <group position={[blooperSquirt.x, blooperSquirt.y, blooperSquirt.z]}>
           <BlooperModel />

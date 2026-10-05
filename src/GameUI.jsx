@@ -174,6 +174,9 @@ const GameUI = () => {
   const blooperUntil = useGameStore((s) => s.blooperUntil);
   const showInk = blooperUntil > performance.now();
 
+  // Blue-shell warning: flashing icon while the target-only alarm loops.
+  const blueWarning = useGameStore((s) => s.blueWarning);
+
   // Battle-item slot: Mario-Kart-style roulette. While a spin is active the
   // icons cycle fast→slow for ROULETTE_MS; the item appears (HUD + kart +
   // usable) only after the lock commits it to carriedItem.
@@ -226,6 +229,13 @@ const GameUI = () => {
       {showInk && (
         <div className="blooper-ink-overlay" aria-hidden="true">
           <img src="/textures/ink-splat.png" alt="" draggable={false} />
+        </div>
+      )}
+
+      {/* Blue-shell incoming warning (target client only) */}
+      {blueWarning && (
+        <div className="blue-warning" aria-live="assertive" title="Blue shell incoming!">
+          <img src="/images/items/blue-shell.png" alt="Blue shell incoming!" draggable={false} />
         </div>
       )}
 

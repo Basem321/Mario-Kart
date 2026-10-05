@@ -2,6 +2,7 @@
 // Simulation + rendering live in ItemBoxes.jsx; P2P in useP2PLobby.js.
 
 import { itemConfig } from "./itemConfig.js";
+import { kartSettings } from "../constants.js";
 
 export const RED_MAX_TURN = 2.2; // rad/s, per spec
 export const RED_HIT_RADIUS = 3.4; // same as BOMB_TRIGGER_RADIUS
@@ -9,10 +10,10 @@ export const RED_LIFE_MS = 6000;
 export const RED_SPEED = 93; // 1.5x pad boost speed (62), per spec
 export const RED_STUN_MS = 1600;
 
-// Blue shell constants, per spec.
-export const BLUE_BLAST_RADIUS = 8;
-export const BLUE_FLY_HEIGHT = 6;
-export const BLUE_SPEED = 60;
+// Blue shell constants — owned by itemConfig (§8), re-exported for compat.
+export const BLUE_BLAST_RADIUS = itemConfig.blueShell.radius;
+export const BLUE_FLY_HEIGHT = itemConfig.blueShell.altitude;
+export const BLUE_SPEED = itemConfig.blueShell.speedMult * kartSettings.speed.max;
 export const BLUE_LIFE_MS = 12000;
 
 // Bullet Bill constants, per spec.
@@ -85,6 +86,33 @@ export const steerShell = ({ dir, toTarget, maxTurn, dt } = {}) => {
   const next = cur + step;
   return { x: Math.sin(next), z: Math.cos(next) };
 };
+
+// Blue re-target rule: switch only when the new best has strictly more laps,
+// or same laps with a 5+ unit distance lead — ties never flap the target.
+export const retargetBlue = (currentId, rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) return currentId;
+  const cur = rows.find((r) => r && r.id === currentId);
+  let best = null;
+  for (const r of rows) {
+    if (!r || r.id === currentId) continue;
+    if (!best) {
+      best = r;
+      continue;
+    }
+    if (Number(r.laps) > Number(best.laps)) best = r;
+    else if (Number(r.laps) === Number(best.laps) && Number(r.dist) > Number(best.dist)) best = r;
+  }
+  if (!best || !cur) return best ? best.id : currentId;
+  if (Number(best.laps) > Number(cur.laps)) return best.id;
+  if (Number(best.laps) === Number(cur.laps) && Number(best.dist) - Number(cur.dist) >= 5) {
+    return best.id;
+  }
+  return currentId;
+};
+
+// Dive gate: proximity AND the minimum flight time (warning always audible).
+export const blueShouldDive = ({ distXZ = Infinity, flightMs = 0 } = {}) =>
+  Number(distXZ) < 4 && Number(flightMs) >= itemConfig.blueShell.minFlightMs;
 
 // Ids of racers within the blue blast radius of {x, z}.
 export const resolveBlueBlast = (racers, blast, radius = BLUE_BLAST_RADIUS) => {

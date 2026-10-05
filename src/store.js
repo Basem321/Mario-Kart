@@ -127,6 +127,9 @@ export const useGameStore = create((set) => ({
   // Blooper squirt visual: {x,y,z,until} for the ~1s fire flourish.
   blooperSquirt: null,
   setBlooperSquirt: (blooperSquirt) => set({ blooperSquirt }),
+  // Blue-shell warning: {since} while the target-only alarm loops.
+  blueWarning: null,
+  setBlueWarning: (blueWarning) => set({ blueWarning }),
   // Distance driven this race (world units, teleports capped out). Breaks
   // lap ties for position ranks. No subscribers — read via getState.
   selfDistance: 0,
@@ -163,6 +166,7 @@ export const useGameStore = create((set) => ({
       bulletRide: null,
       blooperUntil: 0,
       blooperSquirt: null,
+      blueWarning: null,
       selfDistance: 0,
       shroomUntil: 0,
       spin: null,
