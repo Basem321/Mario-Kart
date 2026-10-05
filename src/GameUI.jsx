@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useGameManager } from "./gameManager";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
-import { ROULETTE_MS, rankOf, rouletteFrame } from "./items/itemWeights";
+import { ROULETTE_MS, rankOf, rouletteFrame, rowToSlot } from "./items/itemWeights";
 import { MiniMap } from "./MiniMap";
 import { OnlineRaceLeaderboard } from "./OnlineRaceLeaderboard";
 import { RaceResults } from "./RaceResults";
@@ -239,15 +239,43 @@ const GameUI = () => {
         </div>
       )}
 
+      {/* DEV-ONLY instant item grant (hidden in production builds) */}
+      {import.meta.env.DEV && gameStarted && !gameOver && (
+        <div className="item-dev-panel" aria-label="DEV item grants">
+          {[
+            "mushroom1", "mushroom3", "golden", "red1", "red3",
+            "blue", "bullet", "blooper", "bomb",
+          ].map((row) => (
+            <button
+              key={row}
+              type="button"
+              onClick={() => {
+                const st = useGameStore.getState();
+                if (row === "bomb") {
+                  st.setCarriedBomb(true);
+                  st.setCarriedItem(null);
+                  return;
+                }
+                st.setCarriedBomb(false);
+                st.setCarriedItem(rowToSlot(row, performance.now()));
+              }}
+            >
+              {row}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Battle-item slot: roulette cycling, then the locked item */}
       {rouletteIcon && (
-        <div className="item-slot" aria-live="polite">
+        <div className={`item-slot${roulette ? " spinning" : ""}`} aria-live="polite">
           {ITEM_ICON_SRC[rouletteIcon] ? (
             <img
+              key={rouletteIcon}
               src={ITEM_ICON_SRC[rouletteIcon]}
               alt={rouletteIcon}
               draggable={false}
-              className={rouletteIcon === "golden" ? "gold" : ""}
+              className={`item-pop${rouletteIcon === "golden" ? " gold" : ""}`}
             />
           ) : (
             <span className="item-emoji" role="img" aria-label={rouletteIcon}>

@@ -62,6 +62,18 @@ const toPlayer = (candidate, fallbackId) => {
   };
 };
 
+const ANIM_STATES = new Set([
+  "drive",
+  "spin_hit_light",
+  "spin_hit_heavy",
+  "bullet",
+  "boost_lean",
+  "throw_forward",
+  "throw_back",
+  "throw_up",
+  "cast_up",
+]);
+
 const toRaceTransform = (candidate) => {
   const x = Number(candidate?.x);
   const y = Number(candidate?.y);
@@ -79,12 +91,25 @@ const toRaceTransform = (candidate) => {
     return null;
   }
 
+  // Item animation state (v3 §10.7): enum + wall-clock start. Unknown values
+  // fall back to drive so a hostile packet only freezes a flourish.
+  const anim =
+    typeof candidate?.anim === "string" && ANIM_STATES.has(candidate.anim)
+      ? candidate.anim
+      : "drive";
+  const animAt =
+    Number.isFinite(Number(candidate?.animAt)) && Number(candidate.animAt) > 0
+      ? Number(candidate.animAt)
+      : 0;
+
   return {
     x,
     y,
     z,
     rotationY,
     bodyY: Number.isFinite(bodyY) ? bodyY : 0,
+    anim,
+    animAt,
   };
 };
 
@@ -146,7 +171,15 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     if (variant !== null && variant !== "single" && variant !== "triple") {
       return null;
     }
-    return { type: "item:carried", itemType, variant };
+    const usesLeft = Number(candidate.usesLeft);
+    const windowUntil = Number(candidate.windowUntil);
+    return {
+      type: "item:carried",
+      itemType,
+      variant,
+      usesLeft: Number.isInteger(usesLeft) && usesLeft >= -1 && usesLeft <= 3 ? usesLeft : null,
+      windowUntil: Number.isFinite(windowUntil) && windowUntil > 0 ? windowUntil : null,
+    };
   }
 
   if (candidate.type === "item:boxes") {
@@ -386,7 +419,12 @@ export const useP2PLobby = () => {
       useOnlineRaceStore.getState().setRemoteRacerCarriedItem(
         playerId,
         event.itemType
-          ? { type: event.itemType, variant: event.variant ?? "single" }
+          ? {
+              type: event.itemType,
+              variant: event.variant ?? "single",
+              usesLeft: event.usesLeft,
+              windowUntil: event.windowUntil,
+            }
           : null
       );
     }

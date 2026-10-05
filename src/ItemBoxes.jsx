@@ -128,6 +128,10 @@ const publishCarried = (item) => {
     type: "item:carried",
     itemType: item ? item.type : null,
     variant: item ? item.variant ?? "single" : null,
+    // Remote visuals need counts + golden window (orbit + shrink).
+    usesLeft: item && Number.isInteger(item.usesLeft) ? item.usesLeft : null,
+    windowUntil:
+      item && Number.isFinite(item.windowUntil) ? item.windowUntil : null,
   });
 };
 

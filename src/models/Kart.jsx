@@ -18,9 +18,13 @@ import { Sparks } from "../particles/sparks/Sparks.jsx";
 import { Skate } from "../particles/drift/Skate/Skate.jsx";
 import { Trails } from "../particles/sparks/Trails.jsx";
 import { Driver } from "./Driver.jsx";
-import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel } from "./Pickups.jsx";
+import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel, RedTripleOrbit, GoldenMushroom } from "./Pickups.jsx";
 import { bulletActive } from "../items/homing.js";
 import { itemConfig, modelNativeSizes } from "../items/itemConfig.js";
+
+// Held mounts from spec sockets (§10.1): rack for carry items, trail for shells.
+const RACK_POS = itemConfig.sockets.rack;
+const TRAIL_POS = itemConfig.sockets.trailPoint;
 
 // Mini bullet scale from spec ratios (held 0.38 × kart length).
 const BULLET_MINI_SCALE =
@@ -166,6 +170,24 @@ export function Kart({
       );
     }
   }, [slotSignature]);
+  // Receive flourish (fallback: no skeleton, so whole-group nudge).
+  // Rack items nod, shells sweep yaw, bullet/blooper jerk back.
+  const carriedType = carriedItem?.type ?? null;
+  const prevCarriedRef = useRef(carriedType);
+  useEffect(() => {
+    const prev = prevCarriedRef.current;
+    prevCarriedRef.current = carriedType;
+    if (!prev && carriedType && groupRef.current) {
+      const yaw = carriedType === "red" || carriedType === "blue" ? 0.35 : 0;
+      const pitch =
+        yaw !== 0 ? 0 : carriedType === "bullet" || carriedType === "blooper" ? -0.12 : 0.1;
+      gsap.fromTo(
+        groupRef.current.rotation,
+        { x: 0, y: 0 },
+        { x: pitch, y: yaw, duration: 0.15, yoyo: true, repeat: 1, overwrite: "auto" }
+      );
+    }
+  }, [carriedType]);
   // Bullet Bill: the kart hides inside the bullet envelope for the ride.
   // Owner-only check (same as PlayerController): a remote ride never hides us.
   const bulletRide = useGameStore((state) => state.bulletRide);
@@ -771,20 +793,25 @@ export function Kart({
             </group>
             {/* Carried bomb, visible on the back until dropped with G */}
             {carriedBomb && !hideHeld && (
-              <group position={[0, 1.0, -1.2]} scale={0.5}>
+              <group position={RACK_POS} scale={0.5}>
                 <BombModel />
               </group>
             )}
             {/* Carried mushroom-family item (same mount point as the bomb).
                 Mushroom GLB runs large — 0.22 keeps it kart-proportioned.
                 Triple renders three small ones circling the kart. */}
-            {heldMushroom && !heldTriple && !hideHeld && (
-              <group position={[0, 1.0, -1.2]} scale={1}>
-                <MushroomModel gold={heldMushroom === "golden"} />
+            {heldMushroom && !heldTriple && heldMushroom !== "golden" && !hideHeld && (
+              <group position={RACK_POS}>
+                <MushroomModel />
+              </group>
+            )}
+            {heldMushroom === "golden" && !hideHeld && (
+              <group position={RACK_POS}>
+                <GoldenMushroom windowUntil={carriedItem?.windowUntil} />
               </group>
             )}
             {heldTriple && !hideHeld && (
-              <group position={[0, 1.0, -1.2]}>
+              <group position={RACK_POS}>
                 {[90, 210, 330].map((deg) => {
                   const a = (deg * Math.PI) / 180;
                   return (
@@ -798,21 +825,24 @@ export function Kart({
                 })}
               </group>
             )}
-            {/* Carried red shell */}
-            {carriedItem?.type === "red" && !hideHeld && (
-              <group position={[0, 1.0, -1.2]}>
+            {/* Carried red shell: single trails, triple orbits */}
+            {carriedItem?.type === "red" && carriedItem?.variant !== "triple" && !hideHeld && (
+              <group position={TRAIL_POS}>
                 <RedShellModel />
               </group>
             )}
+            {carriedItem?.type === "red" && carriedItem?.variant === "triple" && !hideHeld && (
+              <RedTripleOrbit count={carriedItem?.usesLeft ?? 3} />
+            )}
             {/* Carried blue shell */}
             {carriedItem?.type === "blue" && !hideHeld && (
-              <group position={[0, 1.0, -1.2]}>
+              <group position={TRAIL_POS}>
                 <BlueShellModel />
               </group>
             )}
             {/* Carried bullet: mini on the rack, nose forward */}
             {carriedItem?.type === "bullet" && !hideHeld && (
-              <group position={[0, 1.0, -1.2]} scale={BULLET_MINI_SCALE}>
+              <group position={RACK_POS} scale={BULLET_MINI_SCALE}>
                 <BulletModel />
               </group>
             )}

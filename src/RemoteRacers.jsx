@@ -6,13 +6,23 @@ import { getOnlineSpawnSlot } from "./constants";
 import { getTrack } from "./tracks";
 import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
-import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel } from "./models/Pickups";
+import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel, RedTripleOrbit, GoldenMushroom } from "./models/Pickups";
 import { itemConfig, modelNativeSizes } from "./items/itemConfig.js";
 
 // Mini bullet scale from spec ratios (held 0.38 × kart length).
 const BULLET_MINI_SCALE =
   (itemConfig.sizes.bulletHeldLength * modelNativeSizes.kartLength) /
   modelNativeSizes.bulletLength;
+
+// Held mounts from spec sockets (§10.1).
+const RACK_POS = itemConfig.sockets.rack;
+const TRAIL_POS = itemConfig.sockets.trailPoint;
+
+// Remote spin windows mirror the local hit timings for anim playback.
+const REMOTE_SPIN_MS = {
+  spin_hit_light: itemConfig.hit.lightMs,
+  spin_hit_heavy: itemConfig.hit.heavyMs,
+};
 import { useOnlineRaceStore } from "./onlineRaceStore";
 
 const smoothAngle = (from, to, lambda, delta) => {
@@ -23,6 +33,13 @@ const smoothAngle = (from, to, lambda, delta) => {
 const RemoteKart = ({ player, playerIndex }) => {
   const { nodes, materials } = useGLTF("/models/kart.glb");
   const remoteState = useOnlineRaceStore((state) => state.remoteRacers[player.id]);
+  // Replicated spin visuals (v3 §10.7): spin the visual group while the
+  // sender's anim window is open; held items hide during the spin.
+  const remoteAnim = remoteState?.anim;
+  const remoteAnimAge = Date.now() - (remoteState?.animAt || 0);
+  const remoteSpinMs = REMOTE_SPIN_MS[remoteAnim] ?? 0;
+  const remoteSpinning = remoteSpinMs > 0 && remoteAnimAge < remoteSpinMs && remoteAnimAge >= 0;
+  const wasSpinningRef = useRef(false);
   const selectedTrackId = useGameManager((state) => state.selectedTrackId);
   const kartRef = useRef(null);
   const visualRef = useRef(null);
@@ -47,6 +64,13 @@ const RemoteKart = ({ player, playerIndex }) => {
     kartRef.current.position.y = MathUtils.damp(kartRef.current.position.y * rs, target.y, 14, delta) / rs;
     kartRef.current.position.z = MathUtils.damp(kartRef.current.position.z * rs, target.z, 14, delta) / rs;
     kartRef.current.rotation.y = smoothAngle(kartRef.current.rotation.y, target.rotationY, 16, delta);
+    if (remoteSpinning) {
+      wasSpinningRef.current = true;
+      visualRef.current.rotation.y += delta * 12;
+    } else if (wasSpinningRef.current) {
+      wasSpinningRef.current = false;
+      visualRef.current.rotation.y = Math.PI;
+    }
     visualRef.current.position.y = MathUtils.damp(
       visualRef.current.position.y * rs,
       (Number.isFinite(target.bodyY) ? target.bodyY : 0) - 0.5,
@@ -88,21 +112,27 @@ const RemoteKart = ({ player, playerIndex }) => {
           <group position={[0, 0.45, -0.1]} scale={0.7}>
             <Driver character={player.driver ?? "mario"} />
           </group>
-          {remoteState?.carriedBomb && (
+          {remoteState?.carriedBomb && !remoteSpinning && (
             <group position={[0, 1.0, -1.2]} scale={0.5}>
               <BombModel />
             </group>
           )}
-          {(remoteState?.carriedItem?.type === "mushroom" ||
-            remoteState?.carriedItem?.type === "golden") &&
-            remoteState?.carriedItem?.variant !== "triple" && (
-              <group position={[0, 1.0, -1.2]}>
-                <MushroomModel gold={remoteState.carriedItem.type === "golden"} />
+          {(remoteState?.carriedItem?.type === "mushroom") &&
+            remoteState?.carriedItem?.variant !== "triple" &&
+            !remoteSpinning && (
+              <group position={RACK_POS}>
+                <MushroomModel />
               </group>
             )}
+          {remoteState?.carriedItem?.type === "golden" && !remoteSpinning && (
+            <group position={RACK_POS}>
+              <GoldenMushroom windowUntil={remoteState?.carriedItem?.windowUntil} />
+            </group>
+          )}
           {remoteState?.carriedItem?.type === "mushroom" &&
-            remoteState?.carriedItem?.variant === "triple" && (
-              <group position={[0, 1.0, -1.2]}>
+            remoteState?.carriedItem?.variant === "triple" &&
+            !remoteSpinning && (
+              <group position={RACK_POS}>
                 {[90, 210, 330].map((deg) => {
                   const a = (deg * Math.PI) / 180;
                   return (
@@ -116,18 +146,25 @@ const RemoteKart = ({ player, playerIndex }) => {
                 })}
               </group>
             )}
-          {remoteState?.carriedItem?.type === "red" && (
-            <group position={[0, 1.0, -1.2]}>
-              <RedShellModel />
-            </group>
-          )}
-          {remoteState?.carriedItem?.type === "blue" && (
-            <group position={[0, 1.0, -1.2]}>
+          {remoteState?.carriedItem?.type === "red" &&
+            remoteState?.carriedItem?.variant !== "triple" &&
+            !remoteSpinning && (
+              <group position={TRAIL_POS}>
+                <RedShellModel />
+              </group>
+            )}
+          {remoteState?.carriedItem?.type === "red" &&
+            remoteState?.carriedItem?.variant === "triple" &&
+            !remoteSpinning && (
+              <RedTripleOrbit count={remoteState?.carriedItem?.usesLeft ?? 3} />
+            )}
+          {remoteState?.carriedItem?.type === "blue" && !remoteSpinning && (
+            <group position={TRAIL_POS}>
               <BlueShellModel />
             </group>
           )}
-          {remoteState?.carriedItem?.type === "bullet" && (
-            <group position={[0, 1.0, -1.2]} scale={BULLET_MINI_SCALE}>
+          {remoteState?.carriedItem?.type === "bullet" && !remoteSpinning && (
+            <group position={RACK_POS} scale={BULLET_MINI_SCALE}>
               <BulletModel />
             </group>
           )}

@@ -958,6 +958,8 @@ export const PlayerController = () => {
     // Send a compact transform about 15 times/sec. Rendering of remote karts
     // smooths the received states, which keeps traffic low while making the
     // side-by-side starting grid and race movement visible to everyone.
+    // animState rides along (v3 §10.7): spins/bullet/boost_lean so remotes
+    // play hit visuals. Wall clock (Date.now) — peers share it roughly.
     const now = performance.now();
     if (
       isOnlineRace &&
@@ -965,12 +967,28 @@ export const PlayerController = () => {
       now - lastNetworkSyncRef.current >= 66
     ) {
       lastNetworkSyncRef.current = now;
+      const gsAnim = useGameStore.getState();
+      const spinA = gsAnim.spin;
+      const rideA = gsAnim.bulletRide;
+      const selfIdA = useGameManager.getState().onlineSelfId ?? "local";
+      const anim =
+        spinA && now < spinA.until
+          ? spinA.heavy
+            ? "spin_hit_heavy"
+            : "spin_hit_light"
+          : rideA && rideA.ownerId === selfIdA && bulletActive(rideA, now)
+            ? "bullet"
+            : gsAnim.isBoosting
+              ? "boost_lean"
+              : "drive";
       publishOnlineRaceTransform({
         x: player.position.x,
         y: player.position.y,
         z: player.position.z,
         rotationY: player.rotation.y,
         bodyY: useGameStore.getState().groundPosition ?? 0,
+        anim,
+        animAt: Date.now(),
       });
     }
   });
