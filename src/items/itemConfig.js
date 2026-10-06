@@ -44,7 +44,15 @@ export const itemConfig = {
   mushroom: { boostMs: 1200, speedMult: 1.5 },
   // TODO(decide): skid/wind roulette wins are both a mini-boost today.
   miniBoost: { boostMs: 800, speedMult: 1.5 },
-  golden: { windowMs: 7000, boostMs: 1000, minGapMs: 350, speedMult: 1.5, tint: 0xffd23f },
+  golden: {
+    windowMs: 7000, boostMs: 1000, minGapMs: 350, speedMult: 1.5, tint: 0xffd23f,
+    // Dedicated gold materials (T4.5): cap = metallic gold, no map;
+    // spots + stem = pale gold; eyes untouched (separate mesh part).
+    materials: {
+      cap: { color: 0xffd23f, metalness: 0.85, roughness: 0.28, emissive: 0x6b4a00, emissiveIntensity: 0.35 },
+      pale: { color: 0xfff2b0 },
+    },
+  },
   redShell: {
     speedMult: 1.6, lifetimeMs: 8000, lockRange: 60, lockConeDeg: 50,
     maxBounces: 3, spinMs: 1500, ownerGraceMs: 500,
@@ -65,20 +73,23 @@ export const itemConfig = {
     muzzle: [0, 0.605, 3.388],
     aboveHead: [0, 1.694, 0],
   },
-  // Bullet nose axis (measured 2026-10-06 from bullet-bill.glb: longest axis
-  // X at 1243.7 native units; textured face meshes sit on the +X half, so
-  // the nose is +X). rotY -PI/2 maps +X onto kart-model +Z (travel). Belly
-  // down needs no extra rotation (model authored upright).
+  // Bullet nose axis: front/back gallery renders (t4-bullet-front/back.png)
+  // prove the angry-eyes face looks toward -Z with rotY=-PI/2, i.e. the nose
+  // is -X native (mesh POSITION misled; facing decides). rotY +PI/2 maps -X
+  // onto kart-model +Z (travel). Belly down needs no extra rotation.
   modelOrientation: {
-    bullet: { rotX: 0, rotY: -Math.PI / 2, rotZ: 0 },
+    bullet: { rotX: 0, rotY: Math.PI / 2, rotZ: 0 },
   },
   // Glove-hand rig (driver-local units, BEFORE the 0.7 kart scale; kart front
   // is +Z in driver space). Starting guesses 2026-10-06 — tune in the gallery
-  // (?dev=items tuning panel), forward sign TBD visually.
+  // (?dev=items tuning panel), forward sign TBD visually. gloveRadius 0.23 =
+  // 0.16 world: ~0.5x the widest held half-width (shells), same hand always.
   driverRig: {
     mario: {
-      gloveRadius: 0.11,
+      gloveRadius: 0.23,
       cuffColor: 0xd7263d,
+      shoulder: [0.3, 0.4, 0],
+      cuffLen: 0.38,
       handRest: [0.62, 0.15, 0.05],
       handWindup: [0.55, 0.45, -0.45],
       handForward: [0.35, 0.3, 0.75],
@@ -89,8 +100,10 @@ export const itemConfig = {
       handLeftCast: [-0.5, 1.0, 0.1],
     },
     luigi: {
-      gloveRadius: 0.11,
+      gloveRadius: 0.23,
       cuffColor: 0x2e9e4f,
+      shoulder: [0.3, 0.4, 0],
+      cuffLen: 0.38,
       handRest: [0.62, 0.15, 0.05],
       handWindup: [0.55, 0.45, -0.45],
       handForward: [0.35, 0.3, 0.75],
@@ -108,7 +121,25 @@ export const itemConfig = {
   trailFollowK: 11,
   // Orbit radius ~= 0.66 x real kart length (0.66 x 2.91 = 1.92): the widest
   // orbiting item's inner edge stays outside the 1.455 half-length.
-  orbit: { radius: 1.92, degPerSec: 180, shellSpinDegPerSec: 90, bob: 0.05, respaceMs: 300 },
+  // Ground orbit (T4.3): slot height = wheel-bottom level + shell
+  // half-height (wheels bottom at -0.49 body-local, shell half-height
+  // ~0.285): -0.49 + 0.285 = -0.21, so shell bottoms ride the road.
+  // lifts.* are per-kind offsets ABOVE the shell slot (mushroom half-height
+  // 0.36 - shell 0.285 = 0.075 -> 0.08): mushroom bottoms land on the road
+  // too. The orbit group is a body-mesh child, so pitch/roll follow the
+  // kart automatically (orbit tilts with the body, bottoms stay planted).
+  orbit: {
+    radius: 1.92, height: -0.21, lifts: { shell: 0, mushroom: 0.08 },
+    degPerSec: 180, shellSpinDegPerSec: 90, bob: 0.05, respaceMs: 300,
+  },
+  // Static glove hold lifts (T4b, world units): item center above the palm =
+  // item half-height + small grip gap. Blooper hovers (no contact).
+  hold: {
+    lift: {
+      mushroom: 0.45, golden: 0.45, red: 0.36, blue: 0.38,
+      bullet: 0.26, blooper: 0.6, bomb: 0.55,
+    },
+  },
   redShellTrailSpinDegPerSec: 90,
   blueShellTrailSpinDegPerSec: 180,
   blueShellPulseHz: 1.5,
@@ -125,7 +156,7 @@ export const itemConfig = {
     // head); held shells fit one hand (tune in the gallery).
     mushroomFull: 0.42,
     mushroomHeld: 0.26,
-    redShell: 0.17,
+    redShell: 0.22,
     blueShell: 0.21,
     bulletHeldLength: 0.38,
     bulletActiveLength: 1.25,

@@ -9,15 +9,17 @@ import {
   targetSize,
   worldSize,
   orbitClearsKart,
+  cuffTransform,
+  applyQuat,
 } from "../../src/items/itemScale.js";
 
 const within = (a, b, pct) => Math.abs(a - b) / Math.abs(b) <= pct;
 const REPO = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 
-// Prompt §1.1 starting numbers, applied exactly.
+// Prompt §1.1 starting numbers, applied exactly (red bumped 1.3x per T4).
 test("item sizes carry the prompt starting numbers", () => {
   assert.equal(itemConfig.sizes.mushroomHeld, 0.26);
-  assert.equal(itemConfig.sizes.redShell, 0.17);
+  assert.equal(itemConfig.sizes.redShell, 0.22);
   assert.equal(itemConfig.sizes.blueShell, 0.21);
 });
 
@@ -66,14 +68,46 @@ test("held mini bullet is the held/active length ratio", () => {
   );
 });
 
-// Bullet nose axis: measured +X native, so rotY = -PI/2 maps nose to travel.
-test("bullet orientation turns nose (+X) to travel direction", () => {
+// Bullet nose axis: front/back renders prove the face looks -Z in gallery
+// (nose -X native), so rotY = +PI/2 maps nose to travel direction.
+test("bullet orientation turns nose (-X) to travel direction", () => {
   const o = itemConfig.modelOrientation?.bullet;
   assert.ok(o, "modelOrientation.bullet missing");
   for (const k of ["rotX", "rotY", "rotZ"]) {
     assert.ok(Number.isFinite(o[k]), `${k} not finite`);
   }
-  assert.ok(Math.abs(o.rotY + Math.PI / 2) < 1e-6, `rotY ${o.rotY}`);
+  assert.ok(Math.abs(o.rotY - Math.PI / 2) < 1e-6, `rotY ${o.rotY}`);
+});
+
+// T4.3: ground orbit slot height + per-kind lifts live in config.
+test("orbit carries a ground slot height and per-kind lifts", () => {
+  assert.ok(Number.isFinite(itemConfig.orbit.height), "orbit.height missing");
+  assert.ok(itemConfig.orbit.height < itemConfig.sockets.orbitCenter[1]);
+  assert.equal(itemConfig.orbit.lifts?.shell, 0);
+  assert.ok(itemConfig.orbit.lifts?.mushroom > 0);
+});
+
+// T4b: cuff orientation math — quaternion maps +Y onto palm->shoulder.
+test("cuffTransform aims the cuff at the shoulder", () => {
+  const t = cuffTransform([0.62, 0.15, 0.05], [0.3, 0.4, 0], 0.38);
+  assert.ok(Math.abs(t.len - 0.38) < 1e-9);
+  // Applying quat to +Y yields the normalized palm->shoulder direction.
+  const dir = [0.3 - 0.62, 0.4 - 0.15, 0 - 0.05];
+  const l = Math.hypot(...dir);
+  const got = applyQuat(t.quat, [0, 1, 0]);
+  for (let i = 0; i < 3; i++) {
+    assert.ok(Math.abs(got[i] - dir[i] / l) < 1e-6, `axis ${i}`);
+  }
+});
+
+// T4.5: golden material params live in config (no magic in components).
+test("golden materials carry the spec params", () => {
+  const m = itemConfig.golden.materials;
+  assert.ok(m, "golden.materials missing");
+  assert.equal(m.cap.color, 0xffd23f);
+  assert.ok(m.cap.metalness > 0.5 && m.cap.roughness < 0.5);
+  assert.ok(Number.isFinite(m.cap.emissiveIntensity));
+  assert.equal(m.pale.color, 0xfff2b0);
 });
 
 // Contract (§1.2): no raw `scale=` may reach an item GLB model — sizing goes

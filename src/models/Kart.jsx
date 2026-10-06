@@ -848,6 +848,7 @@ export function Kart({
               carriedItem={carriedItem}
               carriedBomb={carriedBomb}
               hidden={hideHeld}
+              driver={selectedDriver}
             />
             {/* Dizzy stars while stunned by an explosion */}
             <group ref={starsGroupRef} position={[0, 1.35, -0.1]} visible={false}>

@@ -115,6 +115,7 @@ const RemoteKart = ({ player, playerIndex }) => {
             carriedItem={remoteState?.carriedItem}
             carriedBomb={remoteState?.carriedBomb}
             hidden={remoteSpinning}
+            driver={player.driver ?? "mario"}
           />
         </mesh>
         <mesh

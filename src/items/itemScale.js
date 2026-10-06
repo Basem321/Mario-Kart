@@ -73,3 +73,52 @@ export const orbitClearsKart = () => {
   ) * L;
   return itemConfig.orbit.radius - widest / 2 > L / 2;
 };
+
+// Glove-cuff orientation (T4b, pure): quaternion rotating +Y onto the
+// palm->shoulder direction, plus the cuff midpoint. R3F consumes as
+// position={mid} quaternion={quat} on a Y-aligned cylinder.
+export const cuffTransform = (palm, shoulder, len = 0.38) => {
+  const d = [
+    Number(shoulder?.[0] ?? 0) - Number(palm?.[0] ?? 0),
+    Number(shoulder?.[1] ?? 0) - Number(palm?.[1] ?? 0),
+    Number(shoulder?.[2] ?? 0) - Number(palm?.[2] ?? 0),
+  ];
+  const l = Math.hypot(d[0], d[1], d[2]) || 1;
+  const to = [d[0] / l, d[1] / l, d[2] / l];
+  const dot = to[1]; // from = (0,1,0)
+  let quat;
+  if (dot > 0.999999) {
+    quat = [0, 0, 0, 1];
+  } else if (dot < -0.999999) {
+    quat = [1, 0, 0, 0];
+  } else {
+    // cross((0,1,0), to) = (to[2], 0, -to[0]), w = 1 + dot, normalized.
+    const cx = to[2];
+    const cz = -to[0];
+    const w = 1 + dot;
+    const n = Math.hypot(cx, w, cz) || 1;
+    quat = [cx / n, 0, cz / n, w / n];
+  }
+  const half = Number(len) / 2;
+  return {
+    mid: [palm[0] + to[0] * half, palm[1] + to[1] * half, palm[2] + to[2] * half],
+    quat,
+    len: Number(len),
+  };
+};
+
+// Apply a quaternion [x,y,z,w] to a vector. Test-side verifier for cuffs.
+export const applyQuat = (q, v) => {
+  const [x, y, z, w] = q;
+  const [vx, vy, vz] = v;
+  // t = 2 * cross(q.xyz, v)
+  const tx = 2 * (y * vz - z * vy);
+  const ty = 2 * (z * vx - x * vz);
+  const tz = 2 * (x * vy - y * vx);
+  // v' = v + w*t + cross(q.xyz, t)
+  return [
+    vx + w * tx + (y * tz - z * ty),
+    vy + w * ty + (z * tx - x * tz),
+    vz + w * tz + (x * ty - y * tx),
+  ];
+};

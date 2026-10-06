@@ -51,6 +51,27 @@ const info = await page.evaluate(() => {
 });
 console.log(JSON.stringify(info, null, 2));
 try {
+  const nose = await page.evaluate(() => {
+    const scene = window.__r3f?.scene;
+    let body = null;
+    scene?.traverse((o) => {
+      if (!body && o.isMesh && o.name === "body") body = o;
+    });
+    if (!body) return null;
+    const pos = body.geometry.attributes.position;
+    const v = { x: 0, y: 0, z: 0 };
+    let lo = Infinity, hi = -Infinity, cnt = 0;
+    for (let i = 0; i < pos.count; i++) {
+      v.x = pos.getX(i); v.y = pos.getY(i); v.z = pos.getZ(i);
+      if (v.z > 1.5) { cnt++; lo = Math.min(lo, v.y); hi = Math.max(hi, v.y); }
+    }
+    return { verts: cnt, yRange: [+lo.toFixed(3), +hi.toFixed(3)] };
+  });
+  console.log("NOSE:", JSON.stringify(nose));
+} catch (e) {
+  console.log("NOSE-FAIL:", String(e).slice(0, 200));
+}
+try {
   const chain = await page.evaluate(() => {
     const scene = window.__r3f?.scene;
     let target = null;

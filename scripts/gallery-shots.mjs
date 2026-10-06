@@ -4,12 +4,16 @@
 import { chromium } from "playwright-core";
 
 const shots = [
-  ["t3-mushroom", "mario", "mushroom"],
-  ["t3-red3", "mario", "red3"],
-  ["t3-blue", "mario", "blue"],
-  ["t3-bullet", "mario", "bullet"],
-  ["t3-blooper", "mario", "blooper"],
-  ["t3-golden", "mario", "golden"],
+  ["t4-none", "mario", "none"],
+  ["t4-mushroom", "mario", "mushroom"],
+  ["t4-mushroom3", "mario", "mushroom3"],
+  ["t4-golden", "mario", "golden"],
+  ["t4-red", "mario", "red"],
+  ["t4-red3", "mario", "red3"],
+  ["t4-blue", "mario", "blue"],
+  ["t4-bullet", "mario", "bullet"],
+  ["t4-blooper", "mario", "blooper"],
+  ["t4-bomb", "mario", "bomb"],
 ];
 
 const outdir = process.argv[2] ?? "docs/screenshots";

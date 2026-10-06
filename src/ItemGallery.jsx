@@ -24,7 +24,10 @@ import {
   BulletModel,
   BlooperModel,
   RedTripleOrbit,
+  GoldenSparkles,
+  ItemOrbit,
 } from "./models/Pickups";
+import { DriverSpace, GloveHand } from "./models/GloveHand";
 import { itemConfig } from "./items/itemConfig.js";
 
 useGLTF.setDecoderPath("/draco/");
@@ -137,63 +140,73 @@ function CameraRig({ view }) {
   return view === "orbit" ? <OrbitControls target={[0, 0.5, 0]} /> : null;
 }
 
-const RACK = [0, 0.55, -1.4];
-
-function HeldPreview({ item, tune }) {
+// Held preview mirrors the game HeldItems: singles in the glove (same
+// GloveHand), triples in the shared ItemOrbit. Tune ratios apply live.
+function HeldPreview({ item, tune, driver, glovePose }) {
   const mul = (key) => tune.sizes[key] / itemConfig.sizes[key];
+  const L = itemConfig.hold.lift;
+  const glove = (lift, node) => (
+    <DriverSpace>
+      <GloveHand driver={driver} pose={glovePose} lift={lift}>
+        {node}
+      </GloveHand>
+    </DriverSpace>
+  );
   if (item === "none") return null;
   if (item === "mushroom")
-    return (
-      <group position={RACK}>
-        <MushroomModel sizeMul={mul("mushroomHeld")} />
-      </group>
-    );
+    return glove(L.mushroom, <MushroomModel sizeMul={mul("mushroomHeld")} />);
   if (item === "mushroom3")
     return (
-      <group position={RACK}>
-        {[-0.45, 0, 0.45].map((x) => (
-          <group key={x} position={[x, 0, 0]}>
-            <MushroomModel sizeMul={mul("mushroomHeld")} />
-          </group>
+      <ItemOrbit
+        count={3}
+        radius={tune.orbitRadius}
+        y={tune.orbitHeight}
+        lift={itemConfig.orbit.lifts.mushroom}
+      >
+        {[0, 1, 2].map((i) => (
+          <MushroomModel key={i} sizeMul={mul("mushroomHeld")} />
         ))}
-      </group>
+      </ItemOrbit>
     );
   if (item === "golden")
-    return (
-      <group position={RACK}>
+    return glove(
+      L.golden,
+      <>
         <MushroomModel gold sizeMul={mul("mushroomHeld")} />
-      </group>
+        <GoldenSparkles />
+      </>
     );
   if (item === "red")
-    return (
-      <group position={[0, 0.35, -2.5]}>
-        <RedShellModel sizeMul={mul("redShell")} />
-      </group>
-    );
+    return glove(L.red, <RedShellModel sizeMul={mul("redShell")} />);
   if (item === "red3")
     return (
       <RedTripleOrbit
         count={3}
         radius={tune.orbitRadius}
+        y={tune.orbitHeight}
         shellMul={mul("redShell")}
       />
     );
   if (item === "blue")
-    return (
-      <group position={[0, 0.35, -2.5]}>
-        <BlueShellModel sizeMul={mul("blueShell")} />
-      </group>
+    return glove(L.blue, <BlueShellModel sizeMul={mul("blueShell")} />);
+  if (item === "bullet")
+    return glove(
+      L.bullet,
+      <BulletModel
+        sizeMul={
+          itemConfig.sizes.bulletHeldLength / itemConfig.sizes.bulletActiveLength
+        }
+      />
     );
-  if (item === "bullet") return <BulletModel />;
   if (item === "blooper")
-    return (
-      <group position={[0, 1.6, -1.4]}>
-        <BlooperModel sizeMul={mul("bloopHeldHeight")} />
-      </group>
+    return glove(
+      L.blooper,
+      <BlooperModel sizeMul={mul("bloopHeldHeight")} />
     );
   if (item === "bomb")
-    return (
-      <group position={RACK}>
+    return glove(
+      L.bomb,
+      <group scale={0.5}>
         <BombModel />
       </group>
     );
@@ -224,23 +237,7 @@ function KartPreview({ driver }) {
   );
 }
 
-// Glove-pose marker (T3): white sphere at the tuned driver-local pose so the
-// hand position reads against driver + held item. The full GloveHand lands
-// in T6; the coordinates tuned here feed driverRig directly.
-function GloveMarker({ driver, pose, pos }) {
-  const rig = itemConfig.driverRig[driver] ?? itemConfig.driverRig.mario;
-  const radius = (rig.gloveRadius ?? 0.11) * 0.7;
-  const p = pos ?? rig[pose] ?? rig.handRest;
-  const kartLocal = [0.7 * p[0], 0.45 + 0.7 * p[1], -0.1 + 0.7 * p[2]];
-  return (
-    <group position={kartLocal}>
-      <mesh>
-        <sphereGeometry args={[radius, 20, 20]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.85} depthTest={false} />
-      </mesh>
-    </group>
-  );
-}
+
 
 const BTN = {
   fontSize: "11px",
@@ -282,6 +279,7 @@ export default function ItemGallery() {
       bloopHeldHeight: itemConfig.sizes.bloopHeldHeight,
     },
     orbitRadius: itemConfig.orbit.radius,
+    orbitHeight: itemConfig.orbit.height,
     glove: {
       ...(itemConfig.driverRig[params.driver] ?? itemConfig.driverRig.mario),
     },
@@ -308,8 +306,17 @@ export default function ItemGallery() {
       if (tune.sizes[k] !== itemConfig.sizes[k]) sizes[k] = tune.sizes[k];
     }
     if (Object.keys(sizes).length > 0) out.sizes = sizes;
-    if (tune.orbitRadius !== itemConfig.orbit.radius) {
-      out.orbit = { radius: tune.orbitRadius };
+    if (
+      tune.orbitRadius !== itemConfig.orbit.radius ||
+      tune.orbitHeight !== itemConfig.orbit.height
+    ) {
+      out.orbit = {};
+      if (tune.orbitRadius !== itemConfig.orbit.radius) {
+        out.orbit.radius = tune.orbitRadius;
+      }
+      if (tune.orbitHeight !== itemConfig.orbit.height) {
+        out.orbit.height = tune.orbitHeight;
+      }
     }
     const baseRig =
       itemConfig.driverRig[params.driver] ?? itemConfig.driverRig.mario;
@@ -367,6 +374,7 @@ export default function ItemGallery() {
           <Slider label="blueShell" value={tune.sizes.blueShell} min={0.1} max={0.35} step={0.01} onChange={(v) => setSize("blueShell", v)} />
           <Slider label="bloopHeld" value={tune.sizes.bloopHeldHeight} min={0.15} max={0.5} step={0.01} onChange={(v) => setSize("bloopHeldHeight", v)} />
           <Slider label="orbit.radius" value={tune.orbitRadius} min={1.2} max={2.6} step={0.05} onChange={(v) => setTune((t) => ({ ...t, orbitRadius: Math.round(v * 100) / 100 }))} />
+          <Slider label="orbit.height" value={tune.orbitHeight} min={-0.8} max={0.6} step={0.05} onChange={(v) => setTune((t) => ({ ...t, orbitHeight: Math.round(v * 100) / 100 }))} />
           <div style={{ fontSize: 11, marginTop: 4 }}>
             glove pose:
             <select value={glovePose} onChange={(e) => setGlovePose(e.target.value)}>
@@ -421,9 +429,9 @@ export default function ItemGallery() {
                 <boxGeometry args={[1.4, 0.9, 2.91]} />
                 <meshBasicMaterial color="#3af" wireframe transparent opacity={0.5} />
               </mesh>
-              {/* orbit ring at the live tuning radius */}
+              {/* orbit ring at the live tuning radius + plane height */}
               <mesh
-                position={[itemConfig.sockets.orbitCenter[0], itemConfig.sockets.orbitCenter[1], itemConfig.sockets.orbitCenter[2]]}
+                position={[itemConfig.sockets.orbitCenter[0], tune.orbitHeight, itemConfig.sockets.orbitCenter[2]]}
                 rotation-x={-Math.PI / 2}
               >
                 <ringGeometry args={[tune.orbitRadius - 0.03, tune.orbitRadius + 0.03, 64]} />
@@ -432,8 +440,12 @@ export default function ItemGallery() {
             </>
           )}
           <KartPreview driver={params.driver} />
-          <HeldPreview item={params.item} tune={tune} />
-          <GloveMarker driver={params.driver} pose={glovePose} pos={tune.glove[glovePose]} />
+          <HeldPreview
+            item={params.item}
+            tune={tune}
+            driver={params.driver}
+            glovePose={glovePose}
+          />
           {params.measure && (
             <DriverMeasure character={params.driver} onDone={setMeasure} />
           )}
