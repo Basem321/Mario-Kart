@@ -539,7 +539,10 @@ export const PlayerController = () => {
     if (myRide) {
       speedRef.current = BULLET_SPEED * kartScale;
       setSpeed(speedRef.current);
-      setIsBoosting(true);
+      // Bullet ride never sets isBoosting (1.5): kart flames, wind overlay
+      // and boost_lean all key off that flag. FOV +15 comes from the ride
+      // itself (BoostCameraRig reads bulletRide + itemConfig.fov.bullet).
+      setIsBoosting(false);
       return;
     }
     // Ramp-out: control is back (normal steering), speed eases to normal.
@@ -559,9 +562,18 @@ export const PlayerController = () => {
       setIsBoosting(speedRef.current > baseMaxSpeed * kartScale);
       return;
     }
+    // Stunned / spinning out: no throttle, speed collapses. This gate runs
+    // BEFORE the mushroom branch (2.1 #2) so a boost can never cancel a spin.
+    if (performance.now() < useGameStore.getState().stunUntil) {
+      speedRef.current = damp(speedRef.current, 0, 6, delta);
+      setSpeed(speedRef.current);
+      return;
+    }
     // Mushroom boost: exact 1.5x-max target (no stacking — re-use resets the
     // window). Damp-out gives the ease-out tail for free when it expires.
     // Dirt never slows it: this branch returns before any surface factor.
+    // Unreachable while stunned: applySpin zeroes shroomUntil AND the gate
+    // above runs first, so a mid-spin press can't keep full speed.
     const shroom = useGameStore.getState().shroomUntil;
     if (shroom && performance.now() < shroom) {
       speedRef.current = damp(
@@ -572,12 +584,6 @@ export const PlayerController = () => {
       );
       setSpeed(speedRef.current);
       setIsBoosting(true);
-      return;
-    }
-    // Stunned by an explosion: no throttle, speed collapses.
-    if (performance.now() < useGameStore.getState().stunUntil) {
-      speedRef.current = damp(speedRef.current, 0, 6, delta);
-      setSpeed(speedRef.current);
       return;
     }
     // Apply time trial speed factor if in time trial mode
@@ -998,6 +1004,8 @@ export const PlayerController = () => {
         bodyY: useGameStore.getState().groundPosition ?? 0,
         anim,
         animAt: Date.now(),
+        // Remaining hit-invulnerability for the owner's skip check (2.1 #10).
+        invulnMs: Math.max(0, Math.min(4000, Math.round((gsAnim.invulnUntil || 0) - now))),
       });
     }
   });

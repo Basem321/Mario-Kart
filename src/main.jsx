@@ -11,6 +11,7 @@ import TrackSelect from './TrackSelect.jsx'
 import LobbyScreen from './LobbyScreen.jsx'
 import GameUI from './GameUI.jsx'
 import GameReadyCheck from './GameReadyCheck.jsx'
+import ItemGallery from './ItemGallery.jsx'
 import { useGameManager } from './gameManager.js'
 import { useP2PLobby } from './useP2PLobby.js'
 import { isKnownTrackId } from './tracks.js'
@@ -20,6 +21,12 @@ import { isKnownTrackId } from './tracks.js'
 useGLTF.setDecoderPath('/draco/');
 
 const Root = () => {
+  // DEV-ONLY item gallery (?dev=items). import.meta.env.DEV is false in
+  // production builds, so this route can never ship. Computed before hooks
+  // but returned AFTER them so hook order stays unconditional.
+  const isGallery =
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("dev") === "items";
   const {
     showHomepage,
     startGame,
@@ -172,6 +179,8 @@ const Root = () => {
     setPendingMode(pendingTrackFor);
     setPendingTrackFor(null);
   };
+
+  if (isGallery) return <ItemGallery />;
 
   return (
     <>

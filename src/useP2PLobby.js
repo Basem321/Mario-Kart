@@ -3,7 +3,6 @@ import { Peer } from "peerjs";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 import { receiveOnlineRaceEvent, setOnlineRaceTransport } from "./onlineRaceTransport";
 import { DEFAULT_TRACK_ID, isKnownTrackId } from "./tracks";
-import { BULLET_RIDE_MS } from "./items/homing";
 import { normalizeBoxList } from "./items/itemWeights";
 
 const LOBBY_ID_PREFIX = "mario-kart-3js-";
@@ -102,6 +101,9 @@ const toRaceTransform = (candidate) => {
       ? Number(candidate.animAt)
       : 0;
 
+  // Remaining hit-invulnerability ms (2.1 #10): clamped, anchored locally on
+  // receipt so the owner can skip invulnerable victims without trusting clocks.
+  const invulnMs = Number(candidate?.invulnMs);
   return {
     x,
     y,
@@ -110,6 +112,10 @@ const toRaceTransform = (candidate) => {
     bodyY: Number.isFinite(bodyY) ? bodyY : 0,
     anim,
     animAt,
+    invulnMs:
+      Number.isFinite(invulnMs) && invulnMs > 0
+        ? Math.max(0, Math.min(4000, Math.round(invulnMs)))
+        : 0,
   };
 };
 
@@ -137,6 +143,7 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     const id = String(candidate.bomb?.id ?? "").slice(0, 120);
     const position = toRacePosition(candidate.bomb);
     const createdAt = Number(candidate.bomb?.createdAt);
+    const rawScale = Number(candidate.bomb?.scale);
 
     if (!id || !position) return null;
     return {
@@ -145,6 +152,10 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
         id,
         ...position,
         createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+        // Remote mini bombs render at the owner's kart size (2.2 #15).
+        scale: Number.isFinite(rawScale)
+          ? Math.max(0.2, Math.min(3, rawScale))
+          : 1,
       },
     };
   }
@@ -153,8 +164,16 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     const bombId = String(candidate.bombId ?? "").slice(0, 120);
     const position = toRacePosition(candidate);
     if (!bombId || !position) return null;
+    const rawScale = Number(candidate.scale);
 
-    return { type: "bomb:explode", bombId, ...position };
+    return {
+      type: "bomb:explode",
+      bombId,
+      ...position,
+      scale: Number.isFinite(rawScale)
+        ? Math.max(0.2, Math.min(3, rawScale))
+        : 1,
+    };
   }
 
   if (candidate.type === "item:carried") {
@@ -172,13 +191,17 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
       return null;
     }
     const usesLeft = Number(candidate.usesLeft);
-    const windowUntil = Number(candidate.windowUntil);
+    // Golden window crosses as remaining ms (2.1 #9), never absolute.
+    const windowMs = Number(candidate.windowMs);
     return {
       type: "item:carried",
       itemType,
       variant,
       usesLeft: Number.isInteger(usesLeft) && usesLeft >= -1 && usesLeft <= 3 ? usesLeft : null,
-      windowUntil: Number.isFinite(windowUntil) && windowUntil > 0 ? windowUntil : null,
+      windowMs:
+        Number.isFinite(windowMs) && windowMs >= 0
+          ? Math.max(0, Math.min(7000, Math.round(windowMs)))
+          : null,
     };
   }
 
@@ -416,6 +439,8 @@ export const useP2PLobby = () => {
     }
 
     if (event.type === "item:carried") {
+      // windowMs (remaining) anchors to the LOCAL clock (2.1 #9).
+      const windowMs = Number(event.windowMs);
       useOnlineRaceStore.getState().setRemoteRacerCarriedItem(
         playerId,
         event.itemType
@@ -423,23 +448,19 @@ export const useP2PLobby = () => {
               type: event.itemType,
               variant: event.variant ?? "single",
               usesLeft: event.usesLeft,
-              windowUntil: event.windowUntil,
+              windowUntil:
+                Number.isFinite(windowMs) && windowMs >= 0
+                  ? performance.now() +
+                    Math.max(0, Math.min(7000, Math.round(windowMs)))
+                  : null,
             }
           : null
       );
     }
 
-    if (event.type === "bullet:start") {
-      useOnlineRaceStore.getState().setRemoteRacerBulletRide(event.playerId, {
-        rideId: event.rideId,
-        ownerId: event.playerId,
-        until: performance.now() + BULLET_RIDE_MS,
-      });
-    }
-
-    if (event.type === "bullet:end") {
-      useOnlineRaceStore.getState().setRemoteRacerBulletRide(event.playerId, null);
-    }
+    // NOTE (2.2 #16): bullet:start/end are applied once in ItemBoxes from the
+    // authenticated sender (receiveOnlineRaceEvent forwards playerId below).
+    // Handling them here too created two truths; the direct writes are gone.
 
     if (event.type === "race:progress") {
       useOnlineRaceStore.getState().setRemoteRaceProgress(playerId, event);

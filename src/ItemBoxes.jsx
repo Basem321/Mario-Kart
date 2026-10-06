@@ -9,21 +9,28 @@ import {
   BLOOPER_SQUIRT_MS,
   BLUE_BLAST_RADIUS,
   BLUE_FLY_HEIGHT,
-  BLUE_LIFE_MS,
   BLUE_SPEED,
   BULLET_KNOCK_RADIUS,
   BULLET_RIDE_MS,
   bulletActive,
   bounceShell,
   blueShouldDive,
+  canFireBlue,
+  clampBombScale,
   coneLock,
   cruiseSettle,
+  goldenWindowMs,
   hitApplies,
+  hydrateRemoteShell,
   inkUntil,
+  isAuthenticShellHit,
   isValidKnock,
+  redReleaseMs,
+  remoteShellExpired,
   resolveBlueBlast,
   retargetBlue,
   shouldApplyHit,
+  shouldSkipVictim,
   spawnDue,
   steerShell,
   targetsAhead,
@@ -67,6 +74,20 @@ let nextId = 1;
 // Last committed item-use press (performance.now). Global min-use gap (§10.6).
 let lastUseAt = 0;
 
+// Shared sfx helper (2.2 #18): absolute path, respects sfxVolume, never
+// throws into gameplay.
+const playSfx = (name, volumeMul = 1) => {
+  try {
+    const rawVol = Number(useGameManager.getState().sfxVolume);
+    const base = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
+    const sfx = new Audio(`/music/${name}`);
+    sfx.volume = Math.max(0, Math.min(1, base * volumeMul));
+    sfx.play().catch(() => {});
+  } catch {
+    // ignore — audio must never break item use
+  }
+};
+
 // Red throw, two-phase: the press consumes ONE use NOW (triple counts down,
 // slot clears at zero), the shell spawns at the release time.
 const queueRedThrow = (backward, now) => {
@@ -81,21 +102,30 @@ const queueRedThrow = (backward, now) => {
       kind: "red",
       backward: Boolean(backward),
       pressAt: now,
-      releaseMs: itemConfig.throwForward.releaseMs,
+      // Backward throws release on the throwBack timing (2.1 #4).
+      releaseMs: redReleaseMs(backward),
     },
   ]);
   return true;
 };
 
-// Blue throw, two-phase: release at the throw-up apex (150ms).
+// Blue throw, two-phase: release at the throw-up apex. The slot is consumed
+// at press ONLY when the shell can actually fire (2.1 #5) — solo/offline or
+// leaderless presses keep the item. The carried slot rides along so a failed
+// fire refunds it instead of eating it.
 const queueBlueThrow = (now) => {
   const st = useGameStore.getState();
+  const gm = useGameManager.getState();
+  // Solo/offline never consumes the slot (2.1 #5): no leader exists.
+  if (!gm.isOnlineRace) return false;
+  const held = st.carriedItem;
   st.setCarriedItem(null);
   publishCarried(null);
   st.setPendingSpawns([
     ...st.pendingSpawns,
-    { kind: "blue", pressAt: now, releaseMs: itemConfig.throwUp.releaseMs },
+    { kind: "blue", pressAt: now, releaseMs: itemConfig.throwUp.releaseMs, held },
   ]);
+  return true;
 };
 
 // Bullet start, two-phase: mesh swap at 100ms (spec transform timing).
@@ -129,10 +159,14 @@ const publishCarried = (item) => {
     type: "item:carried",
     itemType: item ? item.type : null,
     variant: item ? item.variant ?? "single" : null,
-    // Remote visuals need counts + golden window (orbit + shrink).
+    // Remote visuals need counts + golden window (orbit + shrink). The
+    // golden window crosses as REMAINING ms (2.1 #9): absolute
+    // performance.now timestamps differ per browser clock.
     usesLeft: item && Number.isInteger(item.usesLeft) ? item.usesLeft : null,
-    windowUntil:
-      item && Number.isFinite(item.windowUntil) ? item.windowUntil : null,
+    windowMs:
+      item && item.type === "golden" && Number.isFinite(item.windowUntil)
+        ? goldenWindowMs(item, performance.now())
+        : null,
   });
 };
 
@@ -197,14 +231,7 @@ const fireBoostItem = (item) => {
         ? itemConfig.golden.boostMs
         : itemConfig.mushroom.boostMs;
     st.setShroomUntil(nextBoostUntil(st.shroomUntil, now, durationMs));
-    try {
-      const rawVol = Number(useGameManager.getState().sfxVolume);
-      const sfx = new Audio("/music/mushroom-boost.mp3");
-      sfx.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-      sfx.play().catch(() => {});
-    } catch {
-      // ignore — audio must never break item use
-    }
+    playSfx("mushroom-boost.mp3");
   }
   st.setCarriedItem(r.item);
   publishCarried(r.item);
@@ -236,24 +263,20 @@ const applyShellStun = ({ x, y, z, shellId, scale = 0.6, soft = false, stun = tr
       { id: fxId, x, y, z, scale, soft, at: performance.now() },
     ]);
   }
-  try {
-    const rawVol = Number(useGameManager.getState().sfxVolume);
-    const hit = new Audio("/music/shell-hit.mp3");
-    hit.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-    hit.play().catch(() => {});
-  } catch {
-    // ignore — audio must never break hit feedback
-  }
+  playSfx("shell-hit.mp3");
 };
 
 const addRemoteShell = (shell) => {
   const st = useGameStore.getState();
   const id = String(shell?.id ?? "");
   if (!id || st.activeShells.some((s) => s.id === id)) return false;
+  // Hydrate the local clock + blue flight state (2.1 #6): the payload
+  // carries no `at`, so a raw spread would never expire and never dive.
+  const hydrated = hydrateRemoteShell(shell, performance.now());
   // Remotes derive the cruise height (spawn is always cruise + 1.2).
   st.setActiveShells([
     ...st.activeShells,
-    { ...shell, id, owner: false, cruiseY: shell.y - 1.2 },
+    { ...hydrated, id, owner: false, cruiseY: shell.y - 1.2 },
   ]);
   return true;
 };
@@ -263,6 +286,11 @@ const onRemoteShellHit = (event) => {
   const shellId = String(event?.shellId ?? "");
   if (!shellId) return;
   const shell = st.activeShells.find((s) => s.id === shellId);
+  // Forged hits are dropped (2.2 #16): only the shell OWNER may report it.
+  // event.playerId is the authenticated sender (set by receiveOnlineRaceEvent).
+  if (shell && !isAuthenticShellHit({ shellOwnerId: shell.ownerId, senderId: event.playerId })) {
+    return;
+  }
   st.setActiveShells(st.activeShells.filter((s) => s.id !== shellId));
   if (String(event?.victimId ?? "") === myRacerId() && shell && raceLive() && myVulnerable()) {
     // Triple orbit absorbs red shells instead of spinning (matrix §4.3).
@@ -315,7 +343,8 @@ const fireRedShell = (backward = false) => {
     at: performance.now(),
   };
   st.setActiveShells([...st.activeShells, shell]);
-  publishCarried(null);
+  // No publishCarried here (2.1 #3): queueRedThrow already published the
+  // decremented count at press; clearing would wipe triple survivors remote-side.
   publishOnlineRaceEvent({
     type: "shell:fired",
     shell: {
@@ -332,14 +361,7 @@ const fireRedShell = (backward = false) => {
       ownerId: me,
     },
   });
-  try {
-    const rawVol = Number(gm.sfxVolume);
-    const fire = new Audio("/music/shell-fire.mp3");
-    fire.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-    fire.play().catch(() => {});
-  } catch {
-    // ignore — audio must never break firing
-  }
+  playSfx("shell-fire.mp3");
   return true;
 };
 
@@ -361,14 +383,7 @@ const startBulletRide = () => {
   st.setCarriedItem(null);
   publishOnlineRaceEvent({ type: "item:carried", itemType: null });
   publishOnlineRaceEvent({ type: "bullet:start", rideId: ride.rideId, playerId: me });
-  try {
-    const rawVol = Number(useGameManager.getState().sfxVolume);
-    const launch = new Audio("/music/bullet-launch.mp3");
-    launch.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-    launch.play().catch(() => {});
-  } catch {
-    // ignore — audio must never break the ride
-  }
+  playSfx("bullet-launch.mp3");
   return true;
 };
 
@@ -413,14 +428,7 @@ const fireBlooper = () => {
   if (targetIds.length > 0) {
     publishOnlineRaceEvent({ type: "blooper:ink", targetIds });
   }
-  try {
-    const rawVol = Number(gm.sfxVolume);
-    const splash = new Audio("/music/blooper-splash.mp3");
-    splash.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-    splash.play().catch(() => {});
-  } catch {
-    // ignore — audio must never break firing
-  }
+  playSfx("blooper-splash.mp3");
   return true;
 };
 const endBulletRide = (hop = true) => {
@@ -467,11 +475,20 @@ const stopBlueAlarm = () => {
 
 // Blue shell: targets whoever leads RIGHT NOW (including self if the owner
 // took the lead after the pickup — MK-accurate). Refuses to fire solo.
-const fireBlueShell = () => {
+// The slot was consumed at press: a failed fire refunds it (2.1 #5) via the
+// pending `held` snapshot instead of eating the shell.
+const fireBlueShell = (pending) => {
   const st = useGameStore.getState();
   const gm = useGameManager.getState();
   const playerPos = st.playerPosition;
-  if (!playerPos || !gm.isOnlineRace) return false;
+  const refund = () => {
+    if (pending?.held) {
+      st.setCarriedItem(pending.held);
+      publishCarried(pending.held);
+    }
+    return false;
+  };
+  if (!playerPos || !gm.isOnlineRace) return refund();
   const me = myRacerId();
   const ors = useOnlineRaceStore.getState();
   const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
@@ -485,7 +502,8 @@ const fireBlueShell = () => {
     });
   }
   const leaderId = leaderOf(rows);
-  if (!leaderId) return false;
+  // Gate BEFORE firing (2.1 #5): no leader, no shell — refund the slot.
+  if (!canFireBlue({ isOnlineRace: gm.isOnlineRace, leaderId })) return refund();
 
   const gy = st.groundPosition ?? playerPos.y ?? 0;
   const shell = {
@@ -524,14 +542,7 @@ const fireBlueShell = () => {
   // Self-target (took the lead after pickup): the owner never processes its
   // own publish, so start the warning loop locally too.
   if (leaderId === me) startBlueAlarm();
-  try {
-    const rawVol = Number(gm.sfxVolume);
-    const fire = new Audio("/music/shell-fire.mp3");
-    fire.volume = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-    fire.play().catch(() => {});
-  } catch {
-    // ignore — audio must never break firing
-  }
+  playSfx("shell-fire.mp3");
   return true;
 };
 
@@ -558,7 +569,6 @@ const addDroppedBomb = (bomb) => {
   if (st.explosions.some((entry) => entry.id === bombExplosionId(id))) return false;
 
   // Bombs keep their owner's kart size so a mini kart drops a mini bomb.
-  const rawScale = Number(bomb?.scale);
   st.setDroppedBombs([
     ...st.droppedBombs,
     {
@@ -566,7 +576,7 @@ const addDroppedBomb = (bomb) => {
       x: bomb.x,
       y: bomb.y,
       z: bomb.z,
-      scale: Number.isFinite(rawScale) ? Math.max(0.2, Math.min(3, rawScale)) : 1,
+      scale: clampBombScale(bomb?.scale),
       createdAt: Number.isFinite(bomb.createdAt) ? bomb.createdAt : Date.now(),
       at: performance.now(),
     },
@@ -866,6 +876,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         }
 
         if (event.type === "blooper:ink" && Array.isArray(event.targetIds)) {
+          // Never ink behind the results screen (2.2 #14).
+          if (!raceLive()) return;
           // Bullet riders are immune (§4.5).
           const myRide = useGameStore.getState().bulletRide;
           const immune =
@@ -874,16 +886,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
             bulletActive(myRide, performance.now());
           if (!immune && event.targetIds.includes(myRacerId())) {
             useGameStore.getState().setBlooperUntil(inkUntil(performance.now()));
-            try {
-              const rawVol = Number(useGameManager.getState().sfxVolume);
-              const splash = new Audio("/music/blooper-splash.mp3");
-              splash.volume = Number.isFinite(rawVol)
-                ? Math.max(0, Math.min(1, rawVol))
-                : 0.7;
-              splash.play().catch(() => {});
-            } catch {
-              // ignore — audio must never break the ink effect
-            }
+            playSfx("blooper-splash.mp3");
           }
         }
 
@@ -923,6 +926,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                 shellId: `blue-${event.x}-${event.z}`,
                 scale: 1.2,
                 heavy: true,
+                soft: true,
               });
             }
           }
@@ -1062,15 +1066,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         publishOnlineRaceEvent({ type: "item:boxTaken", boxId: b.id });
         // Free slot → roulette; full slot → consumed, player gets nothing.
         if (pickupGrant({ occupied: !slotFree, row: "roulette" }).grant) {
-          try {
-            const rawVol = Number(useGameManager.getState().sfxVolume);
-            const vol = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-            const pickup = new Audio("./music/collecting_box.mp3");
-            pickup.volume = vol;
-            pickup.play().catch(() => {});
-          } catch {
-            // ignore — audio must never break the pickup loop
-          }
+          playSfx("collecting_box.mp3");
           const activeBlue = st.activeShells.some((s) => s.kind === "blue");
           if (useGameManager.getState().gameStarted && !matchStartRef.current) {
             matchStartRef.current = now;
@@ -1090,13 +1086,16 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
 
     // Respawn collected boxes. ONLY the owner (solo/host) rolls new spots —
     // guests apply the host's list, so positions stay identical everywhere.
+    // Re-read after the pickup write above (2.1 #8): the stale `st` snapshot
+    // would otherwise resurrect a box that was just taken.
     const gmFrame = useGameManager.getState();
     const orsFrame = useOnlineRaceStore.getState();
     const ownsBoxes = !gmFrame.isOnlineRace || orsFrame.isHost === true;
     let needsRespawn = false;
-    let next = st.itemBoxes;
+    const freshBoxes = useGameStore.getState().itemBoxes;
+    let next = freshBoxes;
     if (ownsBoxes) {
-      next = st.itemBoxes.map((b) => {
+      next = freshBoxes.map((b) => {
         if (!b.active && b.respawnAt > 0 && now >= b.respawnAt) {
           const s = randomBoxSpot();
           needsRespawn = true;
@@ -1220,7 +1219,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       st.setPendingSpawns(st.pendingSpawns.filter((p) => !spawnDue(p, now)));
       for (const p of due) {
         if (p.kind === "red") fireRedShell(p.backward);
-        else if (p.kind === "blue") fireBlueShell();
+        else if (p.kind === "blue") fireBlueShell(p);
         else if (p.kind === "bullet") startBulletRide();
       }
     }
@@ -1275,6 +1274,12 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           id: me,
           x: px,
           z: pz,
+          y: st.groundPosition ?? 0,
+          invulnUntil: st.invulnUntil || 0,
+          anim:
+            st.spin && now < st.spin.until
+              ? "spin_hit_light"
+              : undefined,
           bullet:
             st.bulletRide &&
             st.bulletRide.ownerId === me &&
@@ -1284,16 +1289,22 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           id,
           x: Number(r?.x) || 0,
           z: Number(r?.z) || 0,
+          y: Number(r?.y) || 0,
+          invulnUntil: Number(r?.invulnUntilLocal) || 0,
+          anim: r?.anim,
           bullet: Boolean(r?.bulletRide),
         })),
       ];
       // Red shells cannot touch bullet riders (§4.4): filter before searching.
-      const hittable = excludeImmune(victims);
+      // Invulnerable / already-spinning racers are skipped by the owner too
+      // (2.1 #10); the victim keeps its own check as final authority.
+      const hittable = excludeImmune(victims).filter(
+        (v) => !shouldSkipVictim(v, now)
+      );
       const next = [];
       for (const shell of st.activeShells) {
-        const life =
-          shell.kind === "blue" ? BLUE_LIFE_MS : itemConfig.redShell.lifetimeMs;
-        if (now - shell.at >= life) continue;
+        // Hydrated remotes carry a real `at` (2.1 #6); NaN lifetimes expire.
+        if (remoteShellExpired(shell, now)) continue;
         if (shell.kind === "blue") {
           // Stable re-target: switch only on laps-greater or +5 dist, so ties
           // never flap the target (and the alarm) every frame.
@@ -1349,7 +1360,12 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               z: shell.z + (dzl / distXZ) * BLUE_SPEED * step,
             };
           } else {
-            const ground = st.groundPosition ?? shell.top - BLUE_FLY_HEIGHT;
+            // Dive onto the TARGET's ground height (2.1 #7), not the local
+            // player's: every client tracks every victim's y in the rows.
+            const targetGround = Number.isFinite(Number(leader.y))
+              ? Number(leader.y)
+              : st.groundPosition ?? shell.top - BLUE_FLY_HEIGHT;
+            const ground = targetGround;
             moved = { ...shell, phase, y: shell.y - 45 * step };
             if (moved.y <= ground) {
               // Bullet-immune target: harmless pop, nobody spins.

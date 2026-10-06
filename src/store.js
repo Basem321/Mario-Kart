@@ -12,6 +12,9 @@ export const applySpin = ({ victim = "self", heavy = false, ms = null, now = per
   st.setSpin({ until: w.spinUntil, heavy: !!heavy });
   st.setInvulnUntil(w.invulnUntil);
   st.setStunUntil(w.spinUntil);
+  // A spin-out kills any live mushroom boost (2.1 #2): the shroom branch in
+  // PlayerController.updateSpeed must never outrun the stun gate.
+  st.setShroomUntil(0);
   return true;
 };
 
@@ -34,13 +37,19 @@ export const absorbWithOrbit = (incomingKind, notify = true) => {
   const next = left > 0 ? { ...held, usesLeft: left } : null;
   st.setCarriedItem(next);
   if (notify) {
+    // Golden window crosses as remaining ms (2.1 #9), never absolute.
+    const total = 7000;
+    const remain =
+      next && next.type === "golden" && Number.isFinite(next.windowUntil)
+        ? Math.max(0, Math.min(total, Math.round(next.windowUntil - performance.now())))
+        : null;
     publishOnlineRaceEvent({
       type: "item:carried",
       itemType: next ? next.type : null,
       variant: next ? next.variant ?? "single" : null,
       // Remotes track the orbit count + golden window from these.
       usesLeft: next && Number.isInteger(next.usesLeft) ? next.usesLeft : null,
-      windowUntil: next && Number.isFinite(next.windowUntil) ? next.windowUntil : null,
+      windowMs: remain,
     });
   }
   return true;

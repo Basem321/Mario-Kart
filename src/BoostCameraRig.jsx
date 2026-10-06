@@ -27,6 +27,11 @@ export function BoostCameraRig() {
     const st = useGameStore.getState();
     const boosting = Boolean(st.isBoosting);
     const speed = Number(st.speed) || 0;
+    // Bullet Bill ride: spec FOV +15 without isBoosting (no flames/wind).
+    // Local-only read; the ride entry is owner-gated where it is written.
+    const bulletRiding =
+      Boolean(st.bulletRide) &&
+      Number(st.bulletRide.until) > performance.now();
 
     // Boost SFX on the rising edge only, so it plays once per mini-turbo.
     if (boosting && !wasBoostingRef.current) {
@@ -46,8 +51,15 @@ export function BoostCameraRig() {
     }
     wasBoostingRef.current = boosting;
 
-    // Mini-turbo = full kick. Very high speed (downhill/turbo tail) = half kick.
-    const targetFov = boosting ? baseFov + 14 : speed > 55 ? baseFov + 6 : baseFov;
+    // Mini-turbo = full kick. Bullet ride = spec +15. Very high speed
+    // (downhill/turbo tail) = half kick.
+    const targetFov = bulletRiding
+      ? baseFov + 15
+      : boosting
+        ? baseFov + 14
+        : speed > 55
+          ? baseFov + 6
+          : baseFov;
 
     const nextFov = MathUtils.damp(camera.fov, targetFov, boosting ? 7 : 4.5, delta);
     if (Math.abs(nextFov - camera.fov) > 0.01) {

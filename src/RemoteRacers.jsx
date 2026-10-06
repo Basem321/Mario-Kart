@@ -8,6 +8,7 @@ import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
 import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel, RedTripleOrbit, GoldenMushroom } from "./models/Pickups";
 import { itemConfig, modelNativeSizes } from "./items/itemConfig.js";
+import { remoteBulletActive, remoteSpinning } from "./items/homing.js";
 
 // Mini bullet scale from spec ratios (held 0.38 × kart length).
 const BULLET_MINI_SCALE =
@@ -18,11 +19,7 @@ const BULLET_MINI_SCALE =
 const RACK_POS = itemConfig.sockets.rack;
 const TRAIL_POS = itemConfig.sockets.trailPoint;
 
-// Remote spin windows mirror the local hit timings for anim playback.
-const REMOTE_SPIN_MS = {
-  spin_hit_light: itemConfig.hit.lightMs,
-  spin_hit_heavy: itemConfig.hit.heavyMs,
-};
+
 import { useOnlineRaceStore } from "./onlineRaceStore";
 
 const smoothAngle = (from, to, lambda, delta) => {
@@ -33,12 +30,15 @@ const smoothAngle = (from, to, lambda, delta) => {
 const RemoteKart = ({ player, playerIndex }) => {
   const { nodes, materials } = useGLTF("/models/kart.glb");
   const remoteState = useOnlineRaceStore((state) => state.remoteRacers[player.id]);
-  // Replicated spin visuals (v3 §10.7): spin the visual group while the
-  // sender's anim window is open; held items hide during the spin.
+  // Replicated spin visuals (v3 §10.7 + 2.2 #11): computed from the RECEIPT
+  // clock (animRecvAt, stamped in setRemoteRacer), never the sender wall
+  // clock. Held items hide during the spin.
   const remoteAnim = remoteState?.anim;
-  const remoteAnimAge = Date.now() - (remoteState?.animAt || 0);
-  const remoteSpinMs = REMOTE_SPIN_MS[remoteAnim] ?? 0;
-  const remoteSpinning = remoteSpinMs > 0 && remoteAnimAge < remoteSpinMs && remoteAnimAge >= 0;
+  const spinningNow = remoteSpinning(remoteAnim, remoteState?.animRecvAt, performance.now());
+  const remoteSpinning = spinningNow;
+  // Lost bullet:end heals itself (2.2 #13): the ride counts as ended after
+  // until + rampOutMs + 1000 (until was anchored at receipt).
+  const remoteRideActive = remoteBulletActive(remoteState?.bulletRide, performance.now());
   const wasSpinningRef = useRef(false);
   const selectedTrackId = useGameManager((state) => state.selectedTrackId);
   const kartRef = useRef(null);
@@ -46,6 +46,12 @@ const RemoteKart = ({ player, playerIndex }) => {
   const spawnSlot = getOnlineSpawnSlot(playerIndex, getTrack(selectedTrackId));
 
   useFrame((_, delta) => {
+    // Expired remote ride clears locally (2.2 #13): a lost bullet:end can't
+    // leave a kart stuck as a bullet forever.
+    const rsRide = useOnlineRaceStore.getState().remoteRacers[player.id];
+    if (rsRide?.bulletRide && !remoteBulletActive(rsRide.bulletRide, performance.now())) {
+      useOnlineRaceStore.getState().setRemoteRacerBulletRide(player.id, null);
+    }
     if (!kartRef.current || !visualRef.current) return;
 
     const fallbackTarget = {
@@ -87,7 +93,7 @@ const RemoteKart = ({ player, playerIndex }) => {
       scale={spawnSlot.kartScale ?? 1}
       name={`remote-racer-${player.id}`}
     >
-      <group ref={visualRef} position-y={-0.5} rotation-y={Math.PI} visible={!remoteState?.bulletRide}>
+      <group ref={visualRef} position-y={-0.5} rotation-y={Math.PI} visible={!remoteRideActive}>
         <mesh castShadow receiveShadow geometry={nodes.body.geometry} material={materials.m_Body}>
           <group position={[-0.77, 0, -0.7]} />
           <group position={[0.77, 0, -0.7]} />
@@ -202,7 +208,7 @@ const RemoteKart = ({ player, playerIndex }) => {
           layers={1}
         />
       </group>
-      {remoteState?.bulletRide && (
+      {remoteRideActive && (
         <group rotation-y={Math.PI}>
           <BulletModel position={[0, 0.1, 0]} />
         </group>

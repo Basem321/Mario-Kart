@@ -101,12 +101,13 @@ export const steerShell = ({ dir, toTarget, maxTurn, dt } = {}) => {
 
 // Blue re-target rule: switch only when the new best has strictly more laps,
 // or same laps with a 5+ unit distance lead — ties never flap the target.
+// Finished racers never become the target (same rule as leaderOf).
 export const retargetBlue = (currentId, rows) => {
   if (!Array.isArray(rows) || rows.length === 0) return currentId;
   const cur = rows.find((r) => r && r.id === currentId);
   let best = null;
   for (const r of rows) {
-    if (!r || r.id === currentId) continue;
+    if (!r || r.id === currentId || r.finished) continue;
     if (!best) {
       best = r;
       continue;
@@ -273,4 +274,115 @@ export const spinBlocked = ({ spinUntil = 0, invulnUntil = 0, now = 0 } = {}) =>
   void invulnUntil;
   if (Number(now) < Number(spinUntil)) return { steer: false, use: false };
   return { steer: true, use: true };
+};
+
+// --- Battle-items polish pass (2026-10-06): pure helpers, one per fix so
+// every correctness item in §§2.1–2.2 gets a contract test. ---
+
+// 2.1 #1 — held visuals hide only while the spin window is live.
+export const heldVisible = (spin, now = 0) =>
+  !(spin && Number(spin.until) > Number(now));
+
+// 2.1 #2 — mushroom boost applies only with a live shroom window AND no
+// live spin. Callers must check spin BEFORE the shroom branch.
+export const mushroomBoostActive = ({ shroomUntil = 0, spinUntil = 0, now = 0 } = {}) =>
+  Number(shroomUntil) > Number(now) && !(Number(spinUntil) > Number(now));
+
+// 2.1 #4 — red release timing follows the throw direction.
+export const redReleaseMs = (backward = false) =>
+  backward
+    ? itemConfig.throwBack.releaseMs
+    : itemConfig.throwForward.releaseMs;
+
+// 2.1 #5 — blue shell needs an online race AND a live leader. Check
+// BEFORE consuming the slot so solo/offline presses never eat the item.
+export const canFireBlue = ({ isOnlineRace = false, leaderId = null } = {}) =>
+  Boolean(isOnlineRace) && typeof leaderId === "string" && leaderId.length > 0;
+
+// 2.1 #6 — remote shells hydrate the local clock + blue flight state on
+// receipt (sender clocks differ, payloads carry no `at`). Remotes then
+// expire and dive with the same rules as the owner.
+export const hydrateRemoteShell = (shell, now = 0) => {
+  if (!shell || typeof shell !== "object") return shell;
+  const t = Number(now);
+  const base = { ...shell, at: t };
+  if (shell.kind === "blue") {
+    return {
+      ...base,
+      top: Number(shell.top) || (Number(shell.y) || 0) + BLUE_FLY_HEIGHT,
+      phase: shell.phase === "drop" ? "drop" : "fly",
+    };
+  }
+  return base;
+};
+
+export const remoteShellExpired = (shell, now = 0) => {
+  if (!shell) return true;
+  const life = shell.kind === "blue" ? BLUE_LIFE_MS : itemConfig.redShell.lifetimeMs;
+  return Number(now) - Number(shell.at) >= Number(life);
+};
+
+// 2.1 #9 — golden window crosses browsers as remaining ms (clocks differ),
+// never as an absolute performance.now timestamp.
+export const goldenWindowMs = (item, now = 0) => {
+  const total = Number(itemConfig.golden.windowMs) || 0;
+  const remain = Number(item?.windowUntil) - Number(now);
+  return Math.max(0, Math.min(total, Math.round(Number.isFinite(remain) ? remain : 0)));
+};
+
+export const anchorGoldenWindow = (windowMs, now = 0) => {
+  const total = Number(itemConfig.golden.windowMs) || 0;
+  const ms = Math.max(0, Math.min(total, Math.round(Number(windowMs) || 0)));
+  return Number(now) + ms;
+};
+
+// 2.2 #11 — remote spin from the RECEIPT clock, never the sender wall clock.
+const REMOTE_SPIN_MS = () => ({
+  spin_hit_light: itemConfig.hit.lightMs,
+  spin_hit_heavy: itemConfig.hit.heavyMs,
+});
+export const remoteSpinning = (anim, recvAt, now = 0) => {
+  const ms = REMOTE_SPIN_MS()[anim] ?? 0;
+  if (!(ms > 0)) return false;
+  const t = Number(now);
+  const r = Number(recvAt);
+  return Number.isFinite(r) && t >= r && t - r < ms;
+};
+
+// 2.2 #13 — a lost bullet:end still ends the remote ride after grace.
+export const remoteBulletActive = (ride, now = 0) => {
+  if (!ride) return false;
+  const until = Number(ride.until);
+  if (!Number.isFinite(until)) return false;
+  return Number(now) < until + Number(itemConfig.bullet.rampOutMs) + 1000;
+};
+
+// 2.2 #15 — bomb scale passthrough, clamped 0.2..3.
+export const clampBombScale = (scale) => {
+  const s = Number(scale);
+  if (!Number.isFinite(s)) return 1;
+  return Math.max(0.2, Math.min(3, s));
+};
+
+// 2.2 #16 — the sender must own the shell it reports a hit for.
+export const isAuthenticShellHit = ({ shellOwnerId = "", senderId = "" } = {}) =>
+  typeof shellOwnerId === "string" &&
+  shellOwnerId.length > 0 &&
+  shellOwnerId === senderId;
+
+// 2.1 #10 — owner skips invulnerable or already-spinning victims; the
+// victim keeps its own check as final authority.
+export const shouldSkipVictim = (victim, now = 0) => {
+  if (!victim || typeof victim !== "object") return false;
+  if (Number(victim.invulnUntil) > Number(now)) return true;
+  const anim = victim.anim;
+  if (typeof anim === "string" && anim.startsWith("spin_hit")) return true;
+  return false;
+};
+
+// Remaining invuln ms for the transform packet (0..4000), anchored locally
+// on receipt so every browser shares the same window.
+export const anchorInvuln = (invulnMs, now = 0) => {
+  const ms = Math.max(0, Math.min(4000, Math.round(Number(invulnMs) || 0)));
+  return Number(now) + ms;
 };

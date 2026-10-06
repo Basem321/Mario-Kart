@@ -19,7 +19,7 @@ import { Skate } from "../particles/drift/Skate/Skate.jsx";
 import { Trails } from "../particles/sparks/Trails.jsx";
 import { Driver } from "./Driver.jsx";
 import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel, RedTripleOrbit, GoldenMushroom } from "./Pickups.jsx";
-import { bulletActive } from "../items/homing.js";
+import { bulletActive, heldVisible } from "../items/homing.js";
 import { itemConfig, modelNativeSizes } from "../items/itemConfig.js";
 
 // Held mounts from spec sockets (§10.1): rack for carry items, trail for shells.
@@ -150,9 +150,11 @@ export function Kart({
       : null;
   const heldTriple = carriedItem?.type === "mushroom" && carriedItem?.variant === "triple";
   const selectedDriver = useGameManager((state) => state.selectedDriver);
-  // Held visuals hide while spinning out (the slot itself is untouched).
+  // Held visuals hide only while the spin window is LIVE (2.1 #1): an
+  // expired spin (until in the past) shows the held item again. The store
+  // spin is cleared on expiry in the useFrame below so it can't stick.
   const spinState = useGameStore((state) => state.spin);
-  const hideHeld = Boolean(spinState);
+  const hideHeld = !heldVisible(spinState, performance.now());
   // Throw flourish: 0.25s lean punch whenever a carried slot empties (item
   // used/consumed). Driver GLBs have no animation clips, so this procedural
   // nudge on rotation.x (physics only drives .y) is the throw animation.
@@ -580,6 +582,12 @@ export function Kart({
     bodyRef.current.position.y = averageYPos / ksBody + jumpOffset.current * 0.1;
   }
   useFrame((_, delta) => {
+    // Expired spin clears once (2.1 #1): held items come back, blink gate
+    // below sees no spin. Single write, guarded so it fires one frame.
+    const gsSpin = useGameStore.getState().spin;
+    if (gsSpin && performance.now() >= Number(gsSpin.until)) {
+      useGameStore.getState().setSpin(null);
+    }
     // Dizzy stars orbit while spinning out.
     if (starsGroupRef.current) {
       const spinning =

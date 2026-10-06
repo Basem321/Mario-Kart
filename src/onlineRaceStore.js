@@ -26,12 +26,25 @@ export const useOnlineRaceStore = create((set) => ({
         const d = Math.hypot(transform.x - prev.x, transform.z - prev.z);
         if (d > 0.001 && d < 30) dist += d;
       }
+      // Anchor the sender's remaining invuln ms to the local clock (2.1 #10).
+      const invulnMs = Number(transform?.invulnMs);
+      const invulnUntilLocal =
+        Number.isFinite(invulnMs) && invulnMs > 0
+          ? performance.now() + Math.max(0, Math.min(4000, Math.round(invulnMs)))
+          : 0;
+      // Receipt clock for spin visuals (2.2 #11): never the sender wall clock.
+      const animChanged =
+        transform &&
+        (transform.anim !== prev?.anim || transform.animAt !== prev?.animAt);
+      const animRecvAt = animChanged ? performance.now() : (prev?.animRecvAt ?? 0);
       return {
         remoteRacers: {
           ...state.remoteRacers,
           [playerId]: {
             ...state.remoteRacers[playerId],
             ...transform,
+            invulnUntilLocal,
+            animRecvAt,
           },
         },
         remoteDistances: { ...state.remoteDistances, [playerId]: dist },
