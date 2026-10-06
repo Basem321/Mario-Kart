@@ -147,6 +147,11 @@ export const itemConfig = {
   throwBack: { totalMs: 400, releaseMs: 120 },
   throwUp: { totalMs: 800, releaseMs: 150 },
   castUp: { totalMs: 500, releaseMs: 300 },
+  // Glove + body throw/receive/use timings (T6, §3.2). Blend 100ms in,
+  // 150ms out lives in animBlend (animCurves.js). Bomb drop reuses the
+  // throw_back timing (glove swings back, item leaves at release).
+  receive: { totalMs: 400, from: [0.55, -0.3, -0.45] },
+  useMushroom: { totalMs: 400, releaseMs: 150, shrinkMs: 100 },
   bulletTransform: { totalMs: 350, swapMs: 100, flashMs: 100 },
   hit: { lightMs: 1500, heavyMs: 2500, blinkHz: 8, blinkAlphaLow: 0.35 },
   fov: { boost: 8, bullet: 15 },
@@ -158,12 +163,26 @@ export const itemConfig = {
     mushroomHeld: 0.26,
     redShell: 0.22,
     blueShell: 0.21,
-    bulletHeldLength: 0.38,
+    bulletHeldLength: 0.228,
     bulletActiveLength: 1.25,
     bloopHeldHeight: 0.29,
     bloopCastHeight: 0.67,
     star: 0.06,
   },
+};
+
+// Driver measurements (native driver-local units, pre-0.7 scale) from the
+// gallery band slicer (?dev=items&measure=1, t5-driver-bands.json). Bands:
+// wide dense low bands = seat/legs, dip = waist, dense 0.8+ = torso+arms,
+// narrowing = neck, wide cap = head+cap tapering to the top. Head = the
+// continuous region above the neck narrowing; shoulderY = widest torso band.
+// Mario: neck ~0.0..0.17, head 0.09..0.84, shoulders ~-0.16.
+// Luigi: neck ~0.0..0.09 (narrower), head 0.18..0.87, shoulders ~-0.17.
+// Consequence: head width ~0.7 native (0.5 world) vs mushroom 0.76 world —
+/// the held mushroom reads clearly bigger than the head, as specified.
+export const driverSizes = {
+  mario: { height: 1.67, headHeight: 0.75, headWidth: 0.73, shoulderWidth: 0.84, shoulderY: -0.16 },
+  luigi: { height: 1.72, headHeight: 0.69, headWidth: 0.66, shoulderWidth: 0.83, shoulderY: -0.17 },
 };
 
 // Model-native extents (mesh-local GLB units along the reference axis,

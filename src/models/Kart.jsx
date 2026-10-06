@@ -21,6 +21,7 @@ import { Driver } from "./Driver.jsx";
 import { BulletModel } from "./Pickups.jsx";
 import { HeldItems } from "./HeldItems.jsx";
 import { bulletActive, heldVisible } from "../items/homing.js";
+import { animBlend, animLive, animT, bodyPose } from "../items/animCurves.js";
 import { itemConfig } from "../items/itemConfig.js";
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
@@ -139,6 +140,11 @@ export function Kart({
   // Local spin tumble (2.2 #12): visual-only rotation on an inner group —
   // physics yaw on the player group is untouched.
   const tumbleRef = useRef(null);
+  // Whole-driver rig (T6 §3.2): pitch lean, roll, yaw twist on the driver
+  // wrapper (pivot near the hips). Steering (kart-level) keeps working.
+  const driverGroupRef = useRef(null);
+  const itemAnim = useGameStore((state) => state.itemAnim);
+  const animGhost = useGameStore((state) => state.animGhost);
   // Held visuals hide only while the spin window is LIVE (2.1 #1): an
   // expired spin (until in the past) shows the held item again. The store
   // spin is cleared on expiry in the useFrame below so it can't stick.
@@ -577,6 +583,23 @@ export function Kart({
     if (gsSpin && performance.now() >= Number(gsSpin.until)) {
       useGameStore.getState().setSpin(null);
     }
+    // Whole-driver throw/receive/use pose (T6 §3.2): eased in/out, then reset.
+    // Driver wrapper only — physics and steering never move.
+    if (driverGroupRef.current) {
+      const nowA = performance.now();
+      if (itemAnim && animLive(itemAnim, nowA)) {
+        const t = animT(itemAnim, nowA);
+        const pose = bodyPose(itemAnim.name, t);
+        const b = animBlend(t, itemAnim.totalMs);
+        driverGroupRef.current.rotation.set(pose.pitch * b, pose.yaw * b, pose.roll * b);
+      } else if (
+        driverGroupRef.current.rotation.x !== 0 ||
+        driverGroupRef.current.rotation.y !== 0 ||
+        driverGroupRef.current.rotation.z !== 0
+      ) {
+        driverGroupRef.current.rotation.set(0, 0, 0);
+      }
+    }
     // Local spin tumble (2.2 #12): light = 540 deg eased yaw + small hop,
     // heavy = full yaw + backflip + launch. Inner group only — the physics
     // yaw above never moves. Pose resets the frame the spin clears.
@@ -839,7 +862,7 @@ export function Kart({
             {/* Driver: seated behind the steering wheel (front is +Z here).
                 Lower body is sunk into the kart body; torso/head/arms show.
                 If he faces backwards, set rotation-y to Math.PI. */}
-            <group position={[0, 0.45, -0.1]} scale={0.7}>
+            <group ref={driverGroupRef} position={[0, 0.45, -0.1]} scale={0.7}>
               <Driver character={selectedDriver} />
             </group>
             {/* Shared held-item visuals (HeldItems): bomb, mushroom family,
@@ -849,6 +872,9 @@ export function Kart({
               carriedBomb={carriedBomb}
               hidden={hideHeld}
               driver={selectedDriver}
+              anim={itemAnim}
+              ghost={animGhost}
+              liveAnchor
             />
             {/* Dizzy stars while stunned by an explosion */}
             <group ref={starsGroupRef} position={[0, 1.35, -0.1]} visible={false}>

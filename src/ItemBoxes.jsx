@@ -5,6 +5,10 @@ import * as THREE from "three";
 import { useGameStore, applySpin, absorbWithOrbit } from "./store";import { useOnlineRaceStore } from "./onlineRaceStore";
 import { ItemBoxModel, BombModel, RedShellModel, BlueShellModel, BlooperModel } from "./models/Pickups";
 import {
+  animDur,
+} from "./items/animCurves.js";
+import { getHandWorldPosition } from "./items/handAnchor.js";
+import {
   BLOOPER_INK_MS,
   BLOOPER_SQUIRT_MS,
   BLUE_BLAST_RADIUS,
@@ -88,6 +92,21 @@ const playSfx = (name, volumeMul = 1) => {
   }
 };
 
+// Item throw/receive/use anim (T6 §3.2): plays the glove + body anim and
+// keeps a ghost of the consumed item visible through the throw window.
+// Gameplay still commits at press; the projectile (or effect) materializes
+// at release, so animation never delays or blocks gameplay.
+const playItemAnim = (name, ghostItem = null) => {
+  const st = useGameStore.getState();
+  const now = performance.now();
+  const totalMs = animDur(name);
+  if (!(totalMs > 0)) return;
+  st.setItemAnim({ name, start: now, totalMs });
+  st.setAnimGhost(
+    ghostItem ? { item: ghostItem, anim: name, start: now, totalMs } : null
+  );
+};
+
 // Red throw, two-phase: the press consumes ONE use NOW (triple counts down,
 // slot clears at zero), the shell spawns at the release time.
 const queueRedThrow = (backward, now) => {
@@ -96,6 +115,9 @@ const queueRedThrow = (backward, now) => {
   if (!pressed) return false;
   st.setCarriedItem(pressed.slot);
   publishCarried(pressed.slot);
+  // Ghost ALWAYS shows the thrown single (T6): alongside the remaining
+  // orbit for triples, alone for consumed singles.
+  playItemAnim(backward ? "throw_back" : "throw_forward", { type: "red", variant: "single", usesLeft: 1 });
   st.setPendingSpawns([
     ...st.pendingSpawns,
     {
@@ -120,7 +142,9 @@ const queueBlueThrow = (now) => {
   if (!gm.isOnlineRace) return false;
   const held = st.carriedItem;
   st.setCarriedItem(null);
-  publishCarried(null);
+  // No publish at press (T6): remotes keep showing the shell through the
+  // windup; the release publishes the final slot.
+  playItemAnim("throw_up", held ? { ...held } : { type: "blue", variant: "single", usesLeft: 1 });
   st.setPendingSpawns([
     ...st.pendingSpawns,
     { kind: "blue", pressAt: now, releaseMs: itemConfig.throwUp.releaseMs, held },
@@ -218,23 +242,45 @@ const getStanding = () => {
   };
 };
 
-// Fire one boost from a carried mushroom-family item. Sets an exact
-// 1.5x-max window (PlayerController targets it precisely, no stacking —
-// re-use resets the timer). Golden uses its own shorter boost window.
-const fireBoostItem = (item) => {
+// Golden re-fire (T6): personal effect, instant — no projectile, no pending.
+// The slot persists, so no ghost is needed; the use_mushroom anim plays on
+// the live item (which hops back to the glove afterwards).
+const fireBoostInstant = (item) => {
   const st = useGameStore.getState();
   const now = performance.now();
   const r = consumeUse({ item, now });
   if (r.boosted) {
-    const durationMs =
-      item.type === "golden"
-        ? itemConfig.golden.boostMs
-        : itemConfig.mushroom.boostMs;
-    st.setShroomUntil(nextBoostUntil(st.shroomUntil, now, durationMs));
+    st.setShroomUntil(nextBoostUntil(st.shroomUntil, now, itemConfig.golden.boostMs));
     playSfx("mushroom-boost.mp3");
   }
   st.setCarriedItem(r.item);
   publishCarried(r.item);
+  playItemAnim("use_mushroom");
+};
+
+// Mushroom-single press (T6): commits the use now, boosts at the
+// use_mushroom release (glove at the mouth, item shrunk away).
+const queueMushroom = (item, now) => {
+  const st = useGameStore.getState();
+  const r = consumeUse({ item, now });
+  if (!r.boosted) return false;
+  st.setCarriedItem(r.item);
+  // No publish/boost at press: the ghost shrinks through the use window.
+  playItemAnim("use_mushroom", { type: "mushroom", variant: "single", usesLeft: 1 });
+  st.setPendingSpawns([
+    ...st.pendingSpawns,
+    { kind: "mushroom", pressAt: now, releaseMs: itemConfig.useMushroom.releaseMs },
+  ]);
+  return true;
+};
+
+// Mushroom-single release: exact 1.5x-max window + remote slot sync.
+const fireMushroomBoost = () => {
+  const st = useGameStore.getState();
+  const now = performance.now();
+  st.setShroomUntil(nextBoostUntil(st.shroomUntil, now, itemConfig.mushroom.boostMs));
+  playSfx("mushroom-boost.mp3");
+  publishCarried(useGameStore.getState().carriedItem);
 };
 
 const myRacerId = () => useGameManager.getState().onlineSelfId ?? "local";
@@ -326,12 +372,15 @@ const fireRedShell = (backward = false) => {
     targetId = target ? target.id : null;
   }
 
+  // Spawn AT the glove world position (T6 §3.2), falling back to the old
+  // toss point when the rig is not mounted.
+  const hand = getHandWorldPosition();
   const shell = {
     id: `shell-${me}-${Date.now().toString(36)}`,
     kind: "red",
-    x: playerPos.x + dx * 2,
-    y: gy + 0.9 + 1.2,
-    z: playerPos.z + dz * 2,
+    x: hand ? hand.x + dx * 0.5 : playerPos.x + dx * 2,
+    y: hand ? hand.y + 0.6 : gy + 0.9 + 1.2,
+    z: hand ? hand.z + dz * 0.5 : playerPos.z + dz * 2,
     cruiseY: gy + 0.9,
     dx,
     dz,
@@ -343,8 +392,9 @@ const fireRedShell = (backward = false) => {
     at: performance.now(),
   };
   st.setActiveShells([...st.activeShells, shell]);
-  // No publishCarried here (2.1 #3): queueRedThrow already published the
-  // decremented count at press; clearing would wipe triple survivors remote-side.
+  // Release publish (2.1 #3 + T6): the press already sent the decremented
+  // triple count; this syncs the FINAL slot (null when fully consumed) so
+  // remotes never keep a stale shell through the follow-through.
   publishOnlineRaceEvent({
     type: "shell:fired",
     shell: {
@@ -362,6 +412,7 @@ const fireRedShell = (backward = false) => {
     },
   });
   playSfx("shell-fire.mp3");
+  publishCarried(useGameStore.getState().carriedItem);
   return true;
 };
 
@@ -387,9 +438,24 @@ const startBulletRide = () => {
   return true;
 };
 
-// Blooper: squirt visual (~1s) + ink event to whoever is ahead right now.
-// Zero targets still consumes the item (mistimed shots whiff).
-const fireBlooper = () => {
+// Blooper press (T6): commits the slot now, casts at the cast_up release.
+const queueBlooper = (now) => {
+  const st = useGameStore.getState();
+  if (!st.playerPosition) return false;
+  const held = st.carriedItem;
+  st.setCarriedItem(null);
+  // No publish at press: remotes see the blooper through the cast windup.
+  playItemAnim("cast_up", held ? { ...held } : null);
+  st.setPendingSpawns([
+    ...st.pendingSpawns,
+    { kind: "blooper", pressAt: now, releaseMs: itemConfig.castUp.releaseMs },
+  ]);
+  return true;
+};
+
+// Blooper release: squirt visual (~1s) + ink to whoever is ahead RIGHT NOW
+// (computed at release, not press). Zero targets still consumes the item.
+const fireBlooperRelease = () => {
   const st = useGameStore.getState();
   const gm = useGameManager.getState();
   const playerPos = st.playerPosition;
@@ -506,12 +572,15 @@ const fireBlueShell = (pending) => {
   if (!canFireBlue({ isOnlineRace: gm.isOnlineRace, leaderId })) return refund();
 
   const gy = st.groundPosition ?? playerPos.y ?? 0;
+  // Launch XZ from the glove (T6 §3.2); the climb to cruise altitude is
+  // unchanged (flight starts low, rises to top).
+  const hand = getHandWorldPosition();
   const shell = {
     id: `blue-${me}-${Date.now().toString(36)}`,
     kind: "blue",
-    x: playerPos.x,
+    x: hand ? hand.x : playerPos.x,
     y: gy + 1,
-    z: playerPos.z,
+    z: hand ? hand.z : playerPos.z,
     dx: 0,
     dz: 0,
     targetId: leaderId,
@@ -523,7 +592,7 @@ const fireBlueShell = (pending) => {
   };
   st.setActiveShells([...st.activeShells, shell]);
   st.setCarriedItem(null);
-  publishOnlineRaceEvent({ type: "item:carried", itemType: null });
+  publishCarried(null);
   publishOnlineRaceEvent({
     type: "shell:fired",
     shell: {
@@ -1118,22 +1187,29 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       }
     }
 
-    // Drop with G or E (edge trigger). Spin-out and the global use gap
-    // gate every use (§10.6); lastUseAt is stamped on any committed press.
-    const keys = getKeys();
-    const dropDown = Boolean(keys?.dropBomb || keys?.useItem);
-    const spinningNow = st.spin && now < st.spin.until;
-    const gapOk = now - lastUseAt >= itemConfig.minUseGapMs;
-    if (dropDown && !dropHeldRef.current && st.carriedBomb && !spinningNow && gapOk) {
-      lastUseAt = now;
-      const ry = st.playerRotationY || 0;
-      const myScale = useGameStore.getState().kartScale ?? 1;
+    // Bomb press (T6): commits now (carried off, tick stops), drops at the
+    // throw_back release from the glove world position. Publishes move to
+    // the release so remotes see the bomb through the swing-back.
+    const queueBombDrop = (pressAt) => {
+      const gs = useGameStore.getState();
+      gs.setCarriedBomb(false);
+      playItemAnim("throw_back", { bomb: true });
+      gs.setPendingSpawns([
+        ...gs.pendingSpawns,
+        { kind: "bomb", pressAt, releaseMs: itemConfig.throwBack.releaseMs },
+      ]);
+    };
+    const fireBombDrop = () => {
+      const gs = useGameStore.getState();
+      const myScale = gs.kartScale ?? 1;
+      const hand = getHandWorldPosition();
+      const ry = gs.playerRotationY || 0;
       const fx = -Math.sin(ry);
       const fz = -Math.cos(ry);
       const dropBack = 2.6 * Math.max(0.5, myScale);
-      const bx = px - fx * dropBack;
-      const bz = pz - fz * dropBack;
-      const gy = snapToGround(bx, bz) ?? (st.groundPosition ?? 0);
+      const bx = hand ? hand.x : px - fx * dropBack;
+      const bz = hand ? hand.z : pz - fz * dropBack;
+      const gy = snapToGround(bx, bz) ?? (gs.groundPosition ?? 0);
       const bomb = {
         id: makeBombId(),
         x: bx,
@@ -1143,9 +1219,21 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         createdAt: Date.now(),
       };
       addDroppedBomb(bomb);
-      st.setCarriedBomb(false);
       publishOnlineRaceEvent({ type: "bomb:carried", carried: false });
       publishOnlineRaceEvent({ type: "bomb:dropped", bomb });
+    };
+    // Drop with G or E (edge trigger). Spin-out and the global use gap
+    // gate every use (§10.6); lastUseAt is stamped on any committed press.
+    // A live pending spawn also gates: the press commits once, the effect
+    // lands at release, and the anim never double-fires.
+    const keys = getKeys();
+    const dropDown = Boolean(keys?.dropBomb || keys?.useItem);
+    const spinningNow = st.spin && now < st.spin.until;
+    const gapOk = now - lastUseAt >= itemConfig.minUseGapMs;
+    const spawnBusy = st.pendingSpawns.length > 0;
+    if (dropDown && !dropHeldRef.current && st.carriedBomb && !spinningNow && gapOk && !spawnBusy) {
+      lastUseAt = now;
+      queueBombDrop(now);
     }
     // Roulette lock: commit while racing, drop post-race (never grant or
     // publish after gameOver).
@@ -1159,11 +1247,13 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       if (slot.bomb) {
         st.setCarriedBomb(true);
         publishOnlineRaceEvent({ type: "bomb:carried", carried: true });
+        playItemAnim("item_got");
       } else if (slot.type === "skid" || slot.type === "wind") {
         fireMiniBoost();
       } else {
         st.setCarriedItem(slot);
         publishCarried(slot);
+        playItemAnim("item_got");
       }
     }
 
@@ -1178,7 +1268,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       st.bulletRide.ownerId === myRacerId() &&
       bulletActive(st.bulletRide, now);
     const edgeDown =
-      dropDown && !dropHeldRef.current && !spinning && !myBulletRide && gapOk;
+      dropDown && !dropHeldRef.current && !spinning && !myBulletRide && gapOk && !spawnBusy;
     const heldItem = st.carriedItem;
     if (edgeDown && (st.carriedBomb || heldItem)) lastUseAt = now;
     if (heldItem && heldItem.type === "red") {
@@ -1188,7 +1278,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     } else if (heldItem && heldItem.type === "bullet") {
       if (edgeDown) queueBulletRide(now);
     } else if (heldItem && heldItem.type === "blooper") {
-      if (edgeDown) fireBlooper();
+      if (edgeDown) queueBlooper(now);
     } else if (
       heldItem &&
       (heldItem.type === "mushroom" || heldItem.type === "golden")
@@ -1204,10 +1294,10 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           refireAllowed(goldenLastRef.current, now, itemConfig.golden.minGapMs)
         ) {
           goldenLastRef.current = now;
-          fireBoostItem(useGameStore.getState().carriedItem);
+          fireBoostInstant(useGameStore.getState().carriedItem);
         }
       } else if (edgeDown) {
-        fireBoostItem(heldItem);
+        queueMushroom(heldItem, now);
       }
     }
 
@@ -1221,6 +1311,9 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         if (p.kind === "red") fireRedShell(p.backward);
         else if (p.kind === "blue") fireBlueShell(p);
         else if (p.kind === "bullet") startBulletRide();
+        else if (p.kind === "blooper") fireBlooperRelease(p);
+        else if (p.kind === "bomb") fireBombDrop(p);
+        else if (p.kind === "mushroom") fireMushroomBoost(p);
       }
     }
 

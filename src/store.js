@@ -163,10 +163,18 @@ export const useGameStore = create((set) => ({
   // Hit-invulnerability window end (shells/bombs pass through).
   invulnUntil: 0,
   setInvulnUntil: (invulnUntil) => set({ invulnUntil }),
-  // Release-time spawn queue: [{kind, backward, pressAt, releaseAt}].
+  // Release-time spawn queue: [{kind, backward, pressAt, releaseMs}].
   // Press commits instantly; the projectile appears at release.
   pendingSpawns: [],
   setPendingSpawns: (pendingSpawns) => set({ pendingSpawns }),
+  // Item throw/receive/use anim (T6 §3.2): {name, start, totalMs} while the
+  // glove + body play it. Replicated to remotes via the transform `anim`.
+  itemAnim: null,
+  setItemAnim: (itemAnim) => set({ itemAnim }),
+  // Ghost of the just-used item (T6): shown in the glove through the throw
+  // while the slot itself is already committed. {item, start, totalMs}.
+  animGhost: null,
+  setAnimGhost: (animGhost) => set({ animGhost }),
   // Fresh session state: called on start/exit so stale boxes, live bombs,
   // explosions, carried bombs and stuns never leak into the next run.
   resetBattleState: () =>
@@ -184,6 +192,8 @@ export const useGameStore = create((set) => ({
       spin: null,
       invulnUntil: 0,
       pendingSpawns: [],
+      itemAnim: null,
+      animGhost: null,
       itemBoxes: [],
       droppedBombs: [],
       explosions: [],

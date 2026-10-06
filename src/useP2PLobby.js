@@ -67,10 +67,13 @@ const ANIM_STATES = new Set([
   "spin_hit_heavy",
   "bullet",
   "boost_lean",
+  "hold_item",
+  "item_got",
   "throw_forward",
   "throw_back",
   "throw_up",
   "cast_up",
+  "use_mushroom",
 ]);
 
 const toRaceTransform = (candidate) => {

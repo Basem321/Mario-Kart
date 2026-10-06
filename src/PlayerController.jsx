@@ -986,6 +986,11 @@ export const PlayerController = () => {
       const spinA = gsAnim.spin;
       const rideA = gsAnim.bulletRide;
       const selfIdA = useGameManager.getState().onlineSelfId ?? "local";
+      const throwA = gsAnim.itemAnim;
+      const throwLive =
+        throwA && now >= throwA.start && now < throwA.start + throwA.totalMs
+          ? throwA.name
+          : null;
       const anim =
         spinA && now < spinA.until
           ? spinA.heavy
@@ -993,9 +998,11 @@ export const PlayerController = () => {
             : "spin_hit_light"
           : rideA && rideA.ownerId === selfIdA && bulletActive(rideA, now)
             ? "bullet"
-            : gsAnim.isBoosting
+            : throwLive ?? (gsAnim.isBoosting
               ? "boost_lean"
-              : "drive";
+              : gsAnim.carriedItem || gsAnim.carriedBomb || gsAnim.roulette
+                ? "hold_item"
+                : "drive");
       publishOnlineRaceTransform({
         x: player.position.x,
         y: player.position.y,

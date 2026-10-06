@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { forwardRef, useMemo } from "react";
 import { useGLTF } from "@react-three/drei";
 
 const DRIVER_PATHS = {
@@ -6,7 +6,10 @@ const DRIVER_PATHS = {
   luigi: "/models/luigi-driver.glb",
 };
 
-export function Driver({ character = "mario", ...props }) {
+// forwardRef (T5): rig code can reach the driver model through ref
+// (the whole-body lean animates the wrapper group in Kart/RemoteRacers;
+// this ref exposes the model itself for probing and future work).
+export const Driver = forwardRef(function Driver({ character = "mario", ...props }, ref) {
   const path = DRIVER_PATHS[character] ?? DRIVER_PATHS.mario;
   const { scene } = useGLTF(path);
   const model = useMemo(() => {
@@ -18,8 +21,8 @@ export function Driver({ character = "mario", ...props }) {
     });
     return clone;
   }, [scene]);
-  return <primitive object={model} {...props} />;
-}
+  return <primitive object={model} ref={ref} {...props} />;
+});
 
 useGLTF.preload("/models/mario-driver.glb");
 useGLTF.preload("/models/luigi-driver.glb");

@@ -9,6 +9,7 @@ import { Driver } from "./models/Driver";
 import { BulletModel } from "./models/Pickups";
 import { HeldItems } from "./models/HeldItems.jsx";
 import { remoteBulletActive, remoteSpinning } from "./items/homing.js";
+import { animBlend, animDur, animLive, animT, bodyPose } from "./items/animCurves.js";
 
 
 import { useOnlineRaceStore } from "./onlineRaceStore";
@@ -34,7 +35,17 @@ const RemoteKart = ({ player, playerIndex }) => {
   const selectedTrackId = useGameManager((state) => state.selectedTrackId);
   const kartRef = useRef(null);
   const visualRef = useRef(null);
+  const driverGroupRef = useRef(null);
+  // Last seen carried slot: mirrors the local ghost so the follow-through
+  // keeps showing the item after the release publish clears the slot.
+  const ghostCacheRef = useRef(null);
   const spawnSlot = getOnlineSpawnSlot(playerIndex, getTrack(selectedTrackId));
+  // Replicated item anim from the receipt clock (T6 §3.2).
+  const remoteAnimState = {
+    name: remoteState?.anim ?? "drive",
+    start: remoteState?.animRecvAt ?? 0,
+    totalMs: animDur(remoteState?.anim),
+  };
 
   useFrame((_, delta) => {
     // Expired remote ride clears locally (2.2 #13): a lost bullet:end can't
@@ -42,6 +53,24 @@ const RemoteKart = ({ player, playerIndex }) => {
     const rsRide = useOnlineRaceStore.getState().remoteRacers[player.id];
     if (rsRide?.bulletRide && !remoteBulletActive(rsRide.bulletRide, performance.now())) {
       useOnlineRaceStore.getState().setRemoteRacerBulletRide(player.id, null);
+    }
+    if (rsRide?.carriedItem) ghostCacheRef.current = rsRide.carriedItem;
+    if (rsRide?.carriedBomb) ghostCacheRef.current = { bomb: true };
+    // Whole-driver throw/receive/use pose from the receipt clock.
+    if (driverGroupRef.current) {
+      const nowA = performance.now();
+      if (animLive(remoteAnimState, nowA)) {
+        const t = animT(remoteAnimState, nowA);
+        const pose = bodyPose(remoteAnimState.name, t);
+        const b = animBlend(t, remoteAnimState.totalMs);
+        driverGroupRef.current.rotation.set(pose.pitch * b, pose.yaw * b, pose.roll * b);
+      } else if (
+        driverGroupRef.current.rotation.x !== 0 ||
+        driverGroupRef.current.rotation.y !== 0 ||
+        driverGroupRef.current.rotation.z !== 0
+      ) {
+        driverGroupRef.current.rotation.set(0, 0, 0);
+      }
     }
     if (!kartRef.current || !visualRef.current) return;
 
@@ -106,16 +135,22 @@ const RemoteKart = ({ player, playerIndex }) => {
             position={[0, 0.25, -0.55]}
             rotation={[0.279, 0, 0]}
           />
-          <group position={[0, 0.45, -0.1]} scale={0.7}>
+          <group ref={driverGroupRef} position={[0, 0.45, -0.1]} scale={0.7}>
             <Driver character={player.driver ?? "mario"} />
           </group>
-          {/* Shared held-item visuals (HeldItems) — same mounts as the local
-              kart (remote bomb moves from [0,1.0,-1.2] to the shared rack). */}
+          {/* Shared held-item visuals (HeldItems) — same glove + orbit as the
+              local kart, ghosted through throws from the cached slot. */}
           <HeldItems
             carriedItem={remoteState?.carriedItem}
             carriedBomb={remoteState?.carriedBomb}
             hidden={remoteSpinning}
             driver={player.driver ?? "mario"}
+            anim={remoteAnimState}
+            ghost={
+              ghostCacheRef.current
+                ? { item: ghostCacheRef.current, anim: remoteAnimState.name, start: remoteAnimState.start, totalMs: remoteAnimState.totalMs }
+                : null
+            }
           />
         </mesh>
         <mesh

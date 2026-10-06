@@ -29,6 +29,7 @@ import {
 } from "./models/Pickups";
 import { DriverSpace, GloveHand } from "./models/GloveHand";
 import { itemConfig } from "./items/itemConfig.js";
+import { animBlend, animDur, bodyPose } from "./items/animCurves.js";
 
 useGLTF.setDecoderPath("/draco/");
 
@@ -43,9 +44,12 @@ const GLOVE_POSES = [
   "handLeftCast",
 ];
 
+const SCRUB_ANIMS = ["none", "item_got", "throw_forward", "throw_back", "throw_up", "cast_up", "use_mushroom"];
+
 function useGalleryParams() {
   return useMemo(() => {
     const q = new URLSearchParams(window.location.search);
+    const at = Number(q.get("at"));
     return {
       driver: q.get("driver") || "mario",
       item: q.get("item") || "none",
@@ -54,6 +58,8 @@ function useGalleryParams() {
       guides: q.get("guides") === "1",
       remote: q.get("remote") === "1",
       measure: q.get("measure") === "1",
+      anim: q.get("anim") || "none",
+      at: Number.isFinite(at) ? Math.max(0, Math.min(1, at)) : null,
     };
   }, []);
 }
@@ -142,12 +148,23 @@ function CameraRig({ view }) {
 
 // Held preview mirrors the game HeldItems: singles in the glove (same
 // GloveHand), triples in the shared ItemOrbit. Tune ratios apply live.
-function HeldPreview({ item, tune, driver, glovePose }) {
+// animName/animT scrub the throw (frozenT) with the same curves as the game.
+function HeldPreview({ item, tune, driver, glovePose, animName = null, animT = null }) {
   const mul = (key) => tune.sizes[key] / itemConfig.sizes[key];
   const L = itemConfig.hold.lift;
-  const glove = (lift, node) => (
+  const scrub = animName && animName !== "none" && animT != null;
+  const glove = (lift, node, isGolden = false) => (
     <DriverSpace>
-      <GloveHand driver={driver} pose={glovePose} lift={lift}>
+      <GloveHand
+        driver={driver}
+        pose={glovePose}
+        lift={lift}
+        animName={scrub ? animName : null}
+        animStart={0}
+        animDur={scrub ? 1 : 0}
+        frozenT={scrub ? animT : null}
+        isGolden={isGolden}
+      >
         {node}
       </GloveHand>
     </DriverSpace>
@@ -174,7 +191,8 @@ function HeldPreview({ item, tune, driver, glovePose }) {
       <>
         <MushroomModel gold sizeMul={mul("mushroomHeld")} />
         <GoldenSparkles />
-      </>
+      </>,
+      true
     );
   if (item === "red")
     return glove(L.red, <RedShellModel sizeMul={mul("redShell")} />);
@@ -213,8 +231,15 @@ function HeldPreview({ item, tune, driver, glovePose }) {
   return null;
 }
 
-function KartPreview({ driver }) {
+function KartPreview({ driver, animName = null, animT = null }) {
   const { scene } = useGLTF("/models/kart.glb");
+  // Scrubbed whole-body pose (T6): same bodyPose curves as the game.
+  const bodyRot = useMemo(() => {
+    if (!animName || animName === "none" || animT == null) return [0, 0, 0];
+    const pose = bodyPose(animName, animT);
+    const b = animBlend(animT, animDur(animName));
+    return [pose.pitch * b, pose.yaw * b, pose.roll * b];
+  }, [animName, animT]);
   const model = useMemo(() => {
     const clone = scene.clone();
     // kart.glb's "root" node carries an authoring scale of exactly 10
@@ -230,7 +255,7 @@ function KartPreview({ driver }) {
   return (
     <group>
       <primitive object={model} />
-      <group position={[0, 0.45, -0.1]} scale={0.7}>
+      <group position={[0, 0.45, -0.1]} scale={0.7} rotation={bodyRot}>
         <Driver character={driver} />
       </group>
     </group>
@@ -270,6 +295,9 @@ export default function ItemGallery() {
   const [measure, setMeasure] = useState(null);
   const [tuneJson, setTuneJson] = useState("");
   const [glovePose, setGlovePose] = useState("handRest");
+  // Anim scrub (T6): freeze any throw/receive/use at time t.
+  const [scrubAnim, setScrubAnim] = useState("none");
+  const [scrubT, setScrubT] = useState(0.5);
   // Live tuning state, seeded from itemConfig.
   const [tune, setTune] = useState(() => ({
     sizes: {
@@ -394,6 +422,40 @@ export default function ItemGallery() {
               onChange={(nv) => setGloveAxis(i, nv)}
             />
           ))}
+          {(tune.glove.shoulder ?? []).map((v, i) => (
+            <Slider
+              key={`shoulder-${i}`}
+              label={`shoulder[${"xyz"[i]}]`}
+              value={v}
+              min={-1}
+              max={1}
+              step={0.05}
+              onChange={(nv) => {
+                const cur = [...(tune.glove.shoulder ?? [0, 0, 0])];
+                cur[i] = Math.round(nv * 100) / 100;
+                setTune((t) => ({ ...t, glove: { ...t.glove, shoulder: cur } }));
+              }}
+            />
+          ))}
+          <Slider
+            label="cuffLen"
+            value={Number(tune.glove.cuffLen ?? 0.38)}
+            min={0.1}
+            max={0.8}
+            step={0.02}
+            onChange={(nv) => setTune((t) => ({ ...t, glove: { ...t.glove, cuffLen: Math.round(nv * 100) / 100 } }))}
+          />
+          <div style={{ fontSize: 11, marginTop: 4 }}>
+            scrub anim:
+            <select value={scrubAnim} onChange={(e) => setScrubAnim(e.target.value)}>
+              {SCRUB_ANIMS.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          </div>
+          {scrubAnim !== "none" && (
+            <Slider label={`t (${scrubAnim})`} value={scrubT} min={0} max={1} step={0.05} onChange={setScrubT} />
+          )}
           <button style={{ ...BTN, marginTop: 6 }} onClick={copyConfigJson}>
             Copy config JSON
           </button>
@@ -439,12 +501,18 @@ export default function ItemGallery() {
               </mesh>
             </>
           )}
-          <KartPreview driver={params.driver} />
+          <KartPreview
+            driver={params.driver}
+            animName={scrubAnim !== "none" ? scrubAnim : params.anim}
+            animT={scrubAnim !== "none" ? scrubT : params.at}
+          />
           <HeldPreview
             item={params.item}
             tune={tune}
             driver={params.driver}
             glovePose={glovePose}
+            animName={scrubAnim !== "none" ? scrubAnim : params.anim}
+            animT={scrubAnim !== "none" ? scrubT : params.at}
           />
           {params.measure && (
             <DriverMeasure character={params.driver} onDone={setMeasure} />
