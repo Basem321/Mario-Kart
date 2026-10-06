@@ -55,20 +55,60 @@ export const itemConfig = {
   blooper: { durationMs: 5000, fadeInMs: 300, fadeOutMs: 1000, coverage: 0.6 },
   minUseGapMs: 350,
   unit: 1.21,
-  // Sockets: kart-local units (kart length ≈ 2.4 reference units).
+  // Sockets are stored PRE-SCALED to real world units: every value below is
+  // the old 2.4-reference spec value x unit (1.21). Kart half-length is
+  // 1.455 real units, so rack/trail sit correctly behind the tail.
   sockets: {
-    orbitCenter: [0, 0.6, 0],
-    rack: [0, 0.55, -1.4],
-    trailPoint: [0, 0.35, -2.5],
-    muzzle: [0, 0.5, 2.8],
-    aboveHead: [0, 1.4, 0],
+    orbitCenter: [0, 0.726, 0],
+    rack: [0, 0.666, -1.694],
+    trailPoint: [0, 0.424, -3.025],
+    muzzle: [0, 0.605, 3.388],
+    aboveHead: [0, 1.694, 0],
+  },
+  // Bullet nose axis (measured 2026-10-06 from bullet-bill.glb: longest axis
+  // X at 1243.7 native units; textured face meshes sit on the +X half, so
+  // the nose is +X). rotY -PI/2 maps +X onto kart-model +Z (travel). Belly
+  // down needs no extra rotation (model authored upright).
+  modelOrientation: {
+    bullet: { rotX: 0, rotY: -Math.PI / 2, rotZ: 0 },
+  },
+  // Glove-hand rig (driver-local units, BEFORE the 0.7 kart scale; kart front
+  // is +Z in driver space). Starting guesses 2026-10-06 — tune in the gallery
+  // (?dev=items tuning panel), forward sign TBD visually.
+  driverRig: {
+    mario: {
+      gloveRadius: 0.11,
+      cuffColor: 0xd7263d,
+      handRest: [0.62, 0.15, 0.05],
+      handWindup: [0.55, 0.45, -0.45],
+      handForward: [0.35, 0.3, 0.75],
+      handBack: [0.45, 0.2, -0.8],
+      handUp: [0.5, 1.0, 0.1],
+      handMouth: [0.1, 0.55, 0.3],
+      handLeftRest: [-0.62, 0.15, 0.05],
+      handLeftCast: [-0.5, 1.0, 0.1],
+    },
+    luigi: {
+      gloveRadius: 0.11,
+      cuffColor: 0x2e9e4f,
+      handRest: [0.62, 0.15, 0.05],
+      handWindup: [0.55, 0.45, -0.45],
+      handForward: [0.35, 0.3, 0.75],
+      handBack: [0.45, 0.2, -0.8],
+      handUp: [0.5, 1.0, 0.1],
+      handMouth: [0.1, 0.55, 0.3],
+      handLeftRest: [-0.62, 0.15, 0.05],
+      handLeftCast: [-0.5, 1.0, 0.1],
+    },
   },
   miniScale: 0.35,
   tripleMushroomOffsets: [-0.45, 0, 0.45],
   popInMs: 250,
   popInOvershoot: 1.15,
   trailFollowK: 11,
-  orbit: { radius: 1.7, degPerSec: 180, shellSpinDegPerSec: 90, bob: 0.05, respaceMs: 300 },
+  // Orbit radius ~= 0.66 x real kart length (0.66 x 2.91 = 1.92): the widest
+  // orbiting item's inner edge stays outside the 1.455 half-length.
+  orbit: { radius: 1.92, degPerSec: 180, shellSpinDegPerSec: 90, bob: 0.05, respaceMs: 300 },
   redShellTrailSpinDegPerSec: 90,
   blueShellTrailSpinDegPerSec: 180,
   blueShellPulseHz: 1.5,
@@ -80,11 +120,13 @@ export const itemConfig = {
   hit: { lightMs: 1500, heavyMs: 2500, blinkHz: 8, blinkAlphaLow: 0.35 },
   fov: { boost: 8, bullet: 15 },
   sizes: {
-    // ratios to kartLength — multiply by (kartLength) for game units
+    // ratios to kartLength — multiply by (kartLength) for game units.
+    // Held mushroom reads as a carryable prop (wider than the driver's
+    // head); held shells fit one hand (tune in the gallery).
     mushroomFull: 0.42,
-    mushroomHeld: 0.15,
-    redShell: 0.29,
-    blueShell: 0.42,
+    mushroomHeld: 0.26,
+    redShell: 0.17,
+    blueShell: 0.21,
     bulletHeldLength: 0.38,
     bulletActiveLength: 1.25,
     bloopHeldHeight: 0.29,
@@ -93,8 +135,12 @@ export const itemConfig = {
   },
 };
 
-// Model-native extents (local GLB units, measured 2026-10-04) used to derive
-// render scales as targetSize / nativeSize. Kart itself is the reference.
+// Model-native extents (mesh-local GLB units along the reference axis,
+// measured 2026-10-04, bullet axis re-measured 2026-10-06) used to derive
+// render scales as targetSize / nativeSize. GLB ancestor scales that are
+// matrix-encoded (invisible to accessor min/max — e.g. red-shell's "Shell"
+// node at x2.65) are neutralized at load in useShadowingScene, so these
+// numbers hold in-scene. Kart itself is the reference.
 export const modelNativeSizes = {
   kartLength: 2.91,
   mushroomWidth: 5.83,

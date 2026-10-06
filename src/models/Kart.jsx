@@ -18,18 +18,10 @@ import { Sparks } from "../particles/sparks/Sparks.jsx";
 import { Skate } from "../particles/drift/Skate/Skate.jsx";
 import { Trails } from "../particles/sparks/Trails.jsx";
 import { Driver } from "./Driver.jsx";
-import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel, RedTripleOrbit, GoldenMushroom } from "./Pickups.jsx";
+import { BulletModel } from "./Pickups.jsx";
+import { HeldItems } from "./HeldItems.jsx";
 import { bulletActive, heldVisible } from "../items/homing.js";
-import { itemConfig, modelNativeSizes } from "../items/itemConfig.js";
-
-// Held mounts from spec sockets (§10.1): rack for carry items, trail for shells.
-const RACK_POS = itemConfig.sockets.rack;
-const TRAIL_POS = itemConfig.sockets.trailPoint;
-
-// Mini bullet scale from spec ratios (held 0.38 × kart length).
-const BULLET_MINI_SCALE =
-  (itemConfig.sizes.bulletHeldLength * modelNativeSizes.kartLength) /
-  modelNativeSizes.bulletLength;
+import { itemConfig } from "../items/itemConfig.js";
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
 const upRaycaster = new Raycaster();
@@ -143,13 +135,10 @@ export function Kart({
   const setWheelPositions = useGameStore((state) => state.setWheelPositions);
   const carriedBomb = useGameStore((state) => state.carriedBomb);
   const carriedItem = useGameStore((state) => state.carriedItem);
-  const heldMushroom =
-    carriedItem &&
-    (carriedItem.type === "mushroom" || carriedItem.type === "golden")
-      ? carriedItem.type
-      : null;
-  const heldTriple = carriedItem?.type === "mushroom" && carriedItem?.variant === "triple";
   const selectedDriver = useGameManager((state) => state.selectedDriver);
+  // Local spin tumble (2.2 #12): visual-only rotation on an inner group —
+  // physics yaw on the player group is untouched.
+  const tumbleRef = useRef(null);
   // Held visuals hide only while the spin window is LIVE (2.1 #1): an
   // expired spin (until in the past) shows the held item again. The store
   // spin is cleared on expiry in the useFrame below so it can't stick.
@@ -588,6 +577,33 @@ export function Kart({
     if (gsSpin && performance.now() >= Number(gsSpin.until)) {
       useGameStore.getState().setSpin(null);
     }
+    // Local spin tumble (2.2 #12): light = 540 deg eased yaw + small hop,
+    // heavy = full yaw + backflip + launch. Inner group only — the physics
+    // yaw above never moves. Pose resets the frame the spin clears.
+    if (tumbleRef.current) {
+      const sSpin = useGameStore.getState().spin;
+      const nowS = performance.now();
+      if (sSpin && nowS < Number(sSpin.until)) {
+        const total = sSpin.heavy ? itemConfig.hit.heavyMs : itemConfig.hit.lightMs;
+        const p = Math.max(0, Math.min(1, 1 - (Number(sSpin.until) - nowS) / total));
+        const e = 1 - Math.pow(1 - p, 3);
+        if (sSpin.heavy) {
+          tumbleRef.current.rotation.y = e * Math.PI * 2;
+          tumbleRef.current.rotation.x = -e * Math.PI * 2;
+          tumbleRef.current.position.y = Math.sin(p * Math.PI) * 1.2;
+        } else {
+          tumbleRef.current.rotation.y = e * Math.PI * 3;
+          tumbleRef.current.position.y = Math.sin(p * Math.PI) * 0.45;
+        }
+      } else if (
+        tumbleRef.current.rotation.x !== 0 ||
+        tumbleRef.current.rotation.y !== 0 ||
+        tumbleRef.current.position.y !== 0
+      ) {
+        tumbleRef.current.rotation.set(0, 0, 0);
+        tumbleRef.current.position.y = 0;
+      }
+    }
     // Dizzy stars orbit while spinning out.
     if (starsGroupRef.current) {
       const spinning =
@@ -738,9 +754,36 @@ export function Kart({
       {/* <pointLight intensity={2000} position={[0, 10, 0]}/> */}
 
       <group key={progress} ref={groupRef} dispose={null}>
+        <group ref={tumbleRef}>
         {myBulletRide && (
           <group rotation-y={Math.PI}>
             <BulletModel position={[0, 0.6, 0]} />
+            {/* Bullet's own exhaust (1.5): short smoke puff at the tail.
+                The kart smoke/drift chain stays hidden with the kart. */}
+            <group position={[0, 0.6, -1.9]}>
+              <VFXEmitter
+                emitter="smoke"
+                settings={{
+                  duration: 0.02,
+                  delay: 0.1,
+                  nbParticles: 1,
+                  spawnMode: "time",
+                  loop: true,
+                  startPositionMin: [0, 0, 0],
+                  startPositionMax: [0, 0, 0],
+                  startRotationMin: [0, 0, -1],
+                  startRotationMax: [0, 0, 1],
+                  particlesLifetime: [0.2, 0.4],
+                  speed: [0.5, 1],
+                  colorStart: ["#ffffff"],
+                  directionMin: [-0.1, 0, 0],
+                  directionMax: [0.1, 0.01, -0.5],
+                  rotationSpeedMin: [0, 0, -1],
+                  rotationSpeedMax: [0, 0, 1],
+                  size: [0.5, 1],
+                }}
+              />
+            </group>
           </group>
         )}
         <group rotation-y={Math.PI} visible={!myBulletRide}>
@@ -799,61 +842,13 @@ export function Kart({
             <group position={[0, 0.45, -0.1]} scale={0.7}>
               <Driver character={selectedDriver} />
             </group>
-            {/* Carried bomb, visible on the back until dropped with G */}
-            {carriedBomb && !hideHeld && (
-              <group position={RACK_POS} scale={0.5}>
-                <BombModel />
-              </group>
-            )}
-            {/* Carried mushroom-family item (same mount point as the bomb).
-                Mushroom GLB runs large — 0.22 keeps it kart-proportioned.
-                Triple renders three small ones circling the kart. */}
-            {heldMushroom && !heldTriple && heldMushroom !== "golden" && !hideHeld && (
-              <group position={RACK_POS}>
-                <MushroomModel />
-              </group>
-            )}
-            {heldMushroom === "golden" && !hideHeld && (
-              <group position={RACK_POS}>
-                <GoldenMushroom windowUntil={carriedItem?.windowUntil} />
-              </group>
-            )}
-            {heldTriple && !hideHeld && (
-              <group position={RACK_POS}>
-                {[90, 210, 330].map((deg) => {
-                  const a = (deg * Math.PI) / 180;
-                  return (
-                    <group
-                      key={deg}
-                      position={[Math.cos(a) * 1.1, 0, Math.sin(a) * 1.1]}
-                    >
-                      <MushroomModel />
-                    </group>
-                  );
-                })}
-              </group>
-            )}
-            {/* Carried red shell: single trails, triple orbits */}
-            {carriedItem?.type === "red" && carriedItem?.variant !== "triple" && !hideHeld && (
-              <group position={TRAIL_POS}>
-                <RedShellModel />
-              </group>
-            )}
-            {carriedItem?.type === "red" && carriedItem?.variant === "triple" && !hideHeld && (
-              <RedTripleOrbit count={carriedItem?.usesLeft ?? 3} />
-            )}
-            {/* Carried blue shell */}
-            {carriedItem?.type === "blue" && !hideHeld && (
-              <group position={TRAIL_POS}>
-                <BlueShellModel />
-              </group>
-            )}
-            {/* Carried bullet: mini on the rack, nose forward */}
-            {carriedItem?.type === "bullet" && !hideHeld && (
-              <group position={RACK_POS} scale={BULLET_MINI_SCALE}>
-                <BulletModel />
-              </group>
-            )}
+            {/* Shared held-item visuals (HeldItems): bomb, mushroom family,
+                shells, mini bullet, held blooper. Hidden while spinning. */}
+            <HeldItems
+              carriedItem={carriedItem}
+              carriedBomb={carriedBomb}
+              hidden={hideHeld}
+            />
             {/* Dizzy stars while stunned by an explosion */}
             <group ref={starsGroupRef} position={[0, 1.35, -0.1]} visible={false}>
               {[0, 1, 2, 3, 4, 5].map((i) => {
@@ -973,6 +968,7 @@ export function Kart({
           </group>
 
           {/* <mesh castShadow receiveShadow geometry={nodes.shape.geometry} material={materials['default']} /> */}
+        </group>
         </group>
       </group>
     </>

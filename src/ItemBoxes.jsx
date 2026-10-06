@@ -1531,8 +1531,12 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         ))}
       {blooperSquirt && (
         <group position={[blooperSquirt.x, blooperSquirt.y, blooperSquirt.z]}>
-          {/* Cast moment = full size (1.95u vs 0.84u held → ×2.3). */}
-          <BlooperModel scale={2.3} />
+          {/* Cast moment = configured cast height via sizeMul (never raw scale). */}
+          <BlooperModel
+            sizeMul={
+              itemConfig.sizes.bloopCastHeight / itemConfig.sizes.bloopHeldHeight
+            }
+          />
         </group>
       )}
       {explosions.map((e) => (

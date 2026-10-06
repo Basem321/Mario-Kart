@@ -6,18 +6,9 @@ import { getOnlineSpawnSlot } from "./constants";
 import { getTrack } from "./tracks";
 import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
-import { BombModel, MushroomModel, RedShellModel, BlueShellModel, BulletModel, RedTripleOrbit, GoldenMushroom } from "./models/Pickups";
-import { itemConfig, modelNativeSizes } from "./items/itemConfig.js";
+import { BulletModel } from "./models/Pickups";
+import { HeldItems } from "./models/HeldItems.jsx";
 import { remoteBulletActive, remoteSpinning } from "./items/homing.js";
-
-// Mini bullet scale from spec ratios (held 0.38 × kart length).
-const BULLET_MINI_SCALE =
-  (itemConfig.sizes.bulletHeldLength * modelNativeSizes.kartLength) /
-  modelNativeSizes.bulletLength;
-
-// Held mounts from spec sockets (§10.1).
-const RACK_POS = itemConfig.sockets.rack;
-const TRAIL_POS = itemConfig.sockets.trailPoint;
 
 
 import { useOnlineRaceStore } from "./onlineRaceStore";
@@ -118,62 +109,13 @@ const RemoteKart = ({ player, playerIndex }) => {
           <group position={[0, 0.45, -0.1]} scale={0.7}>
             <Driver character={player.driver ?? "mario"} />
           </group>
-          {remoteState?.carriedBomb && !remoteSpinning && (
-            <group position={[0, 1.0, -1.2]} scale={0.5}>
-              <BombModel />
-            </group>
-          )}
-          {(remoteState?.carriedItem?.type === "mushroom") &&
-            remoteState?.carriedItem?.variant !== "triple" &&
-            !remoteSpinning && (
-              <group position={RACK_POS}>
-                <MushroomModel />
-              </group>
-            )}
-          {remoteState?.carriedItem?.type === "golden" && !remoteSpinning && (
-            <group position={RACK_POS}>
-              <GoldenMushroom windowUntil={remoteState?.carriedItem?.windowUntil} />
-            </group>
-          )}
-          {remoteState?.carriedItem?.type === "mushroom" &&
-            remoteState?.carriedItem?.variant === "triple" &&
-            !remoteSpinning && (
-              <group position={RACK_POS}>
-                {[90, 210, 330].map((deg) => {
-                  const a = (deg * Math.PI) / 180;
-                  return (
-                    <group
-                      key={deg}
-                      position={[Math.cos(a) * 1.1, 0, Math.sin(a) * 1.1]}
-                    >
-                      <MushroomModel />
-                    </group>
-                  );
-                })}
-              </group>
-            )}
-          {remoteState?.carriedItem?.type === "red" &&
-            remoteState?.carriedItem?.variant !== "triple" &&
-            !remoteSpinning && (
-              <group position={TRAIL_POS}>
-                <RedShellModel />
-              </group>
-            )}
-          {remoteState?.carriedItem?.type === "red" &&
-            remoteState?.carriedItem?.variant === "triple" &&
-            !remoteSpinning && (
-              <RedTripleOrbit count={remoteState?.carriedItem?.usesLeft ?? 3} />
-            )}
-          {remoteState?.carriedItem?.type === "blue" && !remoteSpinning && (
-            <group position={TRAIL_POS}>
-              <BlueShellModel />
-            </group>
-          )}
-          {remoteState?.carriedItem?.type === "bullet" && !remoteSpinning && (
-            <group position={RACK_POS} scale={BULLET_MINI_SCALE}>
-              <BulletModel />
-            </group>
-          )}
+          {/* Shared held-item visuals (HeldItems) — same mounts as the local
+              kart (remote bomb moves from [0,1.0,-1.2] to the shared rack). */}
+          <HeldItems
+            carriedItem={remoteState?.carriedItem}
+            carriedBomb={remoteState?.carriedBomb}
+            hidden={remoteSpinning}
+          />
         </mesh>
         <mesh
           castShadow
