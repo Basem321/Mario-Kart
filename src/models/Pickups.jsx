@@ -298,14 +298,21 @@ export function GoldenSparkles({ radius = 0.55, count = 5 }) {
   );
 }
 
-// Golden shrink/blink: full mini shrinking over the window, 4 Hz blink in the
-// last 1.5 s. Driven per-frame from windowUntil (no re-renders).
+// Golden shrink/blink (§4.2): full size while held (windowUntil null =
+// window not yet opened), shrinking over the window once first use opens
+// it, 4 Hz blink in the last 1.5 s. Driven per-frame (no re-renders).
 export function GoldenMushroom({ windowUntil }) {
   const ref = useRef(null);
   const base = renderScale("mushroom");
   useFrame(() => {
     if (!ref.current) return;
     const total = itemConfig.golden.windowMs;
+    // Unopened window → full-size mushroom, no blink.
+    if (windowUntil == null || !Number.isFinite(Number(windowUntil))) {
+      ref.current.scale.setScalar(Math.max(0.001, base));
+      ref.current.visible = true;
+      return;
+    }
     const remain = Number(windowUntil) - performance.now();
     const frac = Math.max(0, Math.min(1, remain / total));
     ref.current.scale.setScalar(Math.max(0.001, base * Math.max(0.05, frac)));

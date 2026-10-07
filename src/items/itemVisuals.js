@@ -18,6 +18,10 @@ export const visualFor = (carriedItem, effects = {}, now = 0) => {
         timerFraction: 1,
       };
     case "golden": {
+      // §4.2: windowUntil null = not yet used → full size (fraction 1).
+      if (carriedItem.windowUntil == null || !Number.isFinite(Number(carriedItem.windowUntil))) {
+        return { held: "rack", count: 1, tint: "gold", timerFraction: 1 };
+      }
       const total = itemConfig.golden.windowMs;
       const remaining = Math.max(
         0,

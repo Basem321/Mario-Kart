@@ -1253,6 +1253,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       } else {
         st.setCarriedItem(slot);
         publishCarried(slot);
+        // Fresh golden has no window yet — allow immediate first use.
+        if (slot.type === "golden") goldenLastRef.current = 0;
         playItemAnim("item_got");
       }
     }
@@ -1283,7 +1285,12 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       heldItem &&
       (heldItem.type === "mushroom" || heldItem.type === "golden")
     ) {
-      if (heldItem.type === "golden" && now >= heldItem.windowUntil) {
+      // §4.2: windowUntil null = window not yet opened → never expires.
+      if (
+        heldItem.type === "golden" &&
+        Number.isFinite(Number(heldItem.windowUntil)) &&
+        now >= heldItem.windowUntil
+      ) {
         st.setCarriedItem(null);
         publishCarried(null);
       } else if (heldItem.type === "golden") {

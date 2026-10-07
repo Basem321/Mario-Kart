@@ -103,14 +103,16 @@ const ROW_TO_TYPE = {
 
 // Row id -> v3 slot (or {bomb:true} for the legacy bomb path, handled by the
 // pickup commit, never stored in carriedItem).
+// Golden (§4.2): window opens on FIRST USE — pickup leaves windowUntil null.
 export const rowToSlot = (row, nowMs = performance.now()) => {
+  void nowMs;
   switch (row) {
     case "mushroom3":
       return { type: "mushroom", variant: "triple", usesLeft: 3 };
     case "golden":
       return {
         type: "golden", variant: "single", usesLeft: -1,
-        windowUntil: nowMs + itemConfig.golden.windowMs,
+        windowUntil: null,
       };
     case "red3":
       return { type: "red", variant: "triple", usesLeft: 3 };
@@ -142,7 +144,7 @@ export const migrateSlot = (old) => {
       type: "golden",
       variant: "single",
       usesLeft: -1,
-      windowUntil: Number(old.expiresAt) || 0,
+      windowUntil: Number.isFinite(Number(old.expiresAt)) ? Number(old.expiresAt) : null,
     };
   }
   if (typeof old.type === "string") {
@@ -153,20 +155,30 @@ export const migrateSlot = (old) => {
 
 // Slot shape shared by every item task: {type, variant, usesLeft}.
 // Golden carries windowUntil instead of a count (usesLeft -1 sentinel).
+// §4.2: windowUntil stays null until FIRST USE opens the 7s window.
 // nowMs MUST be performance.now() — never Date.now().
 export const makeCarriedItem = (type, variant = "single", nowMs = performance.now()) => {
+  void nowMs;
   if (variant === "triple")
     return { type, variant, usesLeft: 3 };
   if (type === "golden")
-    return { type, variant: "single", usesLeft: -1, windowUntil: nowMs + GOLDEN_MS };
+    return { type, variant: "single", usesLeft: -1, windowUntil: null };
   return { type, variant: "single", usesLeft: 1 };
 };
 
 // Consume one use of a carried item. Clock must be performance.now().
+// Golden: first use (windowUntil null) OPENS the window; later uses keep
+// the slot while now < windowUntil, expiry clears it.
 export const consumeUse = ({ item, now = 0 } = {}) => {
   if (!item || typeof item !== "object") return { item: null, boosted: false };
   if (item.type === "golden") {
-    if (now < item.windowUntil) return { item, boosted: true };
+    if (item.windowUntil == null) {
+      return {
+        item: { ...item, windowUntil: Number(now) + GOLDEN_MS },
+        boosted: true,
+      };
+    }
+    if (Number(now) < Number(item.windowUntil)) return { item, boosted: true };
     return { item: null, boosted: false };
   }
   if (item.variant === "triple") {

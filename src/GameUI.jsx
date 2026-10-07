@@ -3,6 +3,7 @@ import { useGameManager } from "./gameManager";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 import { ROULETTE_MS, rankOf, rouletteFrame, rowToSlot } from "./items/itemWeights";
+import { itemConfig } from "./items/itemConfig.js";
 import { MiniMap } from "./MiniMap";
 import { OnlineRaceLeaderboard } from "./OnlineRaceLeaderboard";
 import { RaceResults } from "./RaceResults";
@@ -287,7 +288,9 @@ const GameUI = () => {
           )}
           {carriedItem?.type === "golden" && (
             <span className="item-charges">
-              {Math.max(0, Math.ceil((carriedItem.windowUntil - performance.now()) / 1000))}s
+              {carriedItem.windowUntil == null
+                ? `${Math.ceil(itemConfig.golden.windowMs / 1000)}s`
+                : `${Math.max(0, Math.ceil((carriedItem.windowUntil - performance.now()) / 1000))}s`}
             </span>
           )}
         </div>

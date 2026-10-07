@@ -51,8 +51,11 @@ test("makeCarriedItem builds v3 slot shapes", () => {
   });
 });
 
-test("makeCarriedItem golden expiry uses the given clock", () => {
+test("makeCarriedItem golden leaves the window unopened until first use", () => {
   const golden = makeCarriedItem("golden", "single", 1000);
-  assert.equal(golden.windowUntil, 1000 + GOLDEN_MS);
+  assert.equal(golden.windowUntil, null);
   assert.equal(golden.usesLeft, -1);
+  const first = consumeUse({ item: golden, now: 1000 });
+  assert.equal(first.boosted, true);
+  assert.equal(first.item.windowUntil, 1000 + GOLDEN_MS);
 });

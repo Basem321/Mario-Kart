@@ -100,7 +100,9 @@ test("makeCarriedItem builds slot shapes", () => {
   const before = 5000;
   const golden = makeCarriedItem("golden", "single", before);
   assert.equal(golden.type, "golden");
-  assert.equal(golden.windowUntil, before + GOLDEN_MS);
+  // §4.2: pickup leaves the window unopened; first use opens it.
+  assert.equal(golden.windowUntil, null);
+  void GOLDEN_MS;
 });
 
 test("roulette starts at first icon and freezes after lock", () => {

@@ -6,7 +6,7 @@ import {
   isValidKnock,
   shouldApplyHit,
 } from "../../src/items/homing.js";
-import { makeCarriedItem } from "../../src/items/itemWeights.js";
+import { consumeUse, makeCarriedItem } from "../../src/items/itemWeights.js";
 
 test("stuns apply only while the race is live", () => {
   assert.equal(shouldApplyHit({ gameStarted: true, gameOver: false }), true);
@@ -33,9 +33,14 @@ test("knock applies only from the sender's live ride", () => {
 });
 
 test("makeCarriedItem defaults to the performance clock", () => {
+  // §4.2: pickup leaves windowUntil null; first use opens the window on
+  // the performance.now clock (small vs Date.now wall clock).
   const golden = makeCarriedItem("golden", "single");
+  assert.equal(golden.windowUntil, null);
+  const now = performance.now();
+  const first = consumeUse({ item: golden, now });
   assert.ok(
-    golden.windowUntil < Date.now(),
-    `golden windowUntil ${golden.windowUntil} must be on the performance.now clock, not Date.now`
+    first.item.windowUntil < Date.now(),
+    `golden windowUntil ${first.item.windowUntil} must be on the performance.now clock, not Date.now`
   );
 });

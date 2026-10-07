@@ -99,5 +99,7 @@ test("rowToSlot maps rows to v3 slots", () => {
   assert.deepEqual(rowToSlot("red3", 1000).variant, "triple");
   assert.deepEqual(rowToSlot("bomb", 1000), { bomb: true });
   const golden = rowToSlot("golden", 1000);
-  assert.equal(golden.windowUntil, 1000 + itemConfig.golden.windowMs);
+  // §4.2: window opens on first use, not on pickup.
+  assert.equal(golden.windowUntil, null);
+  void itemConfig;
 });
