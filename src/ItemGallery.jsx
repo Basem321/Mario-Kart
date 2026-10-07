@@ -25,6 +25,7 @@ import {
   BlooperModel,
   RedTripleOrbit,
   GoldenSparkles,
+  GoldenMushroom,
   ItemOrbit,
 } from "./models/Pickups";
 import { DriverSpace, GloveHand } from "./models/GloveHand";
@@ -60,6 +61,7 @@ function useGalleryParams() {
       measure: q.get("measure") === "1",
       anim: q.get("anim") || "none",
       at: Number.isFinite(at) ? Math.max(0, Math.min(1, at)) : null,
+      goldenPhase: q.get("goldenPhase") || "held",
     };
   }, []);
 }
@@ -149,7 +151,15 @@ function CameraRig({ view }) {
 // Held preview mirrors the game HeldItems: singles in the glove (same
 // GloveHand), triples in the shared ItemOrbit. Tune ratios apply live.
 // animName/animT scrub the throw (frozenT) with the same curves as the game.
-function HeldPreview({ item, tune, driver, glovePose, animName = null, animT = null }) {
+function HeldPreview({
+  item,
+  tune,
+  driver,
+  glovePose,
+  animName = null,
+  animT = null,
+  goldenPhase = "held",
+}) {
   const mul = (key) => tune.sizes[key] / itemConfig.sizes[key];
   const L = itemConfig.hold.lift;
   const scrub = animName && animName !== "none" && animT != null;
@@ -185,15 +195,22 @@ function HeldPreview({ item, tune, driver, glovePose, animName = null, animT = n
         ))}
       </ItemOrbit>
     );
-  if (item === "golden")
+  if (item === "golden") {
+    const windowUntil =
+      goldenPhase === "used"
+        ? (typeof performance !== "undefined" ? performance.now() : 0) + 3500
+        : goldenPhase === "preend"
+        ? (typeof performance !== "undefined" ? performance.now() : 0) + 800
+        : null;
     return glove(
       L.golden,
-      <>
-        <MushroomModel gold sizeMul={mul("mushroomHeld")} />
-        <GoldenSparkles />
-      </>,
+      <GoldenMushroom
+        windowUntil={windowUntil}
+        sizeMul={mul("mushroomHeld")}
+      />,
       true
     );
+  }
   if (item === "red")
     return glove(L.red, <RedShellModel sizeMul={mul("redShell") * tune.sizes.redShellSingleMul} />);
   if (item === "red3")
@@ -386,6 +403,25 @@ export default function ItemGallery() {
             <button key={i} style={BTN} onClick={() => setParam("item", i)}>{i}</button>
           ))}
         </div>
+        {params.item === "golden" && (
+          <div style={{ margin: "4px 0", background: "#332a10", padding: 4, borderRadius: 4 }}>
+            golden phase:
+            {["held", "used", "preend"].map((p) => (
+              <button
+                key={p}
+                style={{
+                  ...BTN,
+                  background: (params.goldenPhase || "held") === p ? "#f59e0b" : undefined,
+                  color: (params.goldenPhase || "held") === p ? "#000" : undefined,
+                  fontWeight: (params.goldenPhase || "held") === p ? "bold" : undefined,
+                }}
+                onClick={() => setParam("goldenPhase", p)}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
         <div>
           view:
           <button style={BTN} onClick={() => setParam("view", "orbit")}>orbit</button>
@@ -517,6 +553,7 @@ export default function ItemGallery() {
             glovePose={glovePose}
             animName={scrubAnim !== "none" ? scrubAnim : params.anim}
             animT={scrubAnim !== "none" ? scrubT : params.at}
+            goldenPhase={params.goldenPhase}
           />
           {params.measure && (
             <DriverMeasure character={params.driver} onDone={setMeasure} />

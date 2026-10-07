@@ -196,14 +196,16 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     }
     const usesLeft = Number(candidate.usesLeft);
     // Golden window crosses as remaining ms (2.1 #9), never absolute.
-    const windowMs = Number(candidate.windowMs);
+    // Unopened window (null) stays null — Number(null) is 0, which would
+    // fake an instantly-expired window on the remote.
+    const windowMs = candidate.windowMs == null ? null : Number(candidate.windowMs);
     return {
       type: "item:carried",
       itemType,
       variant,
       usesLeft: Number.isInteger(usesLeft) && usesLeft >= -1 && usesLeft <= 3 ? usesLeft : null,
       windowMs:
-        Number.isFinite(windowMs) && windowMs >= 0
+        windowMs != null && Number.isFinite(windowMs) && windowMs >= 0
           ? Math.max(0, Math.min(7000, Math.round(windowMs)))
           : null,
     };
@@ -448,7 +450,9 @@ export const useP2PLobby = () => {
 
     if (event.type === "item:carried") {
       // windowMs (remaining) anchors to the LOCAL clock (2.1 #9).
-      const windowMs = Number(event.windowMs);
+      // Null = unopened window → stays null (Number(null) is 0, which
+      // would fake an instantly-expired window).
+      const windowMs = event.windowMs == null ? null : Number(event.windowMs);
       useOnlineRaceStore.getState().setRemoteRacerCarriedItem(
         playerId,
         event.itemType
@@ -457,7 +461,7 @@ export const useP2PLobby = () => {
               variant: event.variant ?? "single",
               usesLeft: event.usesLeft,
               windowUntil:
-                Number.isFinite(windowMs) && windowMs >= 0
+                windowMs != null && Number.isFinite(windowMs) && windowMs >= 0
                   ? performance.now() +
                     Math.max(0, Math.min(7000, Math.round(windowMs)))
                   : null,

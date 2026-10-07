@@ -3,6 +3,25 @@
 
 import { itemConfig } from "./itemConfig.js";
 
+// Golden window fraction (§4.2): 1 while held unopened (windowUntil null),
+// shrinking 1 → 0 across the 7s window once first use opens it. Single
+// source for the HUD descriptor AND the 3D shrink below.
+export const goldenTimerFraction = (windowUntil, now = 0) => {
+  if (windowUntil == null || !Number.isFinite(Number(windowUntil))) return 1;
+  const total = Number(itemConfig.golden.windowMs) || 0;
+  if (!(total > 0)) return 1;
+  return Math.max(0, Math.min(1, (Number(windowUntil) - Number(now)) / total));
+};
+
+// Golden render multiplier: a pure FRACTION (1 full → 0.05 floor). The
+// MushroomModel already carries its base renderScale — multiplying by base
+// a second time shrank the held golden ~31x into invisibility.
+export const goldenScaleMul = (windowUntil, now = 0) => {
+  const frac = goldenTimerFraction(windowUntil, now);
+  if (frac >= 1) return 1;
+  return Math.max(0.05, frac);
+};
+
 // {held: rack|trail|orbit|float|none, count, tint, timerFraction}
 export const visualFor = (carriedItem, effects = {}, now = 0) => {
   void effects;
@@ -18,16 +37,12 @@ export const visualFor = (carriedItem, effects = {}, now = 0) => {
         timerFraction: 1,
       };
     case "golden": {
-      // §4.2: windowUntil null = not yet used → full size (fraction 1).
-      if (carriedItem.windowUntil == null || !Number.isFinite(Number(carriedItem.windowUntil))) {
-        return { held: "rack", count: 1, tint: "gold", timerFraction: 1 };
-      }
-      const total = itemConfig.golden.windowMs;
-      const remaining = Math.max(
-        0,
-        Math.min(total, Number(carriedItem.windowUntil) - Number(now))
-      );
-      return { held: "rack", count: 1, tint: "gold", timerFraction: remaining / total };
+      return {
+        held: "rack",
+        count: 1,
+        tint: "gold",
+        timerFraction: goldenTimerFraction(carriedItem.windowUntil, now),
+      };
     }
     case "red":
       return variant === "triple"

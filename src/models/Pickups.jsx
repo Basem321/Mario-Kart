@@ -4,6 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import { Box3, BufferGeometry, Color, Group, Mesh, MeshStandardMaterial, Vector3 } from "three";
 import { itemConfig, modelNativeSizes } from "../items/itemConfig.js";
 import { renderScale } from "../items/itemScale.js";
+import { goldenScaleMul } from "../items/itemVisuals.js";
 import { orbitAngle } from "../items/homing.js";
 
 // Render scale = target size / native GLB size (see itemScale.js). Targets
@@ -301,25 +302,21 @@ export function GoldenSparkles({ radius = 0.55, count = 5 }) {
 // Golden shrink/blink (§4.2): full size while held (windowUntil null =
 // window not yet opened), shrinking over the window once first use opens
 // it, 4 Hz blink in the last 1.5 s. Driven per-frame (no re-renders).
-export function GoldenMushroom({ windowUntil }) {
+// Scale is the pure fraction from goldenScaleMul — the MushroomModel inside
+// already carries its own base renderScale (multiplying by base again made
+// the held golden ~31x too small to see).
+export function GoldenMushroom({ windowUntil, sizeMul = 1 }) {
   const ref = useRef(null);
-  const base = renderScale("mushroom");
   useFrame(() => {
     if (!ref.current) return;
-    const total = itemConfig.golden.windowMs;
-    // Unopened window → full-size mushroom, no blink.
-    if (windowUntil == null || !Number.isFinite(Number(windowUntil))) {
-      ref.current.scale.setScalar(Math.max(0.001, base));
-      ref.current.visible = true;
-      return;
-    }
-    const remain = Number(windowUntil) - performance.now();
-    const frac = Math.max(0, Math.min(1, remain / total));
-    ref.current.scale.setScalar(Math.max(0.001, base * Math.max(0.05, frac)));
+    const now = performance.now();
+    ref.current.scale.setScalar(goldenScaleMul(windowUntil, now) * sizeMul);
+    const opened = windowUntil != null && Number.isFinite(Number(windowUntil));
+    const remain = opened ? Number(windowUntil) - now : Infinity;
     ref.current.visible =
-      frac <= 0 ||
+      !opened ||
       remain > 1500 ||
-      Math.floor(performance.now() / 125) % 2 === 0;
+      Math.floor(now / 125) % 2 === 0;
   });
   return (
     <>

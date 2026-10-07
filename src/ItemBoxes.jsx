@@ -1298,10 +1298,12 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       (heldItem.type === "mushroom" || heldItem.type === "golden")
     ) {
       // §4.2: windowUntil null = window not yet opened → never expires.
+      // NOTE: Number(null) is 0 (finite!) so the null check must come first.
       if (
         heldItem.type === "golden" &&
+        heldItem.windowUntil != null &&
         Number.isFinite(Number(heldItem.windowUntil)) &&
-        now >= heldItem.windowUntil
+        now >= Number(heldItem.windowUntil)
       ) {
         st.setCarriedItem(null);
         publishCarried(null);
