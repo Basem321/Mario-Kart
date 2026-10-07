@@ -14,7 +14,23 @@ import GameReadyCheck from './GameReadyCheck.jsx'
 import ItemGallery from './ItemGallery.jsx'
 import { useGameManager } from './gameManager.js'
 import { useP2PLobby } from './useP2PLobby.js'
+import { useOnlineRaceStore } from './onlineRaceStore.js'
+import { useGameStore } from './store.js'
+import { publishOnlineRaceEvent } from './onlineRaceTransport.js'
 import { isKnownTrackId } from './tracks.js'
+
+// DEV-ONLY online debug handle for the two-player Playwright check
+// (scripts/online-two-player.mjs): lets the script read zustand state and
+// publish through the REAL transport (validators + receivers stay in the
+// path). Never ships — import.meta.env.DEV is false in production builds.
+if (import.meta.env.DEV) {
+  window.__onlineRace = {
+    selfId: () => useGameManager.getState().onlineSelfId,
+    remoteRacers: () => useOnlineRaceStore.getState().remoteRacers,
+    carriedItem: () => useGameStore.getState().carriedItem,
+    publish: publishOnlineRaceEvent,
+  };
+}
 
 // Draco-compressed courses (Waluigi Stadium) decode with a vendored WASM
 // build instead of the Google CDN default, so races work fully offline.
