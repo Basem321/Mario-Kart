@@ -249,6 +249,7 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     ) {
       return null;
     }
+    const top = Number(shell.top);
     return {
       type: "shell:fired",
       shell: {
@@ -256,6 +257,7 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
         homing,
         bounces: Number.isInteger(bounces) ? Math.max(0, Math.min(3, bounces)) : 3,
         sizeMul,
+        ...(Number.isFinite(top) ? { top } : {}),
       },
     };
   }

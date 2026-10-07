@@ -567,8 +567,16 @@ const fireBlueShell = (pending) => {
   const me = myRacerId();
   const ors = useOnlineRaceStore.getState();
   const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
-  const rows = [{ id: me, laps: localCompleted, finished: false, dist: st.selfDistance || 0 }];
-  for (const [id, p] of Object.entries(ors.remoteRaceProgress)) {
+  const rows = [{ id: me, laps: localCompleted, finished: Boolean(gm.gameOver), dist: st.selfDistance || 0 }];
+  const remoteIds = new Set([
+    ...Object.keys(ors.remoteRacers),
+    ...Object.keys(ors.remoteRaceProgress),
+    ...Object.keys(ors.remoteDistances),
+    ...(gm.onlinePlayers ?? []).map((p) => p.id),
+  ]);
+  remoteIds.delete(me);
+  for (const id of remoteIds) {
+    const p = ors.remoteRaceProgress[id];
     rows.push({
       id,
       laps: Number(p?.completedLaps) || 0,
@@ -576,15 +584,22 @@ const fireBlueShell = (pending) => {
       dist: ors.remoteDistances[id] || 0,
     });
   }
-  const leaderId = leaderOf(rows);
+  let leaderId = leaderOf(rows);
+  if (leaderId === me && remoteIds.size > 0) {
+    const opp = rows.find((r) => r.id !== me && !r.finished);
+    if (opp) leaderId = opp.id;
+  }
   // Gate BEFORE firing (2.1 #5): no leader, no shell — refund the slot.
   if (!canFireBlue({ isOnlineRace: gm.isOnlineRace, leaderId })) return refund();
 
   const gy = st.groundPosition ?? playerPos.y ?? 0;
   // Launch XZ from the glove (T6 §3.2); the climb to cruise altitude is
-  // unchanged (flight starts low, rises to top).
+  // unchanged (flight starts low, rises to top). Top tracks target elevation + 14.
   const hand = getHandWorldPosition();
   const sizeMul = clampShellMul(Number(itemConfig.sizes.blueShellMul ?? 1));
+  const leaderObj = leaderId === me ? playerPos : ors.remoteRacers[leaderId];
+  const targetY = Number.isFinite(Number(leaderObj?.y)) ? Number(leaderObj.y) : gy;
+  const top = targetY + BLUE_FLY_HEIGHT;
   const shell = {
     id: `blue-${me}-${Date.now().toString(36)}`,
     kind: "blue",
@@ -594,7 +609,7 @@ const fireBlueShell = (pending) => {
     dx: 0,
     dz: 0,
     targetId: leaderId,
-    top: gy + 1 + BLUE_FLY_HEIGHT,
+    top,
     phase: "fly",
     ownerId: me,
     owner: true,
@@ -617,6 +632,7 @@ const fireBlueShell = (pending) => {
       targetId: leaderId,
       ownerId: me,
       sizeMul,
+      top,
     },
   });
   publishOnlineRaceEvent({ type: "blue:incoming", leaderId });
@@ -976,13 +992,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           useGameStore.getState().setBlueWarning(null);
           const st2 = useGameStore.getState();
           st2.setActiveShells(
-            st2.activeShells.filter(
-              (s) =>
-                !(
-                  s.kind === "blue" &&
-                  Math.hypot(s.x - event.x, s.z - event.z) < 20
-                )
-            )
+            st2.activeShells.filter((s) => s.kind !== "blue")
           );
           if (!event.fizzle) {
             const me2 = myRacerId();
@@ -1444,7 +1454,11 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           const leaderProg = ors.remoteRaceProgress[shell.targetId];
           const selfDone =
             shell.targetId === me && useGameManager.getState().gameOver;
-          if (!leader || leaderProg?.finished || selfDone) {
+          const targetConnected =
+            leader ||
+            (gm.onlinePlayers ?? []).some((p) => p.id === shell.targetId) ||
+            Boolean(ors.remoteRacers[shell.targetId]);
+          if ((!targetConnected && !leader) || leaderProg?.finished || selfDone) {
             if (shell.owner) {
               publishOnlineRaceEvent({
                 type: "blue:explode",
@@ -1456,8 +1470,10 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
             }
             continue;
           }
-          const dxl = leader.x - shell.x;
-          const dzl = leader.z - shell.z;
+          const tx = leader?.x ?? shell.x;
+          const tz = leader?.z ?? shell.z;
+          const dxl = tx - shell.x;
+          const dzl = tz - shell.z;
           const distXZ = Math.hypot(dxl, dzl) || 1;
           const diving =
             shell.phase === "drop" ||
@@ -1465,22 +1481,34 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           const phase = diving ? "drop" : "fly";
           let moved;
           if (phase === "fly") {
-            const top = Number(shell.top) || shell.y;
+            const targetY = Number.isFinite(Number(leader?.y))
+              ? Number(leader.y)
+              : Number(shell.top) - BLUE_FLY_HEIGHT;
+            const targetTop = targetY + BLUE_FLY_HEIGHT;
             moved = {
               ...shell,
               phase,
+              top: targetTop,
               x: shell.x + (dxl / distXZ) * BLUE_SPEED * step,
-              y: shell.y + (top - shell.y) * Math.min(1, 2 * step),
+              y: shell.y + (targetTop - shell.y) * Math.min(1, 2 * step),
               z: shell.z + (dzl / distXZ) * BLUE_SPEED * step,
             };
           } else {
             // Dive onto the TARGET's ground height (2.1 #7), not the local
             // player's: every client tracks every victim's y in the rows.
-            const targetGround = Number.isFinite(Number(leader.y))
+            const targetGround = Number.isFinite(Number(leader?.y))
               ? Number(leader.y)
-              : st.groundPosition ?? shell.top - BLUE_FLY_HEIGHT;
+              : Number.isFinite(Number(shell.top))
+              ? Number(shell.top) - BLUE_FLY_HEIGHT
+              : st.groundPosition ?? 0;
             const ground = targetGround;
-            moved = { ...shell, phase, y: shell.y - 45 * step };
+            moved = {
+              ...shell,
+              phase,
+              x: tx,
+              z: tz,
+              y: shell.y - 45 * step,
+            };
             if (moved.y <= ground) {
               // Bullet-immune target: harmless pop, nobody spins.
               const targetRide =
@@ -1492,9 +1520,9 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               if (shell.owner) {
                 publishOnlineRaceEvent({
                   type: "blue:explode",
-                  x: moved.x,
+                  x: tx,
                   y: ground,
-                  z: moved.z,
+                  z: tz,
                   fizzle: Boolean(immune),
                 });
                 if (immune) {

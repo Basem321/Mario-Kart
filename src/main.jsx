@@ -27,7 +27,13 @@ if (import.meta.env.DEV) {
   window.__onlineRace = {
     selfId: () => useGameManager.getState().onlineSelfId,
     remoteRacers: () => useOnlineRaceStore.getState().remoteRacers,
+    remoteRaceProgress: () => useOnlineRaceStore.getState().remoteRaceProgress,
+    remoteDistances: () => useOnlineRaceStore.getState().remoteDistances,
     carriedItem: () => useGameStore.getState().carriedItem,
+    setCarriedItem: (item) => useGameStore.getState().setCarriedItem(item),
+    activeShells: () => useGameStore.getState().activeShells,
+    blueWarning: () => useGameStore.getState().blueWarning,
+    spin: () => useGameStore.getState().spin,
     publish: publishOnlineRaceEvent,
   };
 }
