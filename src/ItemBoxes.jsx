@@ -21,6 +21,7 @@ import {
   blueShouldDive,
   canFireBlue,
   clampBombScale,
+  clampShellMul,
   coneLock,
   cruiseSettle,
   goldenWindowMs,
@@ -108,21 +109,25 @@ const playItemAnim = (name, ghostItem = null) => {
 };
 
 // Red throw, two-phase: the press consumes ONE use NOW (triple counts down,
-// slot clears at zero), the shell spawns at the release time.
+// slot clears at zero), the shell spawns at the release time. The flying
+// shell inherits its source size (single 0.7x, triple 1x) so launch has no
+// size pop; the size crosses in shell:fired (clamped) for remotes.
 const queueRedThrow = (backward, now) => {
   const st = useGameStore.getState();
+  const fromTriple = st.carriedItem?.variant === "triple";
   const pressed = pressRedThrow(st.carriedItem);
   if (!pressed) return false;
   st.setCarriedItem(pressed.slot);
   publishCarried(pressed.slot);
   // Ghost ALWAYS shows the thrown single (T6): alongside the remaining
   // orbit for triples, alone for consumed singles.
-  playItemAnim(backward ? "throw_back" : "throw_forward", { type: "red", variant: "single", usesLeft: 1 });
+  playItemAnim(backward ? "throw_back" : "throw_forward", { type: "red", variant: "single", usesLeft: 1, fromTriple });
   st.setPendingSpawns([
     ...st.pendingSpawns,
     {
       kind: "red",
       backward: Boolean(backward),
+      fromTriple,
       pressAt: now,
       // Backward throws release on the throwBack timing (2.1 #4).
       releaseMs: redReleaseMs(backward),
@@ -346,7 +351,7 @@ const onRemoteShellHit = (event) => {
   }
 };
 
-const fireRedShell = (backward = false) => {
+const fireRedShell = (backward = false, fromTriple = false) => {
   const st = useGameStore.getState();
   const gm = useGameManager.getState();
   const playerPos = st.playerPosition;
@@ -375,6 +380,8 @@ const fireRedShell = (backward = false) => {
   // Spawn AT the glove world position (T6 §3.2), falling back to the old
   // toss point when the rig is not mounted.
   const hand = getHandWorldPosition();
+  // Flying shell inherits its source size (single 0.7x, triple 1x).
+  const sizeMul = clampShellMul(fromTriple ? 1 : Number(itemConfig.sizes.redShellSingleMul ?? 0.7));
   const shell = {
     id: `shell-${me}-${Date.now().toString(36)}`,
     kind: "red",
@@ -389,6 +396,7 @@ const fireRedShell = (backward = false) => {
     bounces: itemConfig.redShell.maxBounces,
     ownerId: me,
     owner: true,
+    sizeMul,
     at: performance.now(),
   };
   st.setActiveShells([...st.activeShells, shell]);
@@ -409,6 +417,7 @@ const fireRedShell = (backward = false) => {
       homing: shell.homing,
       bounces: shell.bounces,
       ownerId: me,
+      sizeMul,
     },
   });
   playSfx("shell-fire.mp3");
@@ -575,6 +584,7 @@ const fireBlueShell = (pending) => {
   // Launch XZ from the glove (T6 §3.2); the climb to cruise altitude is
   // unchanged (flight starts low, rises to top).
   const hand = getHandWorldPosition();
+  const sizeMul = clampShellMul(Number(itemConfig.sizes.blueShellMul ?? 1));
   const shell = {
     id: `blue-${me}-${Date.now().toString(36)}`,
     kind: "blue",
@@ -588,6 +598,7 @@ const fireBlueShell = (pending) => {
     phase: "fly",
     ownerId: me,
     owner: true,
+    sizeMul,
     at: performance.now(),
   };
   st.setActiveShells([...st.activeShells, shell]);
@@ -605,6 +616,7 @@ const fireBlueShell = (pending) => {
       dz: 0,
       targetId: leaderId,
       ownerId: me,
+      sizeMul,
     },
   });
   publishOnlineRaceEvent({ type: "blue:incoming", leaderId });
@@ -1315,7 +1327,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     if (due.length > 0) {
       st.setPendingSpawns(st.pendingSpawns.filter((p) => !spawnDue(p, now)));
       for (const p of due) {
-        if (p.kind === "red") fireRedShell(p.backward);
+        if (p.kind === "red") fireRedShell(p.backward, p.fromTriple);
         else if (p.kind === "blue") fireBlueShell(p);
         else if (p.kind === "bullet") startBulletRide();
         else if (p.kind === "blooper") fireBlooperRelease(p);
@@ -1620,8 +1632,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       ))}
       {activeShells.map((s) => (
         <group key={s.id} position={[s.x, s.y, s.z]}>
-          {s.kind === "red" && <RedShellModel />}
-          {s.kind === "blue" && <BlueShellModel />}
+          {s.kind === "red" && <RedShellModel sizeMul={clampShellMul(s.sizeMul ?? 1)} />}
+          {s.kind === "blue" && <BlueShellModel sizeMul={clampShellMul(s.sizeMul ?? 1)} />}
         </group>
       ))}
       {activeShells

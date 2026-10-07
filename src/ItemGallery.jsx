@@ -195,7 +195,7 @@ function HeldPreview({ item, tune, driver, glovePose, animName = null, animT = n
       true
     );
   if (item === "red")
-    return glove(L.red, <RedShellModel sizeMul={mul("redShell")} />);
+    return glove(L.red, <RedShellModel sizeMul={mul("redShell") * tune.sizes.redShellSingleMul} />);
   if (item === "red3")
     return (
       <RedTripleOrbit
@@ -206,7 +206,7 @@ function HeldPreview({ item, tune, driver, glovePose, animName = null, animT = n
       />
     );
   if (item === "blue")
-    return glove(L.blue, <BlueShellModel sizeMul={mul("blueShell")} />);
+    return glove(L.blue, <BlueShellModel sizeMul={mul("blueShell") * tune.sizes.blueShellMul} />);
   if (item === "bullet")
     return glove(
       L.bullet,
@@ -303,7 +303,9 @@ export default function ItemGallery() {
     sizes: {
       mushroomHeld: itemConfig.sizes.mushroomHeld,
       redShell: itemConfig.sizes.redShell,
+      redShellSingleMul: itemConfig.sizes.redShellSingleMul ?? 0.7,
       blueShell: itemConfig.sizes.blueShell,
+      blueShellMul: itemConfig.sizes.blueShellMul ?? 1,
       bloopHeldHeight: itemConfig.sizes.bloopHeldHeight,
     },
     orbitRadius: itemConfig.orbit.radius,
@@ -399,7 +401,9 @@ export default function ItemGallery() {
           <b style={{ fontSize: 12 }}>tuning (live)</b>
           <Slider label="mushroomHeld" value={tune.sizes.mushroomHeld} min={0.1} max={0.4} step={0.01} onChange={(v) => setSize("mushroomHeld", v)} />
           <Slider label="redShell" value={tune.sizes.redShell} min={0.08} max={0.3} step={0.01} onChange={(v) => setSize("redShell", v)} />
+          <Slider label="redShellSingleMul" value={tune.sizes.redShellSingleMul} min={0.3} max={1.2} step={0.05} onChange={(v) => setSize("redShellSingleMul", v)} />
           <Slider label="blueShell" value={tune.sizes.blueShell} min={0.1} max={0.35} step={0.01} onChange={(v) => setSize("blueShell", v)} />
+          <Slider label="blueShellMul" value={tune.sizes.blueShellMul} min={0.5} max={1.5} step={0.05} onChange={(v) => setSize("blueShellMul", v)} />
           <Slider label="bloopHeld" value={tune.sizes.bloopHeldHeight} min={0.15} max={0.5} step={0.01} onChange={(v) => setSize("bloopHeldHeight", v)} />
           <Slider label="orbit.radius" value={tune.orbitRadius} min={1.2} max={2.6} step={0.05} onChange={(v) => setTune((t) => ({ ...t, orbitRadius: Math.round(v * 100) / 100 }))} />
           <Slider label="orbit.height" value={tune.orbitHeight} min={-0.8} max={0.6} step={0.05} onChange={(v) => setTune((t) => ({ ...t, orbitHeight: Math.round(v * 100) / 100 }))} />

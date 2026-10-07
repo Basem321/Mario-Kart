@@ -159,10 +159,15 @@ export const itemConfig = {
     // ratios to kartLength — multiply by (kartLength) for game units.
     // Held mushroom reads as a carryable prop (wider than the driver's
     // head); held shells fit one hand (tune in the gallery).
+    // redShellSingleMul: single-held + single-fired shells scale vs the
+    // triple base (triple orbit + triple-fired stay 1x, no pop on launch).
+    // blueShellMul: slider-only 1 (no value change).
     mushroomFull: 0.42,
     mushroomHeld: 0.26,
     redShell: 0.22,
+    redShellSingleMul: 0.7,
     blueShell: 0.21,
+    blueShellMul: 1,
     bulletHeldLength: 0.228,
     bulletActiveLength: 1.25,
     bloopHeldHeight: 0.29,

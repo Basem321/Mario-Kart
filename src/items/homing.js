@@ -364,6 +364,14 @@ export const clampBombScale = (scale) => {
   return Math.max(0.2, Math.min(3, s));
 };
 
+// Red/blue shell sizeMul passthrough, clamped 0.2..3 (same bounds as bombs).
+// Missing/invalid → 1 (pre-size-field clients stay full-size).
+export const clampShellMul = (mul) => {
+  const m = Number(mul);
+  if (!Number.isFinite(m)) return 1;
+  return Math.max(0.2, Math.min(3, m));
+};
+
 // 2.2 #16 — the sender must own the shell it reports a hit for.
 export const isAuthenticShellHit = ({ shellOwnerId = "", senderId = "" } = {}) =>
   typeof shellOwnerId === "string" &&

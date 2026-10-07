@@ -4,6 +4,7 @@ import { useOnlineRaceStore } from "./onlineRaceStore";
 import { receiveOnlineRaceEvent, setOnlineRaceTransport } from "./onlineRaceTransport";
 import { DEFAULT_TRACK_ID, isKnownTrackId } from "./tracks";
 import { normalizeBoxList } from "./items/itemWeights";
+import { clampShellMul } from "./items/homing.js";
 
 const LOBBY_ID_PREFIX = "mario-kart-3js-";
 const LOBBY_CODE_LENGTH = 6;
@@ -233,6 +234,9 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
       shell.targetId == null ? null : String(shell.targetId).slice(0, 64);
     const bounces = Number(shell.bounces);
     const homing = shell.homing !== false;
+    // Flying shell size inherits its source (single 0.7x, triple 1x);
+    // clamped 0.2..3, missing (old clients) stays 1.
+    const sizeMul = clampShellMul(shell.sizeMul ?? 1);
     if (
       !shellId ||
       (kind !== "red" && kind !== "blue") ||
@@ -249,6 +253,7 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
         id: shellId, kind, ...position, dx, dz, targetId, ownerId,
         homing,
         bounces: Number.isInteger(bounces) ? Math.max(0, Math.min(3, bounces)) : 3,
+        sizeMul,
       },
     };
   }

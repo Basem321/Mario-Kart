@@ -9,6 +9,7 @@
 // the animation. Triples never enter the glove — they orbit (ItemOrbit).
 
 import { itemConfig } from "../items/itemConfig.js";
+import { blueMul, redSingleMul } from "../items/itemScale.js";
 import { visualFor } from "../items/itemVisuals.js";
 import { animLive } from "../items/animCurves.js";
 import {
@@ -89,12 +90,12 @@ export function HeldItems({
         </ItemOrbit>
       )}
       {vis.held === "trail" && item?.type === "red" &&
-        gloved(driver, L.red, <RedShellModel />, anim, frozenT, ghostUntil, liveAnchor)}
+        gloved(driver, L.red, <RedShellModel sizeMul={item?.fromTriple ? 1 : redSingleMul()} />, anim, frozenT, ghostUntil, liveAnchor)}
       {vis.held === "orbit" && item?.type === "red" && (
         <RedTripleOrbit count={item?.usesLeft ?? 3} />
       )}
       {vis.held === "trail" && item?.type === "blue" &&
-        gloved(driver, L.blue, <BlueShellModel />, anim, frozenT, ghostUntil, liveAnchor)}
+        gloved(driver, L.blue, <BlueShellModel sizeMul={blueMul()} />, anim, frozenT, ghostUntil, liveAnchor)}
       {vis.held === "rack" && item?.type === "bullet" &&
         gloved(driver, L.bullet, <BulletModel sizeMul={BULLET_MINI_MUL} />, anim, frozenT, ghostUntil, liveAnchor)}
       {vis.held === "float" && item?.type === "blooper" &&
@@ -102,7 +103,7 @@ export function HeldItems({
       {/* Triple mid-throw: the thrown single rides the glove through the
           windup while the remaining orbit keeps showing. */}
       {tripleThrow && ghostItem?.type === "red" &&
-        gloved(driver, L.red, <RedShellModel />, anim, frozenT, Number(ghost.start) + Number(ghost.totalMs), liveAnchor)}
+        gloved(driver, L.red, <RedShellModel sizeMul={ghostItem?.fromTriple === false ? redSingleMul() : 1} />, anim, frozenT, Number(ghost.start) + Number(ghost.totalMs), liveAnchor)}
       {tripleThrow && ghostItem?.type === "mushroom" &&
         gloved(driver, L.mushroom, <MushroomModel />, anim, frozenT, Number(ghost.start) + Number(ghost.totalMs), liveAnchor)}
     </>

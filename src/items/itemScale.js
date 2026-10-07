@@ -54,6 +54,16 @@ export const nativeSize = (kind) => {
   }
 };
 
+// Single-red multiplier vs the triple base (0.7x); triple stays 1x.
+export const redSingleMul = () => Number(itemConfig.sizes.redShellSingleMul ?? 0.7);
+
+// Blue multiplier (slider-only, default 1 — no value change).
+export const blueMul = () => Number(itemConfig.sizes.blueShellMul ?? 1);
+
+// Flying red shell inherits its source size: single-fired 0.7x, triple 1x.
+export const redProjectileMul = (fromTriple = false) =>
+  fromTriple ? 1 : redSingleMul();
+
 // Final model scale. mul multiplies (held mini, cast flourish) — callers
 // pass ratios of configured sizes, never absolute numbers.
 export const renderScale = (kind, mul = 1) =>
