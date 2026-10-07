@@ -698,15 +698,35 @@ export function Kart({
 
       rotateWheels(left, right, delta);
 
-      getGroundPosition(wheel0Base, wheel0, backWheelOffset.current.right, 0, delta);
-      getGroundPosition(wheel1Base, wheel1, backWheelOffset.current.left, 1, delta);
-      getGroundPosition(wheel2Base, wheel2, backWheelOffset.current.right, 2, delta);
-      getGroundPosition(wheel3Base, wheel3, backWheelOffset.current.left, 3, delta);
+      const sSpin = useGameStore.getState().spin;
+      const isSpinning = Boolean(sSpin && performance.now() < Number(sSpin.until));
 
-      const wheelPositions = getWheelPositions();
+      if (isSpinning) {
+        wheel0.current.position.set(-0.7, -0.2, 0.7);
+        wheel1.current.position.set(0.7, -0.2, 0.7);
+        wheel2.current.position.set(-0.77, -0.137, -0.7);
+        wheel3.current.position.set(0.77, -0.137, -0.7);
+        wheel0.current.verticalVelocity = 0;
+        wheel1.current.verticalVelocity = 0;
+        wheel2.current.verticalVelocity = 0;
+        wheel3.current.verticalVelocity = 0;
+        wheel0.current.isAirborne = false;
+        wheel1.current.isAirborne = false;
+        wheel2.current.isAirborne = false;
+        wheel3.current.isAirborne = false;
+        bodyRef.current.position.y = 0;
+        bodyRef.current.rotation.set(0, 0, 0);
+      } else {
+        getGroundPosition(wheel0Base, wheel0, backWheelOffset.current.right, 0, delta);
+        getGroundPosition(wheel1Base, wheel1, backWheelOffset.current.left, 1, delta);
+        getGroundPosition(wheel2Base, wheel2, backWheelOffset.current.right, 2, delta);
+        getGroundPosition(wheel3Base, wheel3, backWheelOffset.current.left, 3, delta);
 
-      setWheelPositions([...wheelPositions, bodyRef.current]);
-      moveAndRotateKart(wheelPositions, delta);
+        const wheelPositions = getWheelPositions();
+
+        setWheelPositions([...wheelPositions, bodyRef.current]);
+        moveAndRotateKart(wheelPositions, delta);
+      }
 
       if (speed.current > 15) {
         smoke1Ref.current?.stopEmitting();
@@ -773,7 +793,7 @@ export function Kart({
       {/* <pointLight intensity={2000} position={[0, 10, 0]}/> */}
 
       <group key={progress} ref={groupRef} dispose={null}>
-        <group ref={tumbleRef}>
+        <group ref={tumbleRef} name="spinGroup">
         {myBulletRide && (
           <group rotation-y={Math.PI}>
             <BulletModel position={[0, 0.6, 0]} />

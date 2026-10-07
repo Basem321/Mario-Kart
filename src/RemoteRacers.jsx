@@ -121,7 +121,7 @@ const RemoteKart = ({ player, playerIndex }) => {
       scale={spawnSlot.kartScale ?? 1}
       name={`remote-racer-${player.id}`}
     >
-      <group ref={visualRef} position-y={-0.5} rotation-y={Math.PI} visible={!remoteRideActive}>
+      <group ref={visualRef} name="spinGroup" position-y={-0.5} rotation-y={Math.PI} visible={!remoteRideActive}>
         <mesh castShadow receiveShadow geometry={nodes.body.geometry} material={materials.m_Body}>
           <group position={[-0.77, 0, -0.7]} />
           <group position={[0.77, 0, -0.7]} />

@@ -30,7 +30,7 @@ import {
 } from "./models/Pickups";
 import { DriverSpace, GloveHand } from "./models/GloveHand";
 import { itemConfig } from "./items/itemConfig.js";
-import { animBlend, animDur, bodyPose } from "./items/animCurves.js";
+import { animBlend, animDur, bodyPose, spinPose } from "./items/animCurves.js";
 
 useGLTF.setDecoderPath("/draco/");
 
@@ -45,7 +45,17 @@ const GLOVE_POSES = [
   "handLeftCast",
 ];
 
-const SCRUB_ANIMS = ["none", "item_got", "throw_forward", "throw_back", "throw_up", "cast_up", "use_mushroom"];
+const SCRUB_ANIMS = [
+  "none",
+  "item_got",
+  "throw_forward",
+  "throw_back",
+  "throw_up",
+  "cast_up",
+  "use_mushroom",
+  "spin_hit_light",
+  "spin_hit_heavy",
+];
 
 function useGalleryParams() {
   return useMemo(() => {
@@ -250,13 +260,18 @@ function HeldPreview({
 
 function KartPreview({ driver, animName = null, animT = null }) {
   const { scene } = useGLTF("/models/kart.glb");
+  const isSpin = animName === "spin_hit_light" || animName === "spin_hit_heavy";
+  const spin = useMemo(() => {
+    if (!isSpin || animT == null) return { pitch: 0, yaw: 0, roll: 0, hop: 0 };
+    return spinPose(animName.includes("heavy") ? "heavy" : "light", animT);
+  }, [isSpin, animName, animT]);
   // Scrubbed whole-body pose (T6): same bodyPose curves as the game.
   const bodyRot = useMemo(() => {
-    if (!animName || animName === "none" || animT == null) return [0, 0, 0];
+    if (isSpin || !animName || animName === "none" || animT == null) return [0, 0, 0];
     const pose = bodyPose(animName, animT);
     const b = animBlend(animT, animDur(animName));
     return [pose.pitch * b, pose.yaw * b, pose.roll * b];
-  }, [animName, animT]);
+  }, [isSpin, animName, animT]);
   const model = useMemo(() => {
     const clone = scene.clone();
     // kart.glb's "root" node carries an authoring scale of exactly 10
@@ -270,7 +285,11 @@ function KartPreview({ driver, animName = null, animT = null }) {
     return clone;
   }, [scene]);
   return (
-    <group>
+    <group
+      name="spinGroup"
+      position={[0, spin.hop, 0]}
+      rotation={[spin.pitch, spin.yaw, spin.roll]}
+    >
       <primitive object={model} />
       <group position={[0, 0.45, -0.1]} scale={0.7} rotation={bodyRot}>
         <Driver character={driver} />
