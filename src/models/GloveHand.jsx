@@ -46,6 +46,10 @@ export function GloveHand({
   ghostUntil = 0,
   liveAnchor = false,
 }) {
+  // Disabled via itemConfig.glove.enabled (code stays): no ball, no sleeve.
+  // The item floats at the same hold spot (same rest/anim/bob math, same
+  // throw anchor) — only the hand meshes are skipped.
+  const gloveOn = itemConfig.glove?.enabled === true;
   const rig = itemConfig.driverRig[driver] ?? itemConfig.driverRig.mario;
   const rest = rig[pose] ?? rig.handRest;
   const palmR = rig.gloveRadius ?? 0.23;
@@ -98,16 +102,22 @@ export function GloveHand({
 
   return (
     <group ref={groupRef} position={rest}>
-      {/* forearm stub toward the shoulder */}
-      <mesh position={cuff.mid} quaternion={cuff.quat}>
-        <cylinderGeometry args={[palmR * 0.8, palmR * 0.55, cuff.len, 12]} />
-        <meshStandardMaterial color={rig.cuffColor} roughness={0.7} />
-      </mesh>
-      {/* palm */}
-      <mesh ref={palmRef}>
-        <sphereGeometry args={[palmR, 20, 20]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.6} />
-      </mesh>
+      {gloveOn && (
+        <>
+          {/* forearm stub toward the shoulder */}
+          <mesh position={cuff.mid} quaternion={cuff.quat}>
+            <cylinderGeometry args={[palmR * 0.8, palmR * 0.55, cuff.len, 12]} />
+            <meshStandardMaterial color={rig.cuffColor} roughness={0.7} />
+          </mesh>
+          {/* palm */}
+          <mesh ref={palmRef}>
+            <sphereGeometry args={[palmR, 20, 20]} />
+            <meshStandardMaterial color="#ffffff" roughness={0.6} />
+          </mesh>
+        </>
+      )}
+      {/* Invisible throw anchor at the palm spot (same origin, no hand). */}
+      {!gloveOn && <group ref={palmRef} />}
       {/* held item at world size above the palm */}
       <group position={[0, liftLocal, 0]}>
         <group ref={itemRef} scale={1 / 0.7}>

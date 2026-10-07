@@ -80,6 +80,11 @@ export const itemConfig = {
   modelOrientation: {
     bullet: { rotX: 0, rotY: Math.PI / 2, rotZ: 0 },
   },
+  // Glove hand (disabled — the extra hand reads wrong next to Mario's own).
+  // Code stays (GloveHand + driverRig + animCurves untouched); singles float
+  // at the same hold spot with a light bob, throws leave from the same
+  // anchor, triples keep orbiting. Flip to true to bring the glove back.
+  glove: { enabled: false },
   // Glove-hand rig (driver-local units, BEFORE the 0.7 kart scale; kart front
   // is +Z in driver space). Starting guesses 2026-10-06 — tune in the gallery
   // (?dev=items tuning panel), forward sign TBD visually. gloveRadius 0.23 =
