@@ -21,7 +21,7 @@ import { Driver } from "./Driver.jsx";
 import { BulletModel } from "./Pickups.jsx";
 import { HeldItems } from "./HeldItems.jsx";
 import { bulletActive, heldVisible } from "../items/homing.js";
-import { animBlend, animLive, animT, bodyPose } from "../items/animCurves.js";
+import { animBlend, animLive, animT, bodyPose, spinPose } from "../items/animCurves.js";
 import { itemConfig } from "../items/itemConfig.js";
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
@@ -600,24 +600,20 @@ export function Kart({
         driverGroupRef.current.rotation.set(0, 0, 0);
       }
     }
-    // Local spin tumble (2.2 #12): light = 540 deg eased yaw + small hop,
-    // heavy = full yaw + backflip + launch. Inner group only — the physics
-    // yaw above never moves. Pose resets the frame the spin clears.
+    // Local spin (yaw-only, never a backflip): light = 540deg + small hop,
+    // heavy = 720deg + higher hop, one shared spinPose curve. Inner group
+    // only — the physics yaw above never moves, and the whole kart + driver
+    // + held items rotate together around the kart center. Pose resets the
+    // frame the spin clears.
     if (tumbleRef.current) {
       const sSpin = useGameStore.getState().spin;
       const nowS = performance.now();
       if (sSpin && nowS < Number(sSpin.until)) {
         const total = sSpin.heavy ? itemConfig.hit.heavyMs : itemConfig.hit.lightMs;
         const p = Math.max(0, Math.min(1, 1 - (Number(sSpin.until) - nowS) / total));
-        const e = 1 - Math.pow(1 - p, 3);
-        if (sSpin.heavy) {
-          tumbleRef.current.rotation.y = e * Math.PI * 2;
-          tumbleRef.current.rotation.x = -e * Math.PI * 2;
-          tumbleRef.current.position.y = Math.sin(p * Math.PI) * 1.2;
-        } else {
-          tumbleRef.current.rotation.y = e * Math.PI * 3;
-          tumbleRef.current.position.y = Math.sin(p * Math.PI) * 0.45;
-        }
+        const pose = spinPose(sSpin.heavy ? "heavy" : "light", p);
+        tumbleRef.current.rotation.set(pose.pitch, pose.yaw, pose.roll);
+        tumbleRef.current.position.y = pose.hop;
       } else if (
         tumbleRef.current.rotation.x !== 0 ||
         tumbleRef.current.rotation.y !== 0 ||

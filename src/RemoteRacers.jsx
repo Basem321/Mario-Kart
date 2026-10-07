@@ -9,7 +9,8 @@ import { Driver } from "./models/Driver";
 import { BulletModel } from "./models/Pickups";
 import { HeldItems } from "./models/HeldItems.jsx";
 import { remoteBulletActive, remoteSpinning } from "./items/homing.js";
-import { animBlend, animDur, animLive, animT, bodyPose } from "./items/animCurves.js";
+import { animBlend, animDur, animLive, animT, bodyPose, spinPose } from "./items/animCurves.js";
+import { itemConfig } from "./items/itemConfig.js";
 
 
 import { useOnlineRaceStore } from "./onlineRaceStore";
@@ -27,7 +28,6 @@ const RemoteKart = ({ player, playerIndex }) => {
   // clock. Held items hide during the spin.
   const remoteAnim = remoteState?.anim;
   const spinningNow = remoteSpinning(remoteAnim, remoteState?.animRecvAt, performance.now());
-  const remoteSpinning = spinningNow;
   // Lost bullet:end heals itself (2.2 #13): the ride counts as ended after
   // until + rampOutMs + 1000 (until was anchored at receipt).
   const remoteRideActive = remoteBulletActive(remoteState?.bulletRide, performance.now());
@@ -90,19 +90,27 @@ const RemoteKart = ({ player, playerIndex }) => {
     kartRef.current.position.y = MathUtils.damp(kartRef.current.position.y * rs, target.y, 14, delta) / rs;
     kartRef.current.position.z = MathUtils.damp(kartRef.current.position.z * rs, target.z, 14, delta) / rs;
     kartRef.current.rotation.y = smoothAngle(kartRef.current.rotation.y, target.rotationY, 16, delta);
-    if (remoteSpinning) {
+    // Remote spin uses the SAME yaw-only spinPose curve as the local kart
+    // (progress from the receipt clock): light 540deg, heavy 720deg, hop.
+    const heavyRemote = typeof remoteAnim === "string" && remoteAnim.includes("heavy");
+    const spinTotal = heavyRemote ? itemConfig.hit.heavyMs : itemConfig.hit.lightMs;
+    const spinP = spinningNow
+      ? Math.max(0, Math.min(1, (performance.now() - Number(remoteState?.animRecvAt || 0)) / spinTotal))
+      : 0;
+    const spinPse = spinningNow ? spinPose(heavyRemote ? "heavy" : "light", spinP) : null;
+    if (spinningNow && spinPse) {
       wasSpinningRef.current = true;
-      visualRef.current.rotation.y += delta * 12;
+      visualRef.current.rotation.set(spinPse.pitch, Math.PI + spinPse.yaw, spinPse.roll);
     } else if (wasSpinningRef.current) {
       wasSpinningRef.current = false;
-      visualRef.current.rotation.y = Math.PI;
+      visualRef.current.rotation.set(0, Math.PI, 0);
     }
     visualRef.current.position.y = MathUtils.damp(
       visualRef.current.position.y * rs,
       (Number.isFinite(target.bodyY) ? target.bodyY : 0) - 0.5,
       12,
       delta,
-    ) / rs;
+    ) / rs + (spinPse ? spinPse.hop : 0);
   });
 
   return (
@@ -143,7 +151,7 @@ const RemoteKart = ({ player, playerIndex }) => {
           <HeldItems
             carriedItem={remoteState?.carriedItem}
             carriedBomb={remoteState?.carriedBomb}
-            hidden={remoteSpinning}
+            hidden={spinningNow}
             driver={player.driver ?? "mario"}
             anim={remoteAnimState}
             ghost={

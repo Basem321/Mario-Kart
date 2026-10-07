@@ -127,3 +127,20 @@ export const useItemScale = (animName, t01, isGolden = false) => {
 // Ghost (just-used item shown through the throw) lives in its window.
 export const ghostLive = (ghost, now = 0) =>
   !!ghost && Number(now) >= Number(ghost.start) && Number(now) < Number(ghost.start) + Number(ghost.totalMs);
+
+// Spin-out pose (yaw-only spin, never a backflip): the kart + driver +
+// held items rotate together around the kart center (tumble/visual group).
+// Light = 540deg over hit.lightMs + small hop; heavy = 720deg over
+// hit.heavyMs + higher hop. Pure so local (Kart) and remote (RemoteRacers)
+// share one curve. pitch/roll are always 0 — no forward/back tilt.
+export const spinPose = (kind, t01) => {
+  const t = clamp01(t01);
+  const heavy = typeof kind === "string" && kind.includes("heavy");
+  const e = 1 - Math.pow(1 - t, 3);
+  return {
+    yaw: e * Math.PI * (heavy ? 4 : 3),
+    hop: Math.sin(t * Math.PI) * (heavy ? 1.2 : 0.45),
+    pitch: 0,
+    roll: 0,
+  };
+};
