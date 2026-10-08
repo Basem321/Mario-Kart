@@ -5,8 +5,13 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), glsl(), VitePWA({
-       registerType: 'autoUpdate',
+   plugins: [react(), glsl(), VitePWA({
+       // prompt + manual registration (virtual:pwa-register in
+       // PwaUpdateToast.jsx): updates surface as a Refresh toast instead of
+       // silently serving stale builds. injectRegister:false avoids double
+       // registration with the manual one.
+       registerType: 'prompt',
+       injectRegister: false,
        includeAssets: [ 'Game_icon.jpg'],
        manifest: {
          name: 'Mario Kart 3.js',
@@ -25,6 +30,11 @@ export default defineConfig({
        },
        workbox: {
          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+         // Activate the new SW immediately in the background; the PAGE only
+         // reloads when the user taps Refresh in the toast (never mid-race
+         // by surprise).
+         skipWaiting: true,
+         clientsClaim: true,
        },
      })],
 })

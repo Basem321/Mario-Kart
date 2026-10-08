@@ -11,6 +11,7 @@ import TrackSelect from './TrackSelect.jsx'
 import LobbyScreen from './LobbyScreen.jsx'
 import GameUI from './GameUI.jsx'
 import GameReadyCheck from './GameReadyCheck.jsx'
+import { PwaUpdateToast } from './PwaUpdateToast.jsx'
 import { useGameManager } from './gameManager.js'
 import { useP2PLobby } from './useP2PLobby.js'
 import { useOnlineRaceStore } from './onlineRaceStore.js'
@@ -197,6 +198,8 @@ const Root = () => {
 
   return (
     <>
+      {/* PWA update toast: lives above every screen, never blocks gameplay */}
+      <PwaUpdateToast />
       {showHomepage ? (
         pendingTrackFor ? (
           <TrackSelect
