@@ -2,7 +2,7 @@
 // carried slot looks like. Both Kart.jsx (local) and RemoteRacers.jsx render
 // this. `visualFor` (itemVisuals.js) is the routing source of truth.
 //
-// T4b: singles ride in the glove at handRest (static hold). T6: throws,
+// Singles ride in the glove at handRest (static hold + idle bob). Throws,
 // receives and uses play glove + body animation from §3.2 — the press
 // commits the slot instantly while a GHOST of the item stays visible in the
 // glove through the throw window (animGhost), so gameplay never waits for

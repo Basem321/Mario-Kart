@@ -53,6 +53,7 @@ export const itemConfig = {
       pale: { color: 0xfff2b0 },
     },
   },
+  offRoad: { slowMult: 0.5, slack: 1.0, checkMs: 100 },
   redShell: {
     speedMult: 1.6, lifetimeMs: 8000, lockRange: 60, lockConeDeg: 50,
     maxBounces: 3, spinMs: 1500, ownerGraceMs: 500,

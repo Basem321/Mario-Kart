@@ -294,10 +294,9 @@ export const redReleaseMs = (backward = false) =>
     ? itemConfig.throwBack.releaseMs
     : itemConfig.throwForward.releaseMs;
 
-// 2.1 #5 — blue shell needs an online race AND a live leader. Check
-// BEFORE consuming the slot so solo/offline presses never eat the item.
+// Blue shell firing gate: in online races requires a live leader; in solo/offline permits firing.
 export const canFireBlue = ({ isOnlineRace = false, leaderId = null } = {}) =>
-  Boolean(isOnlineRace) && typeof leaderId === "string" && leaderId.length > 0;
+  Boolean(isOnlineRace ? typeof leaderId === "string" && leaderId.length > 0 : true);
 
 // 2.1 #6 — remote shells hydrate the local clock + blue flight state on
 // receipt (sender clocks differ, payloads carry no `at`). Remotes then

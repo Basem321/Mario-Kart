@@ -137,14 +137,9 @@ const queueRedThrow = (backward, now) => {
 };
 
 // Blue throw, two-phase: release at the throw-up apex. The slot is consumed
-// at press ONLY when the shell can actually fire (2.1 #5) — solo/offline or
-// leaderless presses keep the item. The carried slot rides along so a failed
-// fire refunds it instead of eating it.
+// Blue throw, two-phase: release at the throw-up apex. Works both offline and online.
 const queueBlueThrow = (now) => {
   const st = useGameStore.getState();
-  const gm = useGameManager.getState();
-  // Solo/offline never consumes the slot (2.1 #5): no leader exists.
-  if (!gm.isOnlineRace) return false;
   const held = st.carriedItem;
   st.setCarriedItem(null);
   // No publish at press (T6): remotes keep showing the shell through the
@@ -563,7 +558,7 @@ const fireBlueShell = (pending) => {
     }
     return false;
   };
-  if (!playerPos || !gm.isOnlineRace) return refund();
+  if (!playerPos) return refund();
   const me = myRacerId();
   const ors = useOnlineRaceStore.getState();
   const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
@@ -584,12 +579,12 @@ const fireBlueShell = (pending) => {
       dist: ors.remoteDistances[id] || 0,
     });
   }
-  let leaderId = leaderOf(rows);
+  let leaderId = leaderOf(rows) || me;
   if (leaderId === me && remoteIds.size > 0) {
     const opp = rows.find((r) => r.id !== me && !r.finished);
     if (opp) leaderId = opp.id;
   }
-  // Gate BEFORE firing (2.1 #5): no leader, no shell — refund the slot.
+  // Gate BEFORE firing: solo allows firing, online requires leader
   if (!canFireBlue({ isOnlineRace: gm.isOnlineRace, leaderId })) return refund();
 
   const gy = st.groundPosition ?? playerPos.y ?? 0;
@@ -1456,7 +1451,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
             shell.targetId === me && useGameManager.getState().gameOver;
           const targetConnected =
             leader ||
-            (gm.onlinePlayers ?? []).some((p) => p.id === shell.targetId) ||
+            (useGameManager.getState().onlinePlayers ?? []).some((p) => p.id === shell.targetId) ||
             Boolean(ors.remoteRacers[shell.targetId]);
           if ((!targetConnected && !leader) || leaderProg?.finished || selfDone) {
             if (shell.owner) {
@@ -1467,6 +1462,13 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                 z: shell.z,
                 fizzle: true,
               });
+              // Owner never receives its own publish: stop the local alarm
+              // when WE were the target, otherwise it loops forever (solo /
+              // self-target bug). Shell already drops via `continue` below.
+              if (shell.targetId === me) {
+                stopBlueAlarm();
+                useGameStore.getState().setBlueWarning(null);
+              }
             }
             continue;
           }
@@ -1525,6 +1527,13 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                   z: tz,
                   fizzle: Boolean(immune),
                 });
+                // Owner never receives its own explode: stop the local alarm
+                // + clear the warning when WE were the target. The shell drops
+                // via `continue` below, and applyShellStun plays shell-hit.mp3.
+                if (shell.targetId === me) {
+                  stopBlueAlarm();
+                  useGameStore.getState().setBlueWarning(null);
+                }
                 if (immune) {
                   applyShellStun({
                     x: moved.x, y: ground, z: moved.z,

@@ -1,3 +1,11 @@
+// Driver model — static GLB (rigid mesh, no skeleton).
+// Animations are whole-group procedural: Kart.jsx's driverGroupRef drives
+// throw/receive/use via bodyPose() (animCurves.js). This component adds a
+// steering-lean layer: gentle left/right tilt while turning.
+//
+// forwardRef: rig code in Kart/RemoteRacers can attach ref to the mesh for
+// future probing or per-frame reads.
+
 import { forwardRef, useMemo } from "react";
 import { useGLTF } from "@react-three/drei";
 
@@ -6,10 +14,7 @@ const DRIVER_PATHS = {
   luigi: "/models/luigi-driver.glb",
 };
 
-// forwardRef (T5): rig code can reach the driver model through ref
-// (the whole-body lean animates the wrapper group in Kart/RemoteRacers;
-// this ref exposes the model itself for probing and future work).
-export const Driver = forwardRef(function Driver({ character = "mario", ...props }, ref) {
+export const Driver = forwardRef(function Driver({ character = "mario", itemAnim, ...props }, ref) {
   const path = DRIVER_PATHS[character] ?? DRIVER_PATHS.mario;
   const { scene } = useGLTF(path);
   const model = useMemo(() => {

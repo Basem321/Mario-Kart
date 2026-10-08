@@ -59,17 +59,27 @@ const RemoteKart = ({ player, playerIndex }) => {
     // Whole-driver throw/receive/use pose from the receipt clock.
     if (driverGroupRef.current) {
       const nowA = performance.now();
+      const BASE_X = 0;
+      const BASE_Y = 0.45;
+      const BASE_Z = -0.1;
       if (animLive(remoteAnimState, nowA)) {
         const t = animT(remoteAnimState, nowA);
         const pose = bodyPose(remoteAnimState.name, t);
         const b = animBlend(t, remoteAnimState.totalMs);
         driverGroupRef.current.rotation.set(pose.pitch * b, pose.yaw * b, pose.roll * b);
+        driverGroupRef.current.position.set(
+          BASE_X + (pose.x ?? 0) * b,
+          BASE_Y + (pose.y ?? 0) * b,
+          BASE_Z + (pose.z ?? 0) * b
+        );
       } else if (
         driverGroupRef.current.rotation.x !== 0 ||
         driverGroupRef.current.rotation.y !== 0 ||
-        driverGroupRef.current.rotation.z !== 0
+        driverGroupRef.current.rotation.z !== 0 ||
+        driverGroupRef.current.position.y !== BASE_Y
       ) {
         driverGroupRef.current.rotation.set(0, 0, 0);
+        driverGroupRef.current.position.set(BASE_X, BASE_Y, BASE_Z);
       }
     }
     if (!kartRef.current || !visualRef.current) return;

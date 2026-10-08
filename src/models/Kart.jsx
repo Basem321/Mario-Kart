@@ -583,21 +583,63 @@ export function Kart({
     if (gsSpin && performance.now() >= Number(gsSpin.until)) {
       useGameStore.getState().setSpin(null);
     }
-    // Whole-driver throw/receive/use pose (T6 §3.2): eased in/out, then reset.
-    // Driver wrapper only — physics and steering never move.
+    // Whole-driver throw/receive/use pose (T6 §3.2) + steering lean + drift hang + speed tuck + idle vibe.
+    // All applied to driverGroupRef (the wrapper inside the kart body mesh).
     if (driverGroupRef.current) {
       const nowA = performance.now();
+      const D = Math.PI / 180;
+      const BASE_X = 0;
+      const BASE_Y = 0.45;
+      const BASE_Z = -0.1;
+
       if (itemAnim && animLive(itemAnim, nowA)) {
+        // Item anim wins: throw / receive / use_mushroom etc.
         const t = animT(itemAnim, nowA);
         const pose = bodyPose(itemAnim.name, t);
         const b = animBlend(t, itemAnim.totalMs);
         driverGroupRef.current.rotation.set(pose.pitch * b, pose.yaw * b, pose.roll * b);
-      } else if (
-        driverGroupRef.current.rotation.x !== 0 ||
-        driverGroupRef.current.rotation.y !== 0 ||
-        driverGroupRef.current.rotation.z !== 0
-      ) {
-        driverGroupRef.current.rotation.set(0, 0, 0);
+        driverGroupRef.current.position.set(
+          BASE_X + (pose.x ?? 0) * b,
+          BASE_Y + (pose.y ?? 0) * b,
+          BASE_Z + (pose.z ?? 0) * b
+        );
+      } else {
+        // Idle + steering + drifting + speed layers
+        const turn = inputTurn.current;
+        const drift = driftDirection.current;
+        const spdRatio = Math.min(speed.current / 75, 1);
+
+        // Punchy responsive leans: sharp roll and yaw into turns & drift
+        const steerRoll = -turn * 20 * D;
+        const driftRoll = drift * 18 * D;
+        const steerYaw  = -turn * 12 * D + drift * 10 * D;
+        const speedPitch = spdRatio * 10 * D; // Tuck forward into windshield at high speed
+        const idleVibeY  = Math.sin(nowA / 300) * 0.012; // Engine rumble/breathing
+        const lateralX   = -turn * 0.07 + drift * 0.06;  // Shift driver's weight across seat
+
+        const targetRoll = steerRoll + driftRoll;
+        const targetYaw  = steerYaw;
+        const targetPitch = speedPitch;
+
+        driverGroupRef.current.rotation.x = MathUtils.damp(
+          driverGroupRef.current.rotation.x, targetPitch, 8, delta
+        );
+        driverGroupRef.current.rotation.y = MathUtils.damp(
+          driverGroupRef.current.rotation.y, targetYaw, 8, delta
+        );
+        driverGroupRef.current.rotation.z = MathUtils.damp(
+          driverGroupRef.current.rotation.z, targetRoll, 8, delta
+        );
+
+        driverGroupRef.current.position.x = MathUtils.damp(
+          driverGroupRef.current.position.x, BASE_X + lateralX, 8, delta
+        );
+        driverGroupRef.current.position.y = MathUtils.damp(
+          driverGroupRef.current.position.y, BASE_Y + idleVibeY, 8, delta
+        );
+        driverGroupRef.current.position.z = MathUtils.damp(
+          driverGroupRef.current.position.z, BASE_Z + spdRatio * 0.03, 8, delta
+        );
       }
     }
     // Local spin (yaw-only, never a backflip): light = 540deg + small hop,

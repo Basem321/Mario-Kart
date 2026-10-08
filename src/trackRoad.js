@@ -324,6 +324,23 @@ export const findNearestBlackRoadPoint = (geometry, x, z, transform) => {
 };
 
 /**
+ * Off-track check: true when (x, z) lies outside the black-road triangles
+ * by more than `slack` world units (dirt + grass both count as off-track).
+ * Returns false when the road index is missing so loading never slowdowns.
+ */
+export const isOffRoad = (geometry, x, z, transform, slack = 1.0) => {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
+  let hit = null;
+  try {
+    hit = findNearestBlackRoadPoint(geometry, x, z, transform);
+  } catch {
+    return false;
+  }
+  if (!hit) return false;
+  return Number(hit.distance) > Number(slack);
+};
+
+/**
  * 3D-aware rescue query. The XZ-only version above returns the kart's own XZ
  * whenever it sits inside ANY road triangle — including the elevated deck of
  * a jump while the kart is trapped in the pit underneath it (Waluigi Stadium

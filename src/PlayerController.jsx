@@ -20,7 +20,8 @@ import {
 } from "./collision";
 import { bulletActive, bulletPhase, hitApplies, shouldApplyHit, BULLET_SPEED } from "./items/homing";
 import { boostTargetSpeed } from "./items/itemWeights";
-import { findNearestBlackRoadPoint3D, getHighestRoadYAt, trackConfigToTransform } from "./trackRoad";
+import { findNearestBlackRoadPoint3D, getHighestRoadYAt, isOffRoad, trackConfigToTransform } from "./trackRoad";
+import { itemConfig } from "./items/itemConfig.js";
 import { getTrack, getMergedRoadGeometry } from "./tracks";
 
 // Horizontal ray vs the visible track meshes (barriers included).
@@ -46,8 +47,8 @@ export const PlayerController = () => {
   const jumpOffset = useRef(0);
   const driftDirection = useRef(driftDirections.none);
   const driftPower = useRef(0);
-  // Bullet Bill autopilot heading cache (recomputed at 10Hz, damped per frame).
-  const bulletSteerRef = useRef({ heading: 0, lastUpdate: 0, init: false });
+  // Off-track cache: the black-road triangle walk is throttled, not per-frame.
+  const offRoadCacheRef = useRef({ isOff: false, lastCheck: 0 });
   const turbo = useRef(0);
   const isJumping = useRef(false);
   const backWheelOffset = useRef({
@@ -527,9 +528,9 @@ export const PlayerController = () => {
   };
 
   function updateSpeed(forward, backward, delta) {
-    // Bullet Bill: full-throttle autopilot, invincible (skips the stun gate
-    // below so nothing slows the ride). Owner-only: a remote racer's ride
-    // must never drive the local kart.
+    // Bullet Bill: full-throttle manual drive, invincible (skips the stun
+    // gate below so nothing slows the ride). Steering is the player's own —
+    // no autopilot. Owner-only: a remote racer's ride must never drive local.
     const ride = useGameStore.getState().bulletRide;
     const myId = useGameManager.getState().onlineSelfId ?? "local";
     const myRide =
@@ -586,15 +587,41 @@ export const PlayerController = () => {
       setIsBoosting(true);
       return;
     }
+    // Off-track: anything outside the black asphalt slows to 50%.
+    // Mushroom (branch above) + bullet (branch above) return early so they
+    // bypass. Turbo / mini-boost / pads do NOT bypass — they get halved too.
+    let offRoadMult = 1;
+    try {
+      const nowO = performance.now();
+      const cache = offRoadCacheRef.current;
+      const checkMs = Number(itemConfig.offRoad?.checkMs) || 100;
+      if (nowO - cache.lastCheck > checkMs) {
+        cache.lastCheck = nowO;
+        const pp = useGameStore.getState().playerPosition;
+        cache.isOff = blackRoadGeometry
+          ? isOffRoad(
+              blackRoadGeometry,
+              Number(pp?.x),
+              Number(pp?.z),
+              roadTransform,
+              Number(itemConfig.offRoad?.slack) || 1.0
+            )
+          : false;
+      }
+      if (cache.isOff) offRoadMult = Number(itemConfig.offRoad?.slowMult) || 0.5;
+    } catch {
+      offRoadMult = 1;
+    }
     // Apply time trial speed factor if in time trial mode
     const isTimeTrialMode = useGameManager.getState().isTimeTrial;
     const speedFactor = isTimeTrialMode ? kartSettings.timeTrialSpeedFactor || 1.5 : 1.0;
-    
+
     // Adjust max speed for time trial mode. Everything scales with kart
     // size so a mini kart feels proportional (same relative pace/turning)
     // instead of a full-speed missile. At kartScale=1 unchanged.
     const baseMaxSpeed = kartSettings.speed.max;
-    const maxSpeed = ((baseMaxSpeed * speedFactor) + (turbo.current > 0 ? 40 : 0)) * kartScale;
+    const maxSpeed = (((baseMaxSpeed * speedFactor) + (turbo.current > 0 ? 40 : 0)) * kartScale) * offRoadMult;
+    const minSpeed = kartSettings.speed.min * kartScale * offRoadMult;
 
     // Boost flag drives flames + FOV kick + wind overlay. It must reflect an
     // actual mini-turbo, not the higher time-trial cruising speed.
@@ -621,7 +648,7 @@ export const PlayerController = () => {
     speedRef.current = damp(
       speedRef.current,
       maxSpeed * forwardAccel +
-        kartSettings.speed.min * kartScale * Number(backward || gamepadButtons.backward),
+        minSpeed * Number(backward || gamepadButtons.backward),
       dampingFactor,
       delta
     );
@@ -634,41 +661,8 @@ export const PlayerController = () => {
   }
 
   function rotatePlayer(left, right, player, joystickX, delta) {
-    // Bullet Bill autopilot: steer toward road-center-ahead. The road query
-    // walks every triangle, so the heading recomputes at 10Hz and damps
-    // every frame (no per-frame query cost). Owner-only, like updateSpeed.
-    const ride2 = useGameStore.getState().bulletRide;
-    if (
-      ride2 &&
-      ride2.ownerId === (useGameManager.getState().onlineSelfId ?? "local") &&
-      bulletActive(ride2, performance.now())
-    ) {
-      const nowB = performance.now();
-      const steer = bulletSteerRef.current;
-      if (!steer.init || nowB - steer.lastUpdate > 100) {
-        steer.init = true;
-        steer.lastUpdate = nowB;
-        const fx = -Math.sin(player.rotation.y);
-        const fz = -Math.cos(player.rotation.y);
-        const road = blackRoadGeometry
-          ? findNearestBlackRoadPoint3D(
-              blackRoadGeometry,
-              player.position.x + fx * 10,
-              player.position.y,
-              player.position.z + fz * 10,
-              roadTransform
-            )
-          : null;
-        if (road) {
-          steer.heading = Math.atan2(
-            -(road.x - player.position.x),
-            -(road.z - player.position.z)
-          );
-        }
-      }
-      player.rotation.y = damp(player.rotation.y, steer.heading, 3.5, delta);
-      return;
-    }
+    // Bullet Bill: the PLAYER steers (manual drive at bullet speed).
+    // No autopilot — fall through to normal steering below.
     // Spin-out: no steering while tumbling (v3 §5).
     const spinNow = useGameStore.getState().spin;
     if (spinNow && performance.now() < spinNow.until) return;

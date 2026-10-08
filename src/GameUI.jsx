@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useGameManager } from "./gameManager";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
-import { ROULETTE_MS, rankOf, rouletteFrame, rowToSlot } from "./items/itemWeights";
+import { ROULETTE_MS, rankOf, rouletteFrame } from "./items/itemWeights";
 import { itemConfig } from "./items/itemConfig.js";
 import { MiniMap } from "./MiniMap";
 import { OnlineRaceLeaderboard } from "./OnlineRaceLeaderboard";
@@ -35,16 +35,18 @@ const ITEM_ICON_ORDER = [
 
 const ITEM_ICON_SRC = {
   mushroom1: "/images/items/mushroom.png",
-  mushroom3: "/images/items/mushroom.png",
+  mushroom3: "/images/items/triple-mushroom.png",
   golden: "/images/items/mushroom.png",
   red1: "/images/items/red-shell.png",
-  red3: "/images/items/red-shell.png",
+  red3: "/images/items/triple-red-shell.png",
   blue: "/images/items/blue-shell.png",
   bullet: "/images/items/bullet-bill.png",
   blooper: "/images/items/blooper.png",
-  bomb: null,
-  skid: null,
-  wind: null,
+  bomb: "/images/items/bomb.png",
+  skid: "/images/items/mushroom.png",
+  wind: "/images/items/mushroom.png",
+  mushroom: "/images/items/mushroom.png",
+  red: "/images/items/red-shell.png",
 };
 
 const ITEM_ICON_EMOJI = {
@@ -183,15 +185,37 @@ const GameUI = () => {
   // usable) only after the lock commits it to carriedItem.
   // Keyed on the spin identity — never on charges, so triple ticks don't replay.
   const carriedItem = useGameStore((s) => s.carriedItem);
+  const carriedBomb = useGameStore((s) => s.carriedBomb);
   const roulette = useGameStore((s) => s.roulette);
+
+  const getCarriedIconKey = () => {
+    if (carriedBomb) return "bomb";
+    if (!carriedItem) return null;
+    const { type, variant } = carriedItem;
+    if (type === "mushroom") return variant === "triple" ? "mushroom3" : "mushroom1";
+    if (type === "red") return variant === "triple" ? "red3" : "red1";
+    return type;
+  };
+
+  const currentHeldKey = getCarriedIconKey();
   const spinKey = roulette
     ? `spin:${roulette.type}:${roulette.startedAt}`
-    : `locked:${carriedItem?.type ?? ""}`;
+    : `locked:${currentHeldKey ?? ""}`;
   const [rouletteIcon, setRouletteIcon] = useState(null);
   useEffect(() => {
     const spin = useGameStore.getState().roulette;
     if (!spin) {
-      setRouletteIcon(useGameStore.getState().carriedItem?.type ?? null);
+      const st = useGameStore.getState();
+      if (st.carriedBomb) {
+        setRouletteIcon("bomb");
+      } else if (st.carriedItem) {
+        const { type, variant } = st.carriedItem;
+        if (type === "mushroom") setRouletteIcon(variant === "triple" ? "mushroom3" : "mushroom1");
+        else if (type === "red") setRouletteIcon(variant === "triple" ? "red3" : "red1");
+        else setRouletteIcon(type);
+      } else {
+        setRouletteIcon(null);
+      }
       return;
     }
     let raf = 0;
@@ -237,33 +261,6 @@ const GameUI = () => {
       {blueWarning && (
         <div className="blue-warning" aria-live="assertive" title="Blue shell incoming!">
           <img src="/images/items/blue-shell.png" alt="Blue shell incoming!" draggable={false} />
-        </div>
-      )}
-
-      {/* DEV-ONLY instant item grant (hidden in production builds) */}
-      {import.meta.env.DEV && gameStarted && !gameOver && (
-        <div className="item-dev-panel" aria-label="DEV item grants">
-          {[
-            "mushroom1", "mushroom3", "golden", "red1", "red3",
-            "blue", "bullet", "blooper", "bomb",
-          ].map((row) => (
-            <button
-              key={row}
-              type="button"
-              onClick={() => {
-                const st = useGameStore.getState();
-                if (row === "bomb") {
-                  st.setCarriedBomb(true);
-                  st.setCarriedItem(null);
-                  return;
-                }
-                st.setCarriedBomb(false);
-                st.setCarriedItem(rowToSlot(row, performance.now()));
-              }}
-            >
-              {row}
-            </button>
-          ))}
         </div>
       )}
 

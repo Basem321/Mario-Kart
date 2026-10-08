@@ -78,29 +78,121 @@ export const gloveAnimPos = (animName, t01, rig) => {
   }
 };
 
-// Whole-driver euler (radians, hips pivot): pitch (x), yaw twist (y), roll.
-// Head cannot move separately (rigid mesh), so no head-only motion.
+// Whole-driver euler (radians) + translation offset [x, y, z] (driver space).
+// Gives punchy, arcade-accurate physical reactions for throws, boosts, and celebrations.
 export const bodyPose = (animName, t01) => {
   const t = clamp01(t01);
   const D = Math.PI / 180;
   switch (animName) {
     case "throw_forward": {
-      const pitch = t < 0.35 ? 8 * D * smooth(t / 0.35) : 8 * D - 18 * D * smooth((t - 0.35) / 0.65);
-      return { pitch, yaw: 6 * D * smooth(t), roll: 0 };
+      // Phase 1 (0 -> 0.35): Anticipation - Mario pulls back in seat
+      // Phase 2 (0.35 -> 0.7): Powerful forward lunge over steering wheel (-32° pitch!)
+      // Phase 3 (0.7 -> 1.0): Spring back to rest with a bounce
+      if (t < 0.35) {
+        const p = smooth(t / 0.35);
+        return {
+          pitch: 18 * D * p,
+          yaw: 10 * D * p,
+          roll: -6 * D * p,
+          x: -0.04 * p,
+          y: -0.02 * p,
+          z: -0.12 * p,
+        };
+      } else if (t < 0.7) {
+        const p = smooth((t - 0.35) / 0.35);
+        return {
+          pitch: 18 * D - 50 * D * p, // -32° forward lunge!
+          yaw: 10 * D - 22 * D * p,
+          roll: -6 * D + 12 * D * p,
+          x: -0.04 + 0.08 * p,
+          y: -0.02 - 0.04 * p,
+          z: -0.12 + 0.24 * p,        // Lurch forward +0.12
+        };
+      } else {
+        const p = smooth((t - 0.7) / 0.3);
+        return {
+          pitch: (-32 * D) * (1 - p),
+          yaw: (-12 * D) * (1 - p),
+          roll: (6 * D) * (1 - p),
+          x: 0.04 * (1 - p),
+          y: -0.06 * (1 - p),
+          z: 0.12 * (1 - p),
+        };
+      }
     }
-    case "throw_back":
-      return { pitch: 4 * D * smooth(t), yaw: 40 * D * smooth(t), roll: 0 };
-    case "throw_up":
-      return { pitch: 10 * D * smooth(t), yaw: 0, roll: 0 };
-    case "cast_up":
-      return { pitch: 5 * D * smooth(t), yaw: -12 * D * smooth(t), roll: 0 };
-    case "use_mushroom":
-      // lift to mouth, then boost_lean (back 10°) in the second half.
-      return { pitch: 10 * D * smooth(Math.max(0, (t - 0.5) / 0.5)), yaw: 0, roll: 0 };
-    case "item_got":
-      return { pitch: 7 * D * Math.sin(Math.PI * t), yaw: 0, roll: 0 };
+    case "throw_back": {
+      // Driver twists torso 60° looking over shoulder to throw behind
+      const p = Math.sin(Math.PI * t);
+      return {
+        pitch: 8 * D * p,
+        yaw: 60 * D * p,
+        roll: -14 * D * p,
+        x: 0.06 * p,
+        y: 0.02 * p,
+        z: -0.06 * p,
+      };
+    }
+    case "throw_up": {
+      // Sky launch (Blue shell): Two-handed arch back and pop up
+      const p = Math.sin(Math.PI * t);
+      return {
+        pitch: 30 * D * p,
+        yaw: 0,
+        roll: 0,
+        x: 0,
+        y: 0.09 * p,
+        z: -0.12 * p,
+      };
+    }
+    case "cast_up": {
+      const p = Math.sin(Math.PI * t);
+      return {
+        pitch: 22 * D * p,
+        yaw: -18 * D * p,
+        roll: 10 * D * p,
+        x: -0.05 * p,
+        y: 0.06 * p,
+        z: -0.08 * p,
+      };
+    }
+    case "use_mushroom": {
+      // Boost hit: G-force pushes driver back, then driver tucks hard into speed pose
+      if (t < 0.35) {
+        const p = smooth(t / 0.35);
+        return {
+          pitch: 24 * D * p,
+          yaw: 0,
+          roll: 0,
+          x: 0,
+          y: 0.02 * p,
+          z: -0.14 * p,
+        };
+      } else {
+        const p = smooth((t - 0.35) / 0.65);
+        return {
+          pitch: 24 * D - 50 * D * p, // -26° tuck forward
+          yaw: 0,
+          roll: 0,
+          x: 0,
+          y: -0.05 * p,
+          z: -0.14 + 0.22 * p,
+        };
+      }
+    }
+    case "item_got": {
+      // Joyous victory double-hop on picking up item box
+      const hop = Math.abs(Math.sin(t * Math.PI * 2));
+      return {
+        pitch: -14 * D * hop,
+        yaw: 0,
+        roll: 6 * D * Math.sin(t * Math.PI * 2),
+        x: 0,
+        y: 0.09 * hop,
+        z: 0.04 * hop,
+      };
+    }
     default:
-      return { pitch: 0, yaw: 0, roll: 0 };
+      return { pitch: 0, yaw: 0, roll: 0, x: 0, y: 0, z: 0 };
   }
 };
 
