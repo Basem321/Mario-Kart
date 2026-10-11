@@ -37,11 +37,13 @@ const LobbyScreen = ({
   const [lapCount, setLapCount] = useState(3);
   const activeRaceTrack = getTrack(raceTrackId);
 
-  // Warm every course cache while players gather, so the shared countdown
-  // never starts on a cold (multi-MB) download.
+  // Warm the host-picked course cache while players gather, so the shared
+  // countdown never starts on a cold multi-MB download. Only the picked
+  // course — not all three — to spare mobile data.
   useEffect(() => {
-    TRACKS.forEach((track) => useGLTF.preload(track.glb));
-  }, []);
+    const track = TRACKS.find((t) => t.id === raceTrackId) ?? TRACKS[0];
+    if (track) useGLTF.preload(track.glb, "/draco/");
+  }, [raceTrackId]);
 
   const hasLobby = lobby.status !== "idle";
   const ownDriver = lobby.self?.driver ? DRIVERS[lobby.self.driver] : null;
@@ -131,12 +133,20 @@ const LobbyScreen = ({
 
           {lobby.error && <p className="lobby-error" role="alert">{lobby.error}</p>}
 
+          <div className="lobby-connection-panel" aria-label="Connection status">
+            <span className="lobby-kicker">Connection</span>
+            <p>
+              {lobby.isHost ? "Hosting via PeerJS cloud + STUN/TURN relay." : "Connected to host via PeerJS (STUN/TURN)."}
+              {" "}If friends on another network can't join, check your connection and retry — symmetric NATs need the TURN relay.
+            </p>
+          </div>
+
           <div className="lobby-main-grid">
             <section className="lobby-roster" aria-labelledby="players-title">
               <div className="lobby-section-heading">
                 <div>
                   <span className="lobby-kicker">Players</span>
-                  <h2 id="players-title">In the lobby ({lobby.players.length})</h2>
+                  <h2 id="players-title">In the lobby ({lobby.players.length}/10)</h2>
                 </div>
                 <span className="lobby-waiting">{lobby.status === "connected" ? "Ready to race" : "Waiting…"}</span>
               </div>

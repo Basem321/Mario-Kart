@@ -1,5 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
-
+/* Google Fonts @import removed (offline + first-paint). Montserrat falls back
+   to system fonts below. */
 :root {
   --primary-color: #E60012;
   --primary-hover: #FF1a29;

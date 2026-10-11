@@ -11,9 +11,8 @@ export const LoadingScreen = () => {
   const backgroundRef = useRef(null);
   const screenRef = useRef(null);
   const { progress } = useProgress();
-  const { countdown, gameStarted } = useGameManager();
-
-  console.log("LoadingScreen render - gameStarted:", gameStarted, "countdown:", countdown);
+  const countdown = useGameManager((s) => s.countdown);
+  const gameStarted = useGameManager((s) => s.gameStarted);
   
   const characters = BUTTON_TEXT.split("");
   const charactersWithoutSpaces = characters.filter((c) => !/\s/.test(c));
@@ -53,7 +52,6 @@ export const LoadingScreen = () => {
   useEffect(() => {
     // When game has started, remove the loading screen completely
     if (gameStarted) {
-      console.log("Game started, hiding loading screen");
       gsap.to(screenRef.current, {
         autoAlpha: 0, // Make it completely transparent
         duration: 0.5,
@@ -62,14 +60,12 @@ export const LoadingScreen = () => {
           // After fading out, remove it from the layout
           if (screenRef.current) {
             screenRef.current.style.display = 'none';
-            console.log("Loading screen hidden completely");
           }
         }
       });
     }
     // Handle countdown animations
     else if (countdown === 0) {
-      console.log("Countdown reached GO!");
       // Make the GO text visible with animation
       const goTextEl = document.getElementById('countdown-number');
       if (goTextEl) {
@@ -85,7 +81,6 @@ export const LoadingScreen = () => {
               setTimeout(() => {
                 // Double-check we're still at GO and game hasn't started
                 if (!gameStarted && countdown === 0) {
-                  console.log("Manually triggering game start from GO animation");
                   // Force game to start if it hasn't yet
                   useGameManager.getState().setGameStarted();
                 }

@@ -1,6 +1,7 @@
+import "./dracoSetup.js";
 import { useEffect, useState, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
-import { useGLTF } from '@react-three/drei'
+import { ErrorBoundary } from './ErrorBoundary.jsx'
 import './index.css'
 import { WebGPUCanvas } from './WebGPUCanvas.jsx'
 import { MobileControls } from './mobile/MobileControls.jsx'
@@ -38,19 +39,18 @@ if (import.meta.env.DEV) {
   };
 }
 
-// Draco-compressed courses (Waluigi Stadium) decode with a vendored WASM
-// build instead of the Google CDN default, so races work fully offline.
-useGLTF.setDecoderPath('/draco/');
+// Decoder path is configured in ./dracoSetup.js (first import above) so that
+// module-level preloads use the vendored /draco/ WASM even offline.
 
 const Root = () => {
-  const {
-    showHomepage,
-    startGame,
-    startCountdown,
-    gameStarted,
-    setDriver,
-    setTrackId
-  } = useGameManager();
+  // Selectors only: a full-store subscription re-renders the entire root
+  // (homepage + canvas container) on every lap-timer tick, i.e. 60fps.
+  const showHomepage = useGameManager((s) => s.showHomepage);
+  const startGame = useGameManager((s) => s.startGame);
+  const startCountdown = useGameManager((s) => s.startCountdown);
+  const gameStarted = useGameManager((s) => s.gameStarted);
+  const setDriver = useGameManager((s) => s.setDriver);
+  const setTrackId = useGameManager((s) => s.setTrackId);
 
   // Chosen right after the homepage countdown, before the race starts.
   const [pendingMode, setPendingMode] = useState(null); // null | 'regular' | 'trial'
@@ -93,6 +93,9 @@ const Root = () => {
     const countdownDelay = Math.max(0, (raceStart.startsAt ?? Date.now()) - Date.now());
     window.setTimeout(() => startCountdown(), countdownDelay);
     p2pLobby.clearRaceStart();
+  // Deliberately field-level deps: p2pLobby itself is a fresh object every
+  // render, so depending on it would re-fire the race start endlessly.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     p2pLobby.raceStart,
     p2pLobby.lobby.self?.id,
@@ -124,11 +127,9 @@ const Root = () => {
           if (audioCtx.state === 'suspended') {
             audioCtx.resume();
           }
-          
-          console.log('Audio initialized');
         }
       } catch {
-        console.warn('Web Audio API not supported');
+        // Web Audio API not supported — game continues muted
       }
       
       // Remove event listeners once audio is initialized
@@ -241,9 +242,11 @@ const Root = () => {
       ) : (
         <div className='canvas-container'>
           <MobileControls />
-          <Suspense fallback={false}>
-            <WebGPUCanvas />
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={false}>
+              <WebGPUCanvas />
+            </Suspense>
+          </ErrorBoundary>
           {/* Always show LoadingScreen initially; it will handle its own visibility */}
           <LoadingScreen />
           {/* Only show GameUI when game has actually started */}

@@ -14,6 +14,10 @@ const WebEvolution = () => {
   const imageRefs = useRef([]);
   
   useEffect(() => {
+    // Scoped context: revert() kills ONLY this component's triggers/tweens
+    // (the old getAll().forEach(kill) in a separate effect also nuked
+    // HomePage's triggers while it was still mounted).
+    const ctx = gsap.context(() => {
     // Title animation with gradient text reveal
     gsap.fromTo(
       titleRef.current,
@@ -140,16 +144,12 @@ const WebEvolution = () => {
         });
       });
     });
-  }, []);
-  
-  useEffect(() => {
-    // Kill leaked ScrollTriggers/tweens on unmount so they never fire on
-    // detached DOM after leaving the homepage.
+    }); // end gsap.context
     return () => {
-      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
+      ctx.revert();
     };
   }, []);
-  
+
   // Function to add elements to refs array
   const addToCardsRef = (el) => {
     if (el && !cardsRef.current.includes(el)) {

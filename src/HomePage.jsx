@@ -28,6 +28,10 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
   const countdownRef = useRef(null);
 
   useEffect(() => {
+    // Scoped context: revert() on unmount kills ONLY this component's
+    // tweens + ScrollTriggers. The old getAll().forEach(kill) also nuked
+    // other mounted screens' triggers (e.g. WebEvolution's).
+    const ctx = gsap.context(() => {
     // Header animation - simpler and smoother
     gsap.from(headerRef.current, {
       opacity: 0,
@@ -179,10 +183,11 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
       }
     });
 
-    // Kill every ScrollTrigger on unmount (e.g. entering a race): leaked
-    // triggers would fire on detached DOM and crash on null refs.
+    // Kill this component's ScrollTriggers/tweens on unmount (e.g. entering
+    // a race): leaked triggers would fire on detached DOM and crash on refs.
+    }); // end gsap.context
     return () => {
-      ScrollTrigger.getAll().forEach((trigger) => trigger.kill());
+      ctx.revert();
     };
   }, []);
 

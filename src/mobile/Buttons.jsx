@@ -3,28 +3,51 @@ import { useRef } from "react";
 
 export const Buttons = () => {
   const setJumpButtonPressed = useGameStore((state) => state.setJumpButtonPressed);
-  const buttonRef = useRef(null);
+  const setUseItemPressed = useGameStore((state) => state.setUseItemPressed);
+  const jumpRef = useRef(null);
+  const itemRef = useRef(null);
 
-  const handleStart = (e) => {
-    // e.preventDefault(); 
-    setJumpButtonPressed(true);
-    buttonRef.current?.classList.add("pressed");
-  };
+  const bindHold = (set, ref) => ({
+    onTouchStart: () => {
+      set(true);
+      ref.current?.classList.add("pressed");
+    },
+    onTouchEnd: () => {
+      set(false);
+      ref.current?.classList.remove("pressed");
+    },
+    onMouseDown: () => {
+      set(true);
+      ref.current?.classList.add("pressed");
+    },
+    onMouseUp: () => {
+      set(false);
+      ref.current?.classList.remove("pressed");
+    },
+    onMouseLeave: () => {
+      set(false);
+      ref.current?.classList.remove("pressed");
+    },
+  });
 
-  const handleEnd = () => {
-    setJumpButtonPressed(false);
-    buttonRef.current?.classList.remove("pressed");
-  };
+  const jumpBind = bindHold(setJumpButtonPressed, jumpRef);
+  const itemBind = bindHold(setUseItemPressed, itemRef);
 
   return (
     <div className="bottom-right">
       <button
-        ref={buttonRef}
-        onTouchStart={handleStart}
-        onTouchEnd={handleEnd}
-        onMouseDown={handleStart}
-        onMouseUp={handleEnd}
+        ref={itemRef}
+        aria-label="Use item"
+        className="touch-button touch-button-item"
+        {...itemBind}
+      >
+        B
+      </button>
+      <button
+        ref={jumpRef}
+        aria-label="Drift"
         className="touch-button"
+        {...jumpBind}
       >
         A
       </button>

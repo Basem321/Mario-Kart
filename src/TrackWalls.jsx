@@ -14,6 +14,19 @@ const OUTER_MARGIN = 45;
 // Safety cap so pathological tracks can't freeze load or the per-frame loop.
 const MAX_WALL_SEGMENTS = 2500;
 
+// Boundary extraction is O(edges x triangles) on the main thread and
+// useMemo re-runs it on every Suspense retry/remount (observed 5x per race
+// start). Cache by the inputs that actually change the result so retries
+// reuse the computed segments instead of melting the loader.
+const boundaryCache = new Map();
+const boundaryCacheKey = (track) =>
+  [
+    track.id,
+    (track.offset ?? []).join(","),
+    track.scale,
+    JSON.stringify(track.wallExclusion ?? []),
+  ].join("|");
+
 const q = (v) => Math.round(v * 20) / 20;
 const edgeKey = (ax, ay, az, bx, by, bz) => {
   const a = `${q(ax)},${q(ay)},${q(az)}`;
@@ -218,6 +231,9 @@ export function TrackWalls() {
     // model walls (naturalWalls) just don't RENDER the red/white barriers
     // (see visibleSegments below); the invisible edges still stop karts
     // from sliding sideways off the road and falling inside the map.
+    const cacheKey = boundaryCacheKey(track);
+    const cached = boundaryCache.get(cacheKey);
+    if (cached) return cached;
     let segs = [];
     if (roadGeometry) {
       segs = getBoundarySegments(roadGeometry, track);
@@ -227,6 +243,13 @@ export function TrackWalls() {
     // Downsample if a track ever yields an extreme edge count.
     if (segs.length > MAX_WALL_SEGMENTS - 4) {
       const step = Math.ceil(segs.length / (MAX_WALL_SEGMENTS - 4));
+      const dropped = segs.length - Math.ceil(segs.length / step);
+      // Never silent: a dropped wall is a hole karts fall through. Loud
+      // warn with counts so the next Map Editor export fixes the source.
+      console.warn(
+        `[TrackWalls] ${track.id}: downsampling ${segs.length} boundary segments ` +
+          `to every ${step}-th (${dropped} dropped). Holes possible — simplify the road mesh.`
+      );
       segs = segs.filter((_, i) => i % step === 0);
     }
 
@@ -256,6 +279,9 @@ export function TrackWalls() {
     console.info(
       `[TrackWalls] ${track.id} road boundary segments: ${boundaryCount}, total with outer fence: ${segs.length}`
     );
+    boundaryCache.set(cacheKey, segs);
+    // Bound the cache: one entry per track config is plenty.
+    if (boundaryCache.size > 12) boundaryCache.clear();
     return segs;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, selectedTrackId, track]);
@@ -332,4 +358,3 @@ export function TrackWalls() {
   );
 }
 
-useGLTF.preload("./models/mario-circuit-test-transformed.glb");

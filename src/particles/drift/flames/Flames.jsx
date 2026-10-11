@@ -9,6 +9,17 @@ import { useGameStore } from "../../../store";
 
 extend({ InstancedMesh2 });
 
+// Module scratch: updateInstances runs per flame per frame — allocating
+// Vector3/Quaternion/Euler there churns GC every frame (AGENTS.md: no
+// per-frame allocations). These are used synchronously, never retained.
+const _growTarget = new Vector3();
+const _camPos = new Vector3();
+const _toCam = new Vector3();
+const _zAxis = new Vector3(0, 0, 1);
+const _q1 = new Quaternion();
+const _q2 = new Quaternion();
+const _eul = new Euler();
+
 export const Flames = () => {
   const ref = useRef();
 
@@ -92,20 +103,22 @@ export const Flames = () => {
     ref.current.updateInstances((obj) => {
       obj.currentTime += delta;
       obj.setUniform('uCurrentTime', obj.currentTime);
-      obj.scale.lerp(new Vector3(scaleTarget * ks, scaleTarget * 2 * ks, scaleTarget * ks), 1 * delta);
+      obj.scale.lerp(_growTarget.set(scaleTarget * ks, scaleTarget * 2 * ks, scaleTarget * ks), 1 * delta);
       obj.position.y += delta * 13 * ks;
 
-      const toCamera = new Vector3().subVectors(camera.getWorldPosition(new Vector3()), obj.position).normalize();
-    
+      camera.getWorldPosition(_camPos);
+      _toCam.subVectors(_camPos, obj.position).normalize();
 
-      const particleQuaternion = new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), toCamera);
-      
-      const randomRotationQuaternion = new Quaternion().setFromEuler(new Euler(0, 0, obj.randomZRotation));
-      obj.scale.lerp(obj.scale, 0, delta * 30);
-      
-      particleQuaternion.multiply(randomRotationQuaternion);
-      
-      obj.quaternion.copy(particleQuaternion);
+
+      _q1.setFromUnitVectors(_zAxis, _toCam);
+
+      _q2.setFromEuler(_eul.set(0, 0, obj.randomZRotation));
+      // (Dead shrink removed: the old `lerp(obj.scale, 0, delta*30)` passed
+      // alpha=0, i.e. it never did anything. Growth above is the behavior.)
+
+      _q1.multiply(_q2);
+
+      obj.quaternion.copy(_q1);
       
 
       if (obj.currentTime > .5) {

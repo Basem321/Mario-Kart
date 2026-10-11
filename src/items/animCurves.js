@@ -207,7 +207,9 @@ export const popScale = (t01, overshoot = itemConfig.popInOvershoot) => {
 
 // Item visibility during use_mushroom: shrink to 0 at release; golden hops
 // back to the glove afterwards (slot persists), singles stay gone.
-export const useItemScale = (animName, t01, isGolden = false) => {
+// NOTE: plain curve helper, NOT a hook (it only reads config) — the `use`
+// prefix was a misnomer that tripped rules-of-hooks; call it directly.
+export const itemUseScale = (animName, t01, isGolden = false) => {
   if (animName !== "use_mushroom") return 1;
   const t = clamp01(t01);
   const shrinkEnd = Number(itemConfig.useMushroom.shrinkMs) / Number(itemConfig.useMushroom.totalMs);

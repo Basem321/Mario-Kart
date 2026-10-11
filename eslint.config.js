@@ -4,7 +4,14 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist'] },
+  {
+    ignores: [
+      'dist',
+      // Third-party decoder + vendored joystick build: not our code.
+      'public',
+      'src/mobile/react-joystick-component/build',
+    ],
+  },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {

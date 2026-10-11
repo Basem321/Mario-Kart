@@ -92,13 +92,14 @@ const RemoteKart = ({ player, playerIndex }) => {
       bodyY: 0,
     };
     const target = { ...fallbackTarget, ...remoteState };
-    // The outer group is scaled by kartScale, so network world positions
-    // convert to local (at scale=1 this is exactly the old code).
+    // kartRef is the OUTER group: its position lives in the parent (world)
+    // space, so damp it directly. (Only visualRef below is a child of the
+    // scaled group and needs the rs conversion.)
     const rs = spawnSlot.kartScale ?? 1;
 
-    kartRef.current.position.x = MathUtils.damp(kartRef.current.position.x * rs, target.x, 14, delta) / rs;
-    kartRef.current.position.y = MathUtils.damp(kartRef.current.position.y * rs, target.y, 14, delta) / rs;
-    kartRef.current.position.z = MathUtils.damp(kartRef.current.position.z * rs, target.z, 14, delta) / rs;
+    kartRef.current.position.x = MathUtils.damp(kartRef.current.position.x, target.x, 14, delta);
+    kartRef.current.position.y = MathUtils.damp(kartRef.current.position.y, target.y, 14, delta);
+    kartRef.current.position.z = MathUtils.damp(kartRef.current.position.z, target.z, 14, delta);
     kartRef.current.rotation.y = smoothAngle(kartRef.current.rotation.y, target.rotationY, 16, delta);
     // Remote spin uses the SAME yaw-only spinPose curve as the local kart
     // (progress from the receipt clock): light 540deg, heavy 720deg, hop.

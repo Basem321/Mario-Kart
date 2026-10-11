@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useProgress } from "@react-three/drei";
 import { useGameStore } from "./store";
 
 // One shared AudioContext for all sessions. Creating a new context per
@@ -27,6 +28,14 @@ export const useGameManager = create((set, get) => ({
   isTimeTrial: false,
   gameStarted: false,
   gameOver: false,
+  // Bumped every startGame: physics/visuals re-seat the kart on the grid so
+  // "Race Again" never inherits the previous run's position, speed or drift.
+  sessionId: 0,
+  // True pause (offline only): freezes physics, items, timers and lap clock
+  // while the pause menu is open. Online races never pause — the menu there
+  // is informational and the race continues for everyone.
+  isPaused: false,
+  setPaused: (isPaused) => set({ isPaused: Boolean(isPaused) }),
   showHomepage: true,
   countdown: 3,
   // Chosen driver: 'mario' | 'luigi' (picked on the character screen)
@@ -82,39 +91,49 @@ export const useGameManager = create((set, get) => ({
   startGame: (isTimeTrial = false, onlineOptions = {}) => {
     // Fresh battle state every run (boxes/bombs/explosions/stun).
     useGameStore.getState().resetBattleState();
+    // Stop the previous session's tracks: startGame used to leak 4 new
+    // Audio elements per call, stacking background music on every retry.
+    for (const key of ["backgroundMusic", "gameStartSound", "gameOverSound", "winningSound"]) {
+      try {
+        get()[key]?.pause();
+      } catch {
+        // ignore — element may already be gone
+      }
+    }
     const currentMusicVolume = get().musicVolume ?? 0.35;
     const currentSfxVolume = get().sfxVolume ?? 0.7;
 
-    // Preload audio files
-    const backgroundMusic = new Audio('./music/Mario Kart Wii OST.mp3');
+    // Preload audio files (absolute paths — relative ./music/ breaks under
+    // nested routes and duplicates cache entries).
+    const backgroundMusic = new Audio('/music/Mario Kart Wii OST.mp3');
     backgroundMusic.loop = true;
     backgroundMusic.volume = currentMusicVolume;
     // Preload audio to prevent delayed playback
     backgroundMusic.preload = 'auto';
     backgroundMusic.load();
     
-    const gameStartSound = new Audio('./music/level-completed.wav');
+    const gameStartSound = new Audio('/music/level-completed.wav');
     gameStartSound.volume = Math.max(0, Math.min(1, 0.5 * currentSfxVolume));
     gameStartSound.preload = 'auto';
     gameStartSound.load();
     
-    const gameOverSound = new Audio('./music/game-over.wav');
+    const gameOverSound = new Audio('/music/game-over.wav');
     gameOverSound.volume = Math.max(0, Math.min(1, 0.5 * currentSfxVolume));
     gameOverSound.preload = 'auto';
     gameOverSound.load();
 
-    const winningSound = new Audio('./music/winning_sound.mp3');
+    const winningSound = new Audio('/music/winning_sound.mp3');
     winningSound.volume = Math.max(0, Math.min(1, currentSfxVolume));
     winningSound.preload = 'auto';
     winningSound.load();
     
     // Add event listeners to handle audio playback issues
     backgroundMusic.addEventListener('canplaythrough', () => {
-      console.log('Background music ready to play');
+      if (import.meta.env.DEV) console.log('Background music ready to play');
     });
     
     gameStartSound.addEventListener('canplaythrough', () => {
-      console.log('Start sound ready to play');
+      if (import.meta.env.DEV) console.log('Start sound ready to play');
     });
     
     // Setup audio context to ensure audio can play (fixes iOS/Safari issues)
@@ -146,13 +165,15 @@ export const useGameManager = create((set, get) => ({
     const totalLaps = Math.min(5, Math.max(1, requestedLapCount));
 
     // Apply performance optimizations for time trial mode
-    console.log(`Starting game in ${isOnlineRace ? 'Online Race' : isTimeTrial ? 'Time Trial' : 'Regular'} mode`);
+    if (import.meta.env.DEV) console.log(`Starting game in ${isOnlineRace ? 'Online Race' : isTimeTrial ? 'Time Trial' : 'Regular'} mode`);
     
     set({
       isPlaying: true,
       isTimeTrial, 
       gameStarted: false,
       gameOver: false,
+      isPaused: false,
+      sessionId: get().sessionId + 1,
       showHomepage: false,
       countdown: 3,
       backgroundMusic,
@@ -178,13 +199,16 @@ export const useGameManager = create((set, get) => ({
   startCountdown: () => {
     // Reset the countdown to ensure we start from 3
     set({ countdown: 3 });
-    console.log("Countdown started: 3");
-    
-    // Start a timer that updates every second
-    let currentCount = 3;
+
+    // Wait for the course + kart assets before ticking: starting 3-2-1 on a
+    // cold multi-MB download leaves gameStarted=true with no track (null
+    // positions, no walls). Polls drei's loader progress; gives up after 30s
+    // so a hung asset can never soft-lock the race.
+    const beginTicks = () => {
+      // Start a timer that updates every second
+      let currentCount = 3;
     const countdownInterval = setInterval(() => {
       currentCount -= 1;
-      console.log("Countdown tick:", currentCount);
       
       if (currentCount >= 0) {
         // Update the countdown state
@@ -198,11 +222,11 @@ export const useGameManager = create((set, get) => ({
           // Play sound effects
           try {
             if (gameStartSound) {
-              gameStartSound.play().catch(err => console.log("Error playing start sound:", err));
+              gameStartSound.play().catch(() => {});
             }
             
             if (backgroundMusic) {
-              backgroundMusic.play().catch(err => console.log("Error playing background music:", err));
+              backgroundMusic.play().catch(() => {});
             }
           } catch (error) {
             console.error("Error playing audio:", error);
@@ -210,17 +234,14 @@ export const useGameManager = create((set, get) => ({
           
           // Show "GO!" for a short time, then start the game
           setTimeout(() => {
-            console.log("GO countdown complete, starting game now");
             set({ 
               gameStarted: true,
               countdown: -1 // Set to -1 to completely remove the countdown display
             });
-            console.log("Game started!");
             
             // Double check to ensure game is actually started after a short delay
             setTimeout(() => {
               if (!get().gameStarted) {
-                console.log("Recovery: Game didn't start properly, forcing start");
                 set({ gameStarted: true, countdown: -1 });
               }
             }, 300);
@@ -231,8 +252,27 @@ export const useGameManager = create((set, get) => ({
         }
       }
     }, 1000);
-    
-    return () => clearInterval(countdownInterval);
+
+      return () => clearInterval(countdownInterval);
+    };
+
+    // drei's loader progress lives in a zustand store — readable here without
+    // React. Cached tracks report 100 instantly, so warm starts tick at once.
+    const startedAt = Date.now();
+    const waitForAssets = () => {
+      let progress = 100;
+      try {
+        progress = useProgress.getState().progress ?? 100;
+      } catch {
+        progress = 100;
+      }
+      if (progress >= 100 || Date.now() - startedAt > 30000) {
+        beginTicks();
+      } else {
+        window.setTimeout(waitForAssets, 200);
+      }
+    };
+    waitForAssets();
   },
   
   endGame: () => {
@@ -259,7 +299,6 @@ export const useGameManager = create((set, get) => ({
   
   // Time trial functions
   startLap: () => {
-    console.log("Starting new lap");
     set({
       currentLapTime: 0,
       currentLap: get().currentLap + 1
@@ -267,7 +306,6 @@ export const useGameManager = create((set, get) => ({
   },
   
   endLap: (lapTime) => {
-    console.log("Ending lap with time:", lapTime);
     const { lapTimes, bestLapTime } = get();
     
     // Ensure lapTime is valid
@@ -317,18 +355,12 @@ export const useGameManager = create((set, get) => ({
   },
   
   updateLapTime: (delta) => {
-    if (get().gameStarted && !get().gameOver) {
+    if (get().gameStarted && !get().gameOver && !get().isPaused) {
       // Ensure delta is a valid number
       const validDelta = isNaN(delta) ? 0 : delta;
       
       if (validDelta < 0) {
-        console.warn("Negative delta time:", delta);
         return; // Don't update with negative values
-      }
-      
-      // If it's the first update, log it
-      if (get().totalTime === 0) {
-        console.log("First lap time update with delta:", validDelta);
       }
       
       // Update lap times with validated delta

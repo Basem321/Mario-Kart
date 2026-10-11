@@ -1,4 +1,4 @@
-import { useRef, forwardRef, useImperativeHandle } from "react";
+import { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { AdditiveBlending } from "three";
 import { useTexture } from "@react-three/drei";
 import gsap from "gsap";
@@ -6,9 +6,23 @@ import gsap from "gsap";
 
 
 export const Spark = forwardRef((props, ref) => {
-  const texture = useTexture("./textures/particles/spark.png");
+  const texture = useTexture("/textures/particles/spark.png");
   const materialRef = useRef();
   const meshRef = useRef();
+  const mountedRef = useRef(true);
+
+  // Tweens outlive unmount: kill them so onComplete never touches a
+  // detached mesh ("GSAP target null" spam).
+  useEffect(() => {
+    mountedRef.current = true;
+    const material = materialRef.current;
+    const mesh = meshRef.current;
+    return () => {
+      mountedRef.current = false;
+      gsap.killTweensOf(material);
+      if (mesh) gsap.killTweensOf(mesh.scale);
+    };
+  }, []);
 
   // useFrame((state) => {
   //   if (materialRef.current) {
@@ -20,11 +34,12 @@ export const Spark = forwardRef((props, ref) => {
   const scaleTarget = 0.3
   
   const animateParticle = () => {
-    if (materialRef.current) {
+    if (materialRef.current && meshRef.current) {
       gsap.to(materialRef.current, {
         duration: 0.05,
         opacity: 1,
         onComplete: () => {
+          if (!mountedRef.current || !materialRef.current) return;
           gsap.to(materialRef.current, {
             duration: 0.1,
             delay: 0.1,
@@ -39,6 +54,7 @@ export const Spark = forwardRef((props, ref) => {
         y: scaleTarget,
         z: scaleTarget,
         onComplete: () => {
+          if (!mountedRef.current || !meshRef.current) return;
           gsap.set(meshRef.current.scale,{
             x: 0,
             y: 0,

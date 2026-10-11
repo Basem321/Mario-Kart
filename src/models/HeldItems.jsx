@@ -8,6 +8,8 @@
 // glove through the throw window (animGhost), so gameplay never waits for
 // the animation. Triples never enter the glove — they orbit (ItemOrbit).
 
+import { useRef, useState } from "react";
+import { useFrame } from "@react-three/fiber";
 import { itemConfig } from "../items/itemConfig.js";
 import { blueMul, redSingleMul } from "../items/itemScale.js";
 import { visualFor } from "../items/itemVisuals.js";
@@ -58,6 +60,19 @@ export function HeldItems({
   frozenT = null,
   liveAnchor = false,
 }) {
+  // Ghost/pop timing must not depend on parent re-renders (the render-storm
+  // that used to tick `performance.now()` here is gone). This self-tick
+  // re-renders at ~10Hz only while a ghost is alive, so expiry lands on time.
+  const [, setTick] = useState(0);
+  const lastTickRef = useRef(0);
+  useFrame(() => {
+    if (!ghost || hidden) return;
+    const n = performance.now();
+    if (n - lastTickRef.current > 100) {
+      lastTickRef.current = n;
+      setTick((t) => t + 1);
+    }
+  });
   if (hidden) return null;
   const now = performance.now();
   const ghostOn = (g) => g && animLive({ name: g.anim, start: g.start, totalMs: g.totalMs }, now);

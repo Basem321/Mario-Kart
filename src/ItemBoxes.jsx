@@ -22,6 +22,7 @@ import {
   canFireBlue,
   clampBombScale,
   clampShellMul,
+  clampShellSpeed,
   coneLock,
   cruiseSettle,
   goldenWindowMs,
@@ -79,19 +80,10 @@ let nextId = 1;
 // Last committed item-use press (performance.now). Global min-use gap (§10.6).
 let lastUseAt = 0;
 
-// Shared sfx helper (2.2 #18): absolute path, respects sfxVolume, never
-// throws into gameplay.
-const playSfx = (name, volumeMul = 1) => {
-  try {
-    const rawVol = Number(useGameManager.getState().sfxVolume);
-    const base = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-    const sfx = new Audio(`/music/${name}`);
-    sfx.volume = Math.max(0, Math.min(1, base * volumeMul));
-    sfx.play().catch(() => {});
-  } catch {
-    // ignore — audio must never break item use
-  }
-};
+// Shared sfx helper (2.2 #18): absolute path, respects sfxVolume, pooled
+// elements instead of a new Audio per trigger, never throws into gameplay.
+import { playSfx as playPooledSfx, startLoop, stopLoop } from "./audio.js";
+const playSfx = (name, volumeMul = 1) => playPooledSfx(name, volumeMul);
 
 // Item throw/receive/use anim (T6 §3.2): plays the glove + body anim and
 // keeps a ghost of the consumed item visible through the throw window.
@@ -368,7 +360,12 @@ const fireRedShell = (backward = false, fromTriple = false) => {
       x: Number(r?.x) || 0,
       z: Number(r?.z) || 0,
     }));
-    const target = coneLock({ id: me, x: playerPos.x, z: playerPos.z, fx, fz }, racers);
+    const target = coneLock(
+      { id: me, x: playerPos.x, z: playerPos.z, fx, fz },
+      racers,
+      // Lock range scales with kart size (60 units dwarfs a 0.2-scale kart).
+      itemConfig.redShell.lockRange * (st.kartScale ?? 1),
+    );
     targetId = target ? target.id : null;
   }
 
@@ -377,6 +374,11 @@ const fireRedShell = (backward = false, fromTriple = false) => {
   const hand = getHandWorldPosition();
   // Flying shell inherits its source size (single 0.7x, triple 1x).
   const sizeMul = clampShellMul(fromTriple ? 1 : Number(itemConfig.sizes.redShellSingleMul ?? 0.7));
+  // Cruise speed scales with the FIRING kart (mini karts on Shroom Ridge top
+  // at 6 u/s — an unscaled 48 u/s shell is 8x faster than its owner). The
+  // speed travels in the payload so every client simulates identically.
+  const myScale = st.kartScale ?? 1;
+  const shellSpeed = clampShellSpeed(itemConfig.redShell.speedMult * kartSettings.speed.max * myScale);
   const shell = {
     id: `shell-${me}-${Date.now().toString(36)}`,
     kind: "red",
@@ -392,6 +394,7 @@ const fireRedShell = (backward = false, fromTriple = false) => {
     ownerId: me,
     owner: true,
     sizeMul,
+    speed: shellSpeed,
     at: performance.now(),
   };
   st.setActiveShells([...st.activeShells, shell]);
@@ -413,6 +416,7 @@ const fireRedShell = (backward = false, fromTriple = false) => {
       bounces: shell.bounces,
       ownerId: me,
       sizeMul,
+      speed: shellSpeed,
     },
   });
   playSfx("shell-fire.mp3");
@@ -526,20 +530,13 @@ let blueAlarmAudio = null;
 const startBlueAlarm = () => {
   try {
     stopBlueAlarm();
-    blueAlarmAudio = new Audio("/music/blue-alarm.mp3");
-    blueAlarmAudio.loop = true;
-    blueAlarmAudio.volume = 0.6;
-    blueAlarmAudio.play().catch(() => {});
+    blueAlarmAudio = startLoop("blue-alarm.mp3", 0.6);
   } catch {
     blueAlarmAudio = null;
   }
 };
 const stopBlueAlarm = () => {
-  try {
-    blueAlarmAudio?.pause();
-  } catch {
-    // ignore — alarm is best-effort
-  }
+  stopLoop(blueAlarmAudio);
   blueAlarmAudio = null;
 };
 
@@ -581,8 +578,20 @@ const fireBlueShell = (pending) => {
   }
   let leaderId = leaderOf(rows) || me;
   if (leaderId === me && remoteIds.size > 0) {
-    const opp = rows.find((r) => r.id !== me && !r.finished);
-    if (opp) leaderId = opp.id;
+    // Shooter leads: target the BEST-ranked unfinished rival (laps, then
+    // distance) — not just the first roster entry.
+    let best = null;
+    for (const r of rows) {
+      if (r.id === me || r.finished) continue;
+      if (
+        !best ||
+        r.laps > best.laps ||
+        (r.laps === best.laps && (r.dist || 0) > (best.dist || 0))
+      ) {
+        best = r;
+      }
+    }
+    if (best) leaderId = best.id;
   }
   // Gate BEFORE firing: solo allows firing, online requires leader
   if (!canFireBlue({ isOnlineRace: gm.isOnlineRace, leaderId })) return refund();
@@ -593,8 +602,18 @@ const fireBlueShell = (pending) => {
   const hand = getHandWorldPosition();
   const sizeMul = clampShellMul(Number(itemConfig.sizes.blueShellMul ?? 1));
   const leaderObj = leaderId === me ? playerPos : ors.remoteRacers[leaderId];
-  const targetY = Number.isFinite(Number(leaderObj?.y)) ? Number(leaderObj.y) : gy;
+  // Remote r.y is the kart-group origin (always 0) — use the driving level.
+  const leaderGroundY =
+    leaderId === me
+      ? gy
+      : Number.isFinite(Number(leaderObj?.bodyY))
+        ? Number(leaderObj.bodyY)
+        : Number.isFinite(Number(leaderObj?.y)) && Number(leaderObj.y) !== 0
+          ? Number(leaderObj.y)
+          : gy;
+  const targetY = leaderGroundY;
   const top = targetY + BLUE_FLY_HEIGHT;
+  const blueSpeed = clampShellSpeed(BLUE_SPEED * (st.kartScale ?? 1));
   const shell = {
     id: `blue-${me}-${Date.now().toString(36)}`,
     kind: "blue",
@@ -609,6 +628,7 @@ const fireBlueShell = (pending) => {
     ownerId: me,
     owner: true,
     sizeMul,
+    speed: blueSpeed,
     at: performance.now(),
   };
   st.setActiveShells([...st.activeShells, shell]);
@@ -627,6 +647,7 @@ const fireBlueShell = (pending) => {
       targetId: leaderId,
       ownerId: me,
       sizeMul,
+      speed: blueSpeed,
       top,
     },
   });
@@ -654,13 +675,15 @@ const makeBombId = () => {
   return `bomb-${owner}-${Date.now().toString(36)}-${nextId++}`;
 };
 
-const addDroppedBomb = (bomb) => {
+const addDroppedBomb = (bomb, remote = false) => {
   const st = useGameStore.getState();
   const id = String(bomb?.id ?? "");
   if (!id || st.droppedBombs.some((entry) => entry.id === id)) return false;
   if (st.explosions.some((entry) => entry.id === bombExplosionId(id))) return false;
 
   // Bombs keep their owner's kart size so a mini kart drops a mini bomb.
+  // Remote bombs anchor the arm delay at RECEIPT, never at the sender's wall
+  // clock (Date.now differs per device — a skewed sender would arm instantly).
   st.setDroppedBombs([
     ...st.droppedBombs,
     {
@@ -669,7 +692,7 @@ const addDroppedBomb = (bomb) => {
       y: bomb.y,
       z: bomb.z,
       scale: clampBombScale(bomb?.scale),
-      createdAt: Number.isFinite(bomb.createdAt) ? bomb.createdAt : Date.now(),
+      createdAt: remote || !Number.isFinite(bomb.createdAt) ? Date.now() : bomb.createdAt,
       at: performance.now(),
     },
   ]);
@@ -698,9 +721,7 @@ const triggerBombExplosion = (bomb, { broadcast = false } = {}) => {
     },
   ]);
 
-  const boom = new Audio("/music/explosion.mp3");
-  boom.volume = 1;
-  boom.play().catch(() => {});
+  playSfx("explosion.mp3", 1);
 
   if (broadcast) {
     publishOnlineRaceEvent({
@@ -864,7 +885,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         if (!event || typeof event !== "object") return;
 
         if (event.type === "bomb:dropped" && event.bomb) {
-          addDroppedBomb(event.bomb);
+          addDroppedBomb(event.bomb, true);
           return;
         }
 
@@ -1087,26 +1108,24 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
   // Ticking loop while carrying the bomb.
   useEffect(() => {
     if (carriedBomb) {
-      const audio = new Audio("/music/explosion.mp3");
-      audio.loop = true;
-      audio.volume = 0.35;
-      audio.play().catch(() => {});
+      const audio = startLoop("explosion.mp3", 0.35);
       tickAudioRef.current = audio;
     } else if (tickAudioRef.current) {
-      tickAudioRef.current.pause();
+      stopLoop(tickAudioRef.current);
       tickAudioRef.current = null;
     }
     return () => {
       // Always stop on unmount (exit) — otherwise the loop keeps playing
       // and a second loop starts on re-entry while still carrying.
       if (tickAudioRef.current) {
-        tickAudioRef.current.pause();
+        stopLoop(tickAudioRef.current);
         tickAudioRef.current = null;
       }
     };
   }, [carriedBomb]);
 
   useFrame((state, delta) => {
+    if (useGameManager.getState().isPaused) return;
     const st = useGameStore.getState();
     const playerPos = st.playerPosition;
     const now = performance.now();
@@ -1140,7 +1159,10 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     for (const b of st.itemBoxes) {
       if (!b.active) continue;
       const d = Math.hypot(px - b.x, pz - b.z);
-      if (d < pickupRadius) {
+      // Level gate: boxes on another deck (bridges, stacked switchbacks)
+      // don't trigger from above/below. Tolerates jumps (4u).
+      const dyBox = Math.abs((st.groundPosition ?? 0) - (Number(b.y) || 0));
+      if (d < pickupRadius && dyBox < 4) {
         st.setItemBoxes(
           st.itemBoxes.map((o) =>
             o.id === b.id
@@ -1244,7 +1266,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     // A live pending spawn also gates: the press commits once, the effect
     // lands at release, and the anim never double-fires.
     const keys = getKeys();
-    const dropDown = Boolean(keys?.dropBomb || keys?.useItem);
+    // E/G keyboard, B touch button, X/LB gamepad — one edge-triggered path.
+    const dropDown = Boolean(keys?.dropBomb || keys?.useItem || st.useItemPressed);
     const spinningNow = st.spin && now < st.spin.until;
     const gapOk = now - lastUseAt >= itemConfig.minUseGapMs;
     const spawnBusy = st.pendingSpawns.length > 0;
@@ -1344,12 +1367,14 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     }
 
     // Live bombs explode when the kart touches them (after arm time).
-    // Never behind the results screen.
+    // Never behind the results screen. Level-gated like pickups: a bomb on
+    // another deck can't catch the kart from above/below.
     for (const bomb of [...st.droppedBombs]) {
       if (bombAgeMs(bomb, now) < BOMB_ARM_SECONDS * 1000) continue;
       if (!raceLive()) continue;
       const d = Math.hypot(px - bomb.x, pz - bomb.z);
-      if (d < triggerRadius) triggerBombExplosion(bomb, { broadcast: true });
+      const dyBomb = Math.abs((st.groundPosition ?? 0) - (Number(bomb.y) || 0));
+      if (d < triggerRadius && dyBomb < 3.5) triggerBombExplosion(bomb, { broadcast: true });
     }
     // Bullet Bill expiry (owner ends with a hop) + knock detection.
     // Only the owner's client detects knocks; victims apply on receipt.
@@ -1366,7 +1391,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       const orsRide = useOnlineRaceStore.getState();
       for (const [id, r] of Object.entries(orsRide.remoteRacers)) {
         const d = Math.hypot(px - (Number(r?.x) || 0), pz - (Number(r?.z) || 0));
-        if (d < BULLET_KNOCK_RADIUS && !knockedRef.current.ids.has(id)) {
+        const knockRadius = Math.max(1, BULLET_KNOCK_RADIUS * (st.kartScale ?? 1));
+        if (d < knockRadius && !knockedRef.current.ids.has(id)) {
           knockedRef.current.ids.add(id);
           publishOnlineRaceEvent({
             type: "bullet:knock",
@@ -1408,7 +1434,9 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           id,
           x: Number(r?.x) || 0,
           z: Number(r?.z) || 0,
-          y: Number(r?.y) || 0,
+          // bodyY is the remote's driving level; r.y is the kart-group
+          // origin (always 0) and sends the shell to the wrong deck.
+          y: Number(r?.bodyY ?? r?.y) || 0,
           invulnUntil: Number(r?.invulnUntilLocal) || 0,
           anim: r?.anim,
           bullet: Boolean(r?.bulletRide),
@@ -1487,13 +1515,16 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               ? Number(leader.y)
               : Number(shell.top) - BLUE_FLY_HEIGHT;
             const targetTop = targetY + BLUE_FLY_HEIGHT;
+            const blueSpeed = Number.isFinite(Number(shell.speed))
+              ? clampShellSpeed(shell.speed)
+              : BLUE_SPEED;
             moved = {
               ...shell,
               phase,
               top: targetTop,
-              x: shell.x + (dxl / distXZ) * BLUE_SPEED * step,
+              x: shell.x + (dxl / distXZ) * blueSpeed * step,
               y: shell.y + (targetTop - shell.y) * Math.min(1, 2 * step),
-              z: shell.z + (dzl / distXZ) * BLUE_SPEED * step,
+              z: shell.z + (dzl / distXZ) * blueSpeed * step,
             };
           } else {
             // Dive onto the TARGET's ground height (2.1 #7), not the local
@@ -1543,7 +1574,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                   const hitIds = resolveBlueBlast(victims, {
                     x: moved.x,
                     z: moved.z,
-                  });
+                  }, Math.max(1.5, BLUE_BLAST_RADIUS * (st.kartScale ?? 1)));
                   if (hitIds.includes(me) && raceLive() && myVulnerable(now)) {
                     applyShellStun({
                       x: moved.x,
@@ -1579,7 +1610,9 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           }
         }
         const shellSpeed =
-          itemConfig.redShell.speedMult * kartSettings.speed.max;
+          Number.isFinite(Number(shell.speed))
+            ? clampShellSpeed(shell.speed)
+            : itemConfig.redShell.speedMult * kartSettings.speed.max;
         const moved = {
           ...shell,
           x: shell.x + dx * shellSpeed * step,
@@ -1600,6 +1633,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         if (shell.owner) {
           // First racer TOUCHED (nearest in radius), owner grace 0.5 s.
           // Bullet riders are already filtered out of hittable (§4.4).
+          // Radius follows kart size (3.4 dwarfs a 0.2-scale kart).
+          const hitRadius = Math.max(0.8, itemConfig.redShell.hitRadius * (st.kartScale ?? 1));
           let hit = null;
           let hitDist = Infinity;
           for (const v of hittable) {
@@ -1607,7 +1642,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               continue;
             }
             const d = Math.hypot(v.x - moved.x, v.z - moved.z);
-            if (d < itemConfig.redShell.hitRadius && d < hitDist) {
+            if (d < hitRadius && d < hitDist) {
               hit = v;
               hitDist = d;
             }
@@ -1697,4 +1732,3 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
   );
 }
 
-useGLTF.preload("./models/mario-circuit-test-transformed.glb");

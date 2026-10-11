@@ -1,11 +1,8 @@
-import { Environment, Lightformer, Sky } from "@react-three/drei";
 import { useRef } from "react";
 import { useGameStore } from "../store";
 import { useGameManager } from "../gameManager";
 import { useFrame } from "@react-three/fiber";
 import { EnvironmentSphere } from "./EnvironmentSphere";
-import { Helper } from "@react-three/drei";
-import { CameraHelper } from "three";
 
 export const Lighting = () => {
   const directionalLight = useRef(null)
@@ -16,7 +13,8 @@ export const Lighting = () => {
   useFrame(() => {
 
         const playerPosition = useGameStore.getState().playerPosition;
-        if (!playerPosition && !directionalLight.current) return;
+        // Either missing means nothing to follow yet (first frames / menu).
+        if (!playerPosition || !directionalLight.current) return;
     
         if(playerPosition){
         directionalLight.current.position.x = playerPosition.x + 2;

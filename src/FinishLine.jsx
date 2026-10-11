@@ -10,6 +10,11 @@ import { useMapEditorStore } from "./mapEditorStore";
 
 const groundRaycaster = new THREE.Raycaster();
 const downDir = new THREE.Vector3(0, -1, 0);
+// Scratch ray origin (set() copies values in — never retained).
+const _groundOrigin = new THREE.Vector3();
+// Driving-surface level the kart rig assumes on every track (group origin at
+// y=0, road ≈1.7 below). Used to pick the road hit out of stacked geometry.
+const ROAD_LEVEL_Y = -1.7;
 
 /**
  * خط النهاية تحت يافطة MARIO KART:
@@ -22,6 +27,16 @@ export function FinishLine() {
   const centerRef = useRef(null); // {x,z,fx,fz,rx,rz,ry,y}
   const prevSRef = useRef(0);
   const maxDistRef = useRef(0);
+  // Anti-cut gates: checkpoint indices driven through since the last counted
+  // lap (empty at race start — the grid-to-line stub of lap 1 counts freely,
+  // every later crossing must prove a full tour first).
+  const visitedRef = useRef(new Set());
+  // Far-gate fallback for tracks with no authored checkpoints (Mario Circuit):
+  // radial distance from the line that proves the kart left the start area.
+  // Derived from the road bounds so it scales with the track; null until
+  // roadMapData arrives.
+  const farGateRef = useRef(null);
+  const farVisitedRef = useRef(false);
   const [visual, setVisual] = useState(null);
   const scene = useThree((s) => s.scene);
   const collidersRef = useRef(null);
@@ -63,6 +78,14 @@ export function FinishLine() {
     centerRef.current = null;
     prevSRef.current = 0;
     maxDistRef.current = 0;
+    visitedRef.current = new Set();
+    farGateRef.current = null;
+    farVisitedRef.current = false;
+    try {
+      useGameStore.getState().setRespawnCheckpointIndex?.(-1);
+    } catch {
+      // ignore — store shape is forward-compatible
+    }
     collidersRef.current = null;
     setVisual(null);
   }, [
@@ -90,21 +113,36 @@ export function FinishLine() {
 
   const groundYAt = (x, z) => {
     try {
-      groundRaycaster.set(new THREE.Vector3(x, 60, z), downDir);
+      groundRaycaster.set(_groundOrigin.set(x, 60, z), downDir);
       groundRaycaster.far = 200;
-      groundRaycaster.firstHitOnly = true;
+      groundRaycaster.firstHitOnly = false;
       const hits = groundRaycaster.intersectObjects(getColliders(), false);
-      const g = hits.find((h) => h.object.name.includes("ground"));
-      if (g) return g.point.y;
+      const grounds = hits.filter((h) => h.object.name.includes("ground"));
+      if (grounds.length === 0) return null;
+      // The first hit from above is NOT always the road: Waluigi's start
+      // gantry (≈16 above the asphalt) and Shroom's gate (≈3.6 above) win the
+      // ray and leave the line floating. The kart rig pins every track so the
+      // driving surface sits ≈1.7 below the group origin — pick the surface
+      // closest to that level instead of the highest one.
+      let best = grounds[0].point.y;
+      let bestDist = Math.abs(best - ROAD_LEVEL_Y);
+      for (const h of grounds) {
+        const d = Math.abs(h.point.y - ROAD_LEVEL_Y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = h.point.y;
+        }
+      }
+      return best;
     } catch {
-      // ignore
+      // Raycast must never break lap tracking (missing BVH, bad geometry).
+      return null;
     }
-    return null;
   };
 
   useFrame(() => {
     const gm = useGameManager.getState();
-    if (!gm.gameStarted || gm.gameOver) return;
+    if (!gm.gameStarted || gm.gameOver || gm.isPaused) return;
 
     const st = useGameStore.getState();
     const p = st.playerPosition;
@@ -141,9 +179,6 @@ export function FinishLine() {
       prevSRef.current = (p.x - cx) * fx + (p.z - cz) * fz;
       maxDistRef.current = 0;
       setVisual(c);
-      console.log(
-        `[FinishLine] at (${cx.toFixed(1)}, ${cz.toFixed(1)}) absolute (matches Map Editor)`
-      );
       return;
     }
 
@@ -157,15 +192,63 @@ export function FinishLine() {
     const dist = Math.hypot(dx, dz);
     if (dist > maxDistRef.current) maxDistRef.current = dist;
 
+    // Checkpoint tour tracking (Shroom Ridge, Waluigi Stadium): a checkpoint
+    // counts as visited within 14 XZ units and 10 height units — lenient on
+    // jumps and stacked decks. Mirrors only NEW visits to the store (rare)
+    // so R can respawn at the last visited one instead of the nearest.
+    const track = getTrack(selectedTrackId);
+    const checkpoints =
+      (editorOpen && editorFinishOffset !== undefined && editorHalfWidth !== undefined
+        ? useMapEditorStore.getState().editedConfig?.checkpoints
+        : null) ?? track.checkpoints ?? [];
+    if (checkpoints.length > 0) {
+      const kartY = st.groundPosition ?? p.y ?? 0;
+      for (let i = 0; i < checkpoints.length; i += 1) {
+        if (visitedRef.current.has(i)) continue;
+        const cp = checkpoints[i]?.position;
+        if (!cp) continue;
+        const cdx = p.x - cp[0];
+        const cdz = p.z - cp[2];
+        if (cdx * cdx + cdz * cdz < 14 * 14 && Math.abs(kartY - cp[1]) < 10) {
+          visitedRef.current.add(i);
+          try {
+            useGameStore.getState().setRespawnCheckpointIndex?.(i);
+          } catch {
+            // ignore
+          }
+        }
+      }
+    } else if (farGateRef.current == null) {
+      // Lazy far-gate from the minimap road bounds (published by TrackWalls).
+      // ~30% of the road-bbox XZ diagonal: a real lap always leaves the start
+      // area that far; the reverse-28m-and-recross cheat never does.
+      const road = useGameStore.getState().roadMapData;
+      if (road && Number.isFinite(road.minX)) {
+        const diag = Math.hypot(road.maxX - road.minX, road.maxZ - road.minZ);
+        farGateRef.current =
+          diag > 60 ? Math.max(35, Math.min(160, diag * 0.3)) : MIN_DIST;
+      }
+    } else if (dist > farGateRef.current) {
+      farVisitedRef.current = true;
+    }
+
     const prevS = prevSRef.current;
 
     // عبور من ورا الخط لقدامه + جوه عرض الخط + بعيد كفاية + عدى وقت كفاية
+    // + إثبات لفة كاملة (ما عدا أول عبور: stub الشبكة للخط بيتحسب عادي).
+    const lapsDone = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
+    const tourProven =
+      lapsDone === 0 ||
+      (checkpoints.length > 0
+        ? visitedRef.current.size >= checkpoints.length
+        : farVisitedRef.current);
     if (
       maxDistRef.current > MIN_DIST &&
       prevS <= 0 &&
       s > 0 &&
       Math.abs(l) < HALF_WIDTH &&
-      gm.currentLapTime > MIN_LAP_MS
+      gm.currentLapTime > MIN_LAP_MS &&
+      tourProven
     ) {
       const lapTime = gm.currentLapTime;
       const result = gm.completeLap(lapTime);
@@ -184,13 +267,10 @@ export function FinishLine() {
         });
       }
 
-      console.log(
-        `🏁 Lap ${result.completedLap} completed in ${gm.formatTime(lapTime)}${
-          result.finished ? " — race finished" : ""
-        }`,
-      );
-      // ابدأ قياس البعد من جديد للفة الجديدة
+      // ابدأ قياس البعد والجولة من جديد للفة الجديدة
       maxDistRef.current = 0;
+      visitedRef.current = new Set();
+      farVisitedRef.current = false;
     }
 
     prevSRef.current = s;

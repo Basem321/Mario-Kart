@@ -236,13 +236,18 @@ export function MiniMap() {
 
     const canvas = canvasRef.current;
     let frame = 0;
+    let measureTick = 0;
     let staticLayer = null;
     let width = 0;
     let height = 0;
     let deviceScale = 0;
     let projection = null;
 
-    const prepareCanvas = () => {
+    const prepareCanvas = (force = false) => {
+      // getBoundingClientRect forces a layout pass — never call it every
+      // frame. The draw loop below only re-measures every 30th frame (plus
+      // window resizes), which is plenty for a fixed-position minimap.
+      if (!force && (measureTick % 30 !== 0) && staticLayer) return;
       const bounds = canvas.getBoundingClientRect();
       const nextWidth = Math.max(1, Math.round(bounds.width));
       const nextHeight = Math.max(1, Math.round(bounds.height));
@@ -277,6 +282,7 @@ export function MiniMap() {
     };
 
     const draw = () => {
+      measureTick += 1;
       prepareCanvas();
       const context = canvas.getContext("2d");
       context.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);

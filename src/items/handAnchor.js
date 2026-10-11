@@ -10,6 +10,13 @@ export const setHandGetter = (fn) => {
   getter = typeof fn === "function" ? fn : null;
 };
 
+// Clears ONLY if the registered getter is the caller's own: several
+// GloveHands can mount at once (bomb + held item), and an unmounting one
+// must not steal the anchor from the survivors.
+export const clearHandGetter = (fn) => {
+  if (fn && getter === fn) getter = null;
+};
+
 // Returns a Vector3 (fresh) or null when the rig is not mounted.
 export const getHandWorldPosition = () => {
   if (!getter) return null;

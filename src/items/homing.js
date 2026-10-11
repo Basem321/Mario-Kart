@@ -173,9 +173,11 @@ export const nearestAhead = (self, racers) => {
 
 // Red-shell target lock (v3 §4.3): nearest racer AHEAD inside lockRange
 // units and the lockConeDeg cone around the shooter forward, else null.
-export const coneLock = (self, racers) => {
+// `range` overrides the config (owner kartScale); defaults to config.
+export const coneLock = (self, racers, range = null) => {
   if (!self || !Array.isArray(racers)) return null;
   const cfg = itemConfig.redShell;
+  const lockRange = Number.isFinite(Number(range)) ? Number(range) : cfg.lockRange;
   const fx = Number(self.fx) || 0;
   const fz = Number(self.fz) === 0 ? 0 : Number(self.fz) || -1;
   const cosLimit = Math.cos(((cfg.lockConeDeg / 2) * Math.PI) / 180);
@@ -186,7 +188,7 @@ export const coneLock = (self, racers) => {
     const dx = Number(r.x) - Number(self.x);
     const dz = Number(r.z) - Number(self.z);
     const dist = Math.hypot(dx, dz);
-    if (dist > cfg.lockRange || dist < 1e-6) continue;
+    if (dist > lockRange || dist < 1e-6) continue;
     if ((dx * fx + dz * fz) / dist < cosLimit) continue;
     if (dist < bestDist) {
       bestDist = dist;
@@ -194,6 +196,15 @@ export const coneLock = (self, racers) => {
     }
   }
   return best;
+};
+
+// Shell cruise speed travels IN the shell payload (fired at owner kartScale)
+// so every client simulates the same velocity. Clamp keeps hostile payloads
+// sane: 4 (crawl) .. 140 (faster than any legit shell).
+export const clampShellSpeed = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 48;
+  return Math.max(4, Math.min(140, n));
 };
 
 // Wall bounce: reflect dir on the wall normal, spend one bounce.

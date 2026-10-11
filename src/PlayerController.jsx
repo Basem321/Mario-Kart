@@ -8,6 +8,7 @@ import { getOnlineSpawnSlot, kartSettings } from "./constants";
 import { useGameStore, applySpin, absorbWithOrbit } from "./store";
 import gsap from "gsap";
 import { useTouchScreen } from "./hooks/useTouchScreen";
+import { playSfx, startLoop, stopLoop } from "./audio.js";
 import VFXEmitter from "./wawa-vfx/VFXEmitter";
 import { useGameManager } from "./gameManager";
 import { useMapEditorStore } from "./mapEditorStore";
@@ -28,6 +29,17 @@ import { getTrack, getMergedRoadGeometry } from "./tracks";
 // Catches real walls even where the precomputed segments have gaps.
 const wallRaycaster = new Raycaster();
 wallRaycaster.firstHitOnly = true;
+
+// Module scratch: updatePlayer + resolveMeshWalls run every frame — no
+// per-frame Vector3 allocations (AGENTS.md). Raycaster.set copies values,
+// so sharing these is safe.
+const _desiredDir = new Vector3();
+const _wallOrigin = new Vector3();
+const _wallDir = new Vector3();
+const _camPos = new Vector3();
+const _camLook = new Vector3();
+const _camRearPos = new Vector3();
+const _camRearLook = new Vector3();
 
 export const PlayerController = () => {
   const rbRef = useRef(null);
@@ -61,6 +73,7 @@ export const PlayerController = () => {
   const lastNetworkSyncRef = useRef(-Infinity);
   const resetHeldRef = useRef(false);
   const resetRequestedRef = useRef(false);
+  const lastResetAtRef = useRef(0);
   // Auto-Lakitu state: timestamp + frame counter for the throttled
   // trapped-under-the-deck check (see useFrame below).
   const stuckSinceRef = useRef(0);
@@ -71,6 +84,7 @@ export const PlayerController = () => {
   // drops). This lift tracks the kart's terrain height instead.
   const camLiftRef = useRef(0);
   const isOnlineRace = useGameManager((state) => state.isOnlineRace);
+  const gameOver = useGameManager((state) => state.gameOver);
   const onlineSpawnIndex = useGameManager((state) => state.onlineSpawnIndex);
   const selectedTrackId = useGameManager((state) => state.selectedTrackId);
   const activeTrack = getTrack(selectedTrackId);
@@ -131,6 +145,12 @@ export const PlayerController = () => {
     const d = Math.hypot(dx, dz);
     const BLAST_RADIUS = 12;
     if (d > BLAST_RADIUS) return;
+    // Level gate: blasts on another deck don't shove through the floor.
+    // latest.y may be absent on old payloads — then keep the legacy XZ rule.
+    const blastY = Number(latest.y);
+    if (Number.isFinite(blastY) && Number.isFinite(groundY) && Math.abs(blastY - groundY) > 5) {
+      return;
+    }
     const push = (1 - d / BLAST_RADIUS) * 6 * kartScale;
     const nx = d > 1e-4 ? dx / d : 0;
     const nz = d > 1e-4 ? dz / d : 1;
@@ -149,13 +169,9 @@ export const PlayerController = () => {
     player.position.z = resolved.z;
     // Heavy spin-out (throttle dead while spinning, see updateSpeed).
     applySpin({ victim: "self", heavy: true, now: performance.now() });
-    const spin = new Audio("/music/spin.mp3");
-    spin.loop = true;
-    spin.volume = 0.9;
-    spin.play().catch(() => {});
-    setTimeout(() => {
-      spin.pause();
-    }, 3000);
+    // Pooled loop, stopped shortly after (respects sfxVolume).
+    const spinEl = startLoop("spin.mp3", 0.9);
+    window.setTimeout(() => stopLoop(spinEl), 3000);
   }
 
   const [, get] = useKeyboardControls();
@@ -176,6 +192,45 @@ export const PlayerController = () => {
   const blackRoadGeometry = getMergedRoadGeometry(trackNodes, activeTrack);
   const roadTransform = trackConfigToTransform(activeTrack);
   const meshCollidersRef = useRef(null);
+
+  // "Race Again" without reload: re-seat the kart on its grid slot and zero
+  // every physics ref, or the new race inherits the old run's position,
+  // speed, drift and turbo. Runs on every session (including the first).
+  const sessionId = useGameManager((state) => state.sessionId);
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    player.position.set(spawnSlot.position[0], spawnSlot.position[1], spawnSlot.position[2]);
+    player.rotation.set(0, spawnSlot.rotationY ?? 0, 0);
+    speedRef.current = 0;
+    rotationSpeedRef.current = 0;
+    inputTurn.current = 0;
+    driftDirection.current = driftDirections.none;
+    driftPower.current = 0;
+    turbo.current = 0;
+    jumpOffset.current = 0;
+    isJumping.current = false;
+    jumpIsHeld.current = false;
+    stuckSinceRef.current = 0;
+    lastResetAtRef.current = 0;
+    smoothedDirectionRef.current.set(
+      -Math.sin(player.rotation.y),
+      0,
+      -Math.cos(player.rotation.y),
+    );
+    try {
+      const gs = useGameStore.getState();
+      gs.setSpeed?.(0);
+      gs.setIsBoosting?.(false);
+      gs.setPlayerPosition?.(player.position);
+      gs.setPlayerRotationY?.(player.rotation.y);
+      gs.setRespawnCheckpointIndex?.(-1);
+    } catch {
+      // ignore — store writes must never break session setup
+    }
+    lastNetworkSyncRef.current = -Infinity;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // The HUD uses this event so its Reset button and the R key share exactly
   // the same physics-safe recovery path.  Keeping the request in a ref lets
@@ -233,10 +288,15 @@ export const PlayerController = () => {
 
   const resetToNearestBlackRoad = (player) => {
     if (!useGameManager.getState().gameStarted) return false;
+    // 3s cooldown: Reset is a rescue tool, not a teleport button. Without
+    // this, mashing R re-rolls the rescue every frame.
+    const nowMs = performance.now();
+    if (nowMs - (lastResetAtRef.current || 0) < 3000) return false;
+    lastResetAtRef.current = nowMs;
 
-    // Checkpoints first: when the track authors reset targets (Map Editor),
-    // a fallen kart respawns at the NEAREST checkpoint with its heading —
-    // never on the wrong deck of a stacked switchback or in a pit.
+    // Checkpoints first: respawn at the LAST VISITED checkpoint (tracked by
+    // FinishLine), never the nearest — nearest is exploitable as a shortcut
+    // and drops karts on the wrong deck of stacked switchbacks.
     // Editor overrides apply live while the editor is open, else the track
     // code defaults.
     const editorStore = useMapEditorStore.getState();
@@ -244,6 +304,31 @@ export const PlayerController = () => {
       (editorStore.isOpen && editorStore.editedConfig?.checkpoints) ||
       activeTrack.checkpoints ||
       [];
+    const lastVisited = Number(useGameStore.getState().respawnCheckpointIndex);
+    if (
+      checkpoints.length > 0 &&
+      Number.isInteger(lastVisited) &&
+      lastVisited >= 0 &&
+      checkpoints[lastVisited]
+    ) {
+      const spot = checkpoints[lastVisited];
+      if (
+        Number.isFinite(spot?.position?.[0]) &&
+        Number.isFinite(spot?.position?.[1]) &&
+        Number.isFinite(spot?.position?.[2])
+      ) {
+        player.position.x = spot.position[0];
+        player.position.z = spot.position[2];
+        useGameStore.getState().setWheelSnapY(spot.position[1]);
+        const headingDeg = Number(spot.rotationY);
+        if (Number.isFinite(headingDeg)) {
+          player.rotation.y = (headingDeg * Math.PI) / 180;
+        }
+        finishReset(player);
+        return true;
+      }
+      // Bad data for the visited slot: fall through to road rescue below.
+    }
     if (checkpoints.length > 0) {
       const storeState = useGameStore.getState();
       const kartY = Number.isFinite(storeState.groundPosition)
@@ -308,6 +393,9 @@ export const PlayerController = () => {
       const fallback = getOnlineSpawnSlot(0, activeTrack);
       player.position.x = fallback.position[0];
       player.position.z = fallback.position[2];
+      if (Number.isFinite(fallback.rotationY)) {
+        player.rotation.y = fallback.rotationY;
+      }
       useGameStore.getState().setWheelSnapY(0);
     } else {
       // Recover X/Z onto the rescued road level and snap the wheels to its
@@ -333,7 +421,9 @@ export const PlayerController = () => {
 
     const st = useGameStore.getState();
     const groundY = st.groundPosition;
-    const crawling = Math.abs(speedRef.current) < 2;
+    // Crawl threshold follows kart size: 2 u/s is a normal cruise for a
+    // 0.2-scale kart (max 6) and must not count as "stuck".
+    const crawling = Math.abs(speedRef.current) < Math.max(1, 2 * kartScale);
     const highestRoadY =
       blackRoadGeometry && Number.isFinite(player.position.x)
         ? getHighestRoadYAt(
@@ -377,15 +467,14 @@ export const PlayerController = () => {
   const detectLostOffMap = (player) => {
     if (!useGameManager.getState().gameStarted) return;
     if (!blackRoadGeometry) return;
-    // Only on checkpoint-authored tracks: jump-heavy courses without
-    // checkpoints (Waluigi's big jump spends a second far from any deck
-    // mid-flight) must keep the legacy rescue behavior untouched.
-    const editorStore = useMapEditorStore.getState();
-    const hasCheckpoints =
-      ((editorStore.isOpen && editorStore.editedConfig?.checkpoints) ||
-        activeTrack.checkpoints ||
-        []).length > 0;
-    if (!hasCheckpoints) return;
+    // Jump guard: boost-pad launches (45-60 u/s) spend ~a second far from any
+    // deck mid-flight. Only a slow kart can be genuinely lost, so fast flight
+    // never accumulates strikes — this keeps the watchdog safe on jump-heavy
+    // courses (Waluigi) and lets it run on every track.
+    if (Math.abs(speedRef.current) > 12) {
+      lostStrikesRef.current = 0;
+      return;
+    }
     lostTickRef.current += 1;
     if (lostTickRef.current % 15 !== 0) return;
 
@@ -420,13 +509,24 @@ export const PlayerController = () => {
 
   // Visible track meshes (road + barriers — everything named "ground").
   // Collected once; our own "wall-barrier" mesh is excluded by name.
+  // Never caches an empty list (a pre-load call would disable mesh walls for
+  // the whole race), and rebuilds when the track changes.
+  const meshCollidersTrackRef = useRef(null);
   const getMeshColliders = () => {
-    if (!meshCollidersRef.current) {
+    const trackId = useGameManager.getState().selectedTrackId;
+    if (
+      !meshCollidersRef.current ||
+      meshCollidersRef.current.length === 0 ||
+      meshCollidersTrackRef.current !== trackId
+    ) {
       const list = [];
       scene.traverse((obj) => {
         if (obj.isMesh && obj.name.includes("ground")) list.push(obj);
       });
-      meshCollidersRef.current = list;
+      if (list.length > 0 || meshCollidersTrackRef.current !== trackId) {
+        meshCollidersRef.current = list;
+        meshCollidersTrackRef.current = trackId;
+      }
     }
     return meshCollidersRef.current;
   };
@@ -448,15 +548,21 @@ export const PlayerController = () => {
     }
     const originY = (useGameStore.getState().groundPosition ?? 0) + 0.25;
     wallRaycaster.set(
-      new Vector3(prevX, originY, prevZ),
-      new Vector3(dx / dist, 0, dz / dist)
+      _wallOrigin.set(prevX, originY, prevZ),
+      _wallDir.set(dx / dist, 0, dz / dist)
     );
     wallRaycaster.far = dist + (KART_RADIUS + WALL_SKIN) * kartScale;
     const hits = wallRaycaster.intersectObjects(colliders, false);
+    // Waluigi's wheel floor needs n.y >= 0.4 (steep dirt pit walls are not
+    // floor); the mesh-wall test must match, or slopes in (0.35, 0.4] are
+    // neither floor nor wall and karts clip through them.
+    const isRoughWalls =
+      useGameManager.getState().selectedTrackId === "waluigi-stadium";
+    const wallNormalY = isRoughWalls ? 0.4 : 0.35;
     for (const h of hits) {
       const n = h.face?.normal;
       // Allow inclined slopes / ramps up to ~70 degrees to be drivable, not blocking walls
-      if (!n || Math.abs(n.y) > 0.35) continue; // floor/ramp/ceiling, not a wall
+      if (!n || Math.abs(n.y) > wallNormalY) continue; // floor/ramp/ceiling, not a wall
       const nl = Math.hypot(n.x, n.z);
       if (nl < 1e-4) continue;
       let nx = n.x / nl;
@@ -485,12 +591,21 @@ export const PlayerController = () => {
     return { x: inX, z: inZ, hit: false, nx: 0, nz: 0 };
   }
 
+  // Poll the gamepad without spamming the store: setGamepad with a fresh
+  // snapshot object every frame re-renders every subscriber 60x/sec, so only
+  // publish when the pad identity/connection actually changes.
+  const lastPadIdRef = useRef(null);
   const getGamepad = () => {
     if (navigator.getGamepads) {
       const gamepads = navigator.getGamepads();
       if (gamepads.length > 0) {
-        gamepadRef.current = gamepads[0];
-        setGamepad(gamepadRef.current);
+        const pad = gamepads[0] ?? null;
+        gamepadRef.current = pad;
+        const padId = pad ? `${pad.id}:${pad.connected}` : null;
+        if (padId !== lastPadIdRef.current) {
+          lastPadIdRef.current = padId;
+          setGamepad(pad);
+        }
       }
     }
   };
@@ -598,13 +713,17 @@ export const PlayerController = () => {
       if (nowO - cache.lastCheck > checkMs) {
         cache.lastCheck = nowO;
         const pp = useGameStore.getState().playerPosition;
+        const py = Number(useGameStore.getState().groundPosition ?? pp?.y);
         cache.isOff = blackRoadGeometry
           ? isOffRoad(
               blackRoadGeometry,
               Number(pp?.x),
               Number(pp?.z),
               roadTransform,
-              Number(itemConfig.offRoad?.slack) || 1.0
+              Number(itemConfig.offRoad?.slack) || 1.0,
+              // Level-aware: a kart under a bridge is off-track unless its
+              // own level is road (not the deck above it).
+              py
             )
           : false;
       }
@@ -614,7 +733,7 @@ export const PlayerController = () => {
     }
     // Apply time trial speed factor if in time trial mode
     const isTimeTrialMode = useGameManager.getState().isTimeTrial;
-    const speedFactor = isTimeTrialMode ? kartSettings.timeTrialSpeedFactor || 1.5 : 1.0;
+    const speedFactor = isTimeTrialMode ? kartSettings.speed.timeTrialSpeedFactor || 1.5 : 1.0;
 
     // Adjust max speed for time trial mode. Everything scales with kart
     // size so a mini kart feels proportional (same relative pace/turning)
@@ -632,9 +751,9 @@ export const PlayerController = () => {
       backward: false,
     };
 
-    if (gamepadRef.current) {
-      gamepadButtons.forward = gamepadRef.current.buttons[0].pressed;
-      gamepadButtons.backward = gamepadRef.current.buttons[1].pressed;
+    if (gamepadRef.current?.buttons) {
+      gamepadButtons.forward = Boolean(gamepadRef.current.buttons[0]?.pressed);
+      gamepadButtons.backward = Boolean(gamepadRef.current.buttons[1]?.pressed);
     }
     const forwardAccel = Number(
       (isTouchScreen && !gamepadRef.current) ||
@@ -674,8 +793,10 @@ export const PlayerController = () => {
       x: 0,
     };
 
-    if (gamepadRef.current) {
-      gamepadJoystick.x = gamepadRef.current.axes[0];
+    {
+      const rawAxis = Number(gamepadRef.current?.axes?.[0]);
+      gamepadJoystick.x =
+        Number.isFinite(rawAxis) && Math.abs(rawAxis) > 0.15 ? rawAxis : 0;
     }
 
     // Make turning more responsive in time trial mode
@@ -749,9 +870,10 @@ export const PlayerController = () => {
   function updatePlayer(player, speed, camera, kart, delta) {
     // Apply time trial specific adjustments
     const isTimeTrialMode = useGameManager.getState().isTimeTrial;
-    const movementFactor = isTimeTrialMode ? 1.5 : 1.0;
-    
-    const desiredDirection = new Vector3(
+    // NOTE: no extra movement multiplier here — updateSpeed already targets
+    // 1.5x max in time trial. A second 1.5x here made the kart 2.25x while
+    // the HUD showed 1.5x.
+    const desiredDirection = _desiredDir.set(
       -Math.sin(player.rotation.y),
       0,
       -Math.cos(player.rotation.y)
@@ -808,11 +930,11 @@ export const PlayerController = () => {
     // R = look behind: blend from the normal chase cam to a front cam
     // that looks backwards. lookingBackRef 0→1 makes it smooth both ways.
     const lookT = lookingBackRef.current;
-    const camTargetPos = cameraGroupRef.current.getWorldPosition(new Vector3());
-    const camTargetLook = cameraLookAtRef.current.getWorldPosition(new Vector3());
+    const camTargetPos = cameraGroupRef.current.getWorldPosition(_camPos);
+    const camTargetLook = cameraLookAtRef.current.getWorldPosition(_camLook);
     if (lookT > 0.001 && cameraFrontRef.current && rearLookRef.current) {
-      const rearPos = cameraFrontRef.current.getWorldPosition(new Vector3());
-      const rearLook = rearLookRef.current.getWorldPosition(new Vector3());
+      const rearPos = cameraFrontRef.current.getWorldPosition(_camRearPos);
+      const rearLook = rearLookRef.current.getWorldPosition(_camRearLook);
       camTargetPos.lerp(rearPos, lookT);
       camTargetLook.lerp(rearLook, lookT);
     }
@@ -829,8 +951,8 @@ export const PlayerController = () => {
     // Desired movement for this frame (before walls).
     const prevX = player.position.x;
     const prevZ = player.position.z;
-    const desiredX = prevX + direction.x * speed * delta * movementFactor;
-    const desiredZ = prevZ + direction.z * speed * delta * movementFactor;
+    const desiredX = prevX + direction.x * speed * delta;
+    const desiredZ = prevZ + direction.z * speed * delta;
 
     // --- Wall physics: the kart slides along walls and can never pass through.
     // Layer 1: cheap precomputed segments (road edge + outer fence).
@@ -877,7 +999,10 @@ export const PlayerController = () => {
       const factor = wallSpeedFactor(motionX, motionZ, wallNX, wallNZ);
       // Scrub speed on impact so grinding a wall doesn't keep full pace.
       // Head-on hits lose more than gentle scrapes (see collision.js).
-      speedRef.current *= factor;
+      // Delta-scaled (factor is defined per 60fps frame): without this the
+      // kart stops ~2.4x faster on 144Hz than on 60Hz.
+      const frameDt = Number.isFinite(delta) && delta > 0 ? Math.min(delta, 0.1) : 1 / 60;
+      speedRef.current *= Math.pow(factor, frameDt * 60);
       setSpeed(speedRef.current);
     }
 
@@ -886,6 +1011,12 @@ export const PlayerController = () => {
 
   useFrame((state, delta) => {
     if (!playerRef.current && !rbRef.current) return;
+    // True pause (offline): freeze the whole physics step. Online races never
+    // set isPaused — the menu there is informational only.
+    // No driving before GO or after the results: inputs during the 3-2-1
+    // countdown or behind the results screen must not move the kart.
+    const gmState = useGameManager.getState();
+    if (gmState.isPaused || !gmState.gameStarted || gmState.gameOver) return;
     const player = playerRef.current;
     const cameraGroup = cameraGroupRef.current;
     const kart = kartRef.current;
@@ -911,11 +1042,25 @@ export const PlayerController = () => {
       x: 0,
     };
 
-    if (gamepadRef.current) {
-      gamepadButtons.jump =
-        gamepadRef.current.buttons[5].pressed ||
-        gamepadRef.current.buttons[7].pressed;
-      gamepadButtons.x = gamepadRef.current.axes[0];
+    // Crash-proof gamepad read: cheap controllers expose < 8 buttons and
+    // no axes. Optional chaining + deadzone keeps every frame TypeError-free
+    // and stops stick drift from steering the kart.
+    const pad = gamepadRef.current;
+    const padButton = (i) => Boolean(pad?.buttons?.[i]?.pressed);
+    const padAxis = (i) => {
+      const v = Number(pad?.axes?.[i]);
+      return Number.isFinite(v) && Math.abs(v) > 0.15 ? v : 0;
+    };
+    if (pad) {
+      gamepadButtons.jump = padButton(5) || padButton(7);
+      gamepadButtons.x = padAxis(0);
+    }
+    // Gamepad item use (X / LB): flows through the same store flag as the
+    // mobile B button, edge-triggered by ItemBoxes like E/G.
+    try {
+      useGameStore.getState().setUseItemPressed(padButton(2) || padButton(4));
+    } catch {
+      // ignore — input must never break the physics loop
     }
     // Reset is edge-triggered so holding R cannot repeatedly teleport the
     // kart. The screen button queues the same request through CustomEvent.
@@ -929,15 +1074,7 @@ export const PlayerController = () => {
     // H = honk (edge-triggered so holding H plays the horn once).
     const honkDown = Boolean(honk);
     if (honkDown && !honkHeldRef.current) {
-      try {
-        const rawVol = Number(useGameManager.getState().sfxVolume);
-        const vol = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-        const horn = new Audio("./music/car-honk.mp3");
-        horn.volume = vol;
-        horn.play().catch(() => {});
-      } catch {
-        // ignore — audio must never break the physics loop
-      }
+      playSfx("car-honk.mp3", 1);
     }
     honkHeldRef.current = honkDown;
 
@@ -1018,6 +1155,10 @@ export const PlayerController = () => {
         <group ref={cameraGroupRef} position={[0, 2, 5]}></group>
 
         <group ref={kartRef}>
+          {/* Finish celebration: mounted only behind the results screen, so
+              the 1000-particle burst fires once instead of looping all race
+              (the old loop:true emitted ~2000 particles/sec forever). */}
+          {gameOver && (
           <VFXEmitter
             emitter="confettis"
             settings={{
@@ -1025,7 +1166,7 @@ export const PlayerController = () => {
               delay: 0.1,
               nbParticles: 1000,
               spawnMode: "time",
-              loop: true,
+              loop: false,
               startPositionMin: [-100, 0, -100],
               startPositionMax: [100, 10, 100],
               startRotationMin: [-1, -1, -1],
@@ -1051,6 +1192,7 @@ export const PlayerController = () => {
               size: [0.5, 1],
             }}
           />
+          )}
 
           <Kart
             speed={speedRef}

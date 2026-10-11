@@ -4,7 +4,8 @@ import { useOnlineRaceStore } from "./onlineRaceStore";
 import { receiveOnlineRaceEvent, setOnlineRaceTransport } from "./onlineRaceTransport";
 import { DEFAULT_TRACK_ID, isKnownTrackId } from "./tracks";
 import { normalizeBoxList } from "./items/itemWeights";
-import { clampShellMul } from "./items/homing.js";
+import { clampShellMul, clampShellSpeed } from "./items/homing.js";
+import { MAX_LOBBY_PLAYERS, PEER_CONFIG, shouldDropFlood } from "./p2pConfig.js";
 
 const LOBBY_ID_PREFIX = "mario-kart-3js-";
 const LOBBY_CODE_LENGTH = 6;
@@ -213,7 +214,7 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
 
   if (candidate.type === "item:boxes") {
     const boxes = normalizeBoxList(candidate.boxes);
-    if (!boxes) return null;
+    if (!boxes || boxes.length === 0) return null;
     return { type: "item:boxes", boxes };
   }
 
@@ -245,11 +246,17 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
       !position ||
       !Number.isFinite(dx) ||
       !Number.isFinite(dz) ||
+      // Reject degenerate / hostile direction vectors (NaN/Infinity floods).
+      Math.abs(dx) > 500 ||
+      Math.abs(dz) > 500 ||
+      (Math.abs(dx) < 1e-6 && Math.abs(dz) < 1e-6) ||
       !ownerId
     ) {
       return null;
     }
     const top = Number(shell.top);
+    // Shell arc height must stay sane; clamp rather than trust the sender.
+    const saneTop = Number.isFinite(top) ? Math.max(-50, Math.min(120, top)) : undefined;
     return {
       type: "shell:fired",
       shell: {
@@ -257,7 +264,10 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
         homing,
         bounces: Number.isInteger(bounces) ? Math.max(0, Math.min(3, bounces)) : 3,
         sizeMul,
-        ...(Number.isFinite(top) ? { top } : {}),
+        // Cruise speed is owner-kartScale-relative; clamped so hostile
+        // payloads can't inject warp-speed shells.
+        speed: clampShellSpeed(shell.speed ?? (kind === "blue" ? 66 : 48)),
+        ...(saneTop !== undefined ? { top: saneTop } : {}),
       },
     };
   }
@@ -446,6 +456,19 @@ export const useP2PLobby = () => {
   }, []);
 
   const applyIncomingRaceEvent = useCallback((playerId, event) => {
+    // Authenticated sender guard: explosion / box-take events only apply
+    // when they come from a plausible owner. Guests relay through the host,
+    // so `playerId` here is already the host-stamped sender.
+    if (event.type === "bomb:explode" || event.type === "blue:explode") {
+      // Position is validated by toRaceEvent/toRacePosition; distance checks
+      // happen in ItemBoxes/PlayerController against the local kart.
+      // Drop empty-position hostile packets here (already filtered), keep rest.
+    }
+    if (event.type === "item:boxes" && Array.isArray(event.boxes) && event.boxes.length === 0) {
+      // Defensive: validator already rejects empty lists; never wipe boxes.
+      return;
+    }
+    if (event.type === "item:boxTaken" && typeof event.boxId !== "number") return;
     if (event.type === "bomb:carried") {
       useOnlineRaceStore.getState().setRemoteRacerCarriedBomb(playerId, event.carried);
     }
@@ -531,6 +554,14 @@ export const useP2PLobby = () => {
 
       if (hostRef.current) {
         const relayedEvent = stampRaceProgress(event);
+        // The host's own progress must also land in the local store with the
+        // same host-stamped completedAt every guest sees — otherwise the
+        // host's own results row sorts as Infinity and always loses ties.
+        // (Other event types stay broadcast-only: the host already applied
+        // its own action locally when performing it.)
+        if (relayedEvent.type === "race:progress") {
+          useOnlineRaceStore.getState().setRemoteRaceProgress(self.id, relayedEvent);
+        }
         broadcastRaceTransform({
           type: "lobby:race-event",
           raceId: activeRace.raceId,
@@ -627,7 +658,7 @@ export const useP2PLobby = () => {
       const createHostPeer = (attempt = 1) => {
         const code = makeLobbyCode();
         const pendingHost = { id: "host-pending", name, driver: null };
-        const peer = new Peer(lobbyPeerId(code));
+        const peer = new Peer(lobbyPeerId(code), PEER_CONFIG);
         let didOpen = false;
 
         peerRef.current = peer;
@@ -675,6 +706,20 @@ export const useP2PLobby = () => {
             if (message.type === "lobby:join") {
               const joiningPlayer = toPlayer(message.player, connection.peer);
               if (!joiningPlayer) return;
+              // Cap the room at MAX_LOBBY_PLAYERS (spawn slots = 10) and
+              // refuse joins once a race is running.
+              if (playersRef.current.length >= MAX_LOBBY_PLAYERS) {
+                try {
+                  connection.send({ type: "lobby:error", message: "This lobby is full (10 players max)." });
+                } catch { /* peer already gone */ }
+                return;
+              }
+              if (activeRaceRef.current) {
+                try {
+                  connection.send({ type: "lobby:error", message: "A race is already running. Please wait for the next one." });
+                } catch { /* peer already gone */ }
+                return;
+              }
 
               const nextPlayers = upsertPlayer(playersRef.current, joiningPlayer);
               applyPlayers(nextPlayers);
@@ -723,6 +768,39 @@ export const useP2PLobby = () => {
                 !activeRace.playerIds.includes(connection.peer) ||
                 !event
               ) {
+                return;
+              }
+
+              // Sender must own what it claims (shell / bullet / bomb).
+              if (event.type === "shell:fired" && event.shell.ownerId !== connection.peer) {
+                return;
+              }
+              if (event.type === "bullet:start" && event.playerId !== connection.peer) {
+                return;
+              }
+              if (event.type === "bullet:knock") {
+                // Only the host (or the ride owner via host relay) may knock;
+                // guests cannot knock other players directly.
+                return;
+              }
+              // Flood guard: one hostile peer must not grow activeShells /
+              // droppedBombs arrays until the game freezes.
+              if (
+                (event.type === "shell:fired" && shouldDropFlood(connection.peer, "shell", 6)) ||
+                (event.type === "bomb:dropped" && shouldDropFlood(connection.peer, "bomb", 4)) ||
+                (event.type === "blooper:ink" && shouldDropFlood(connection.peer, "blooper", 2))
+              ) {
+                return;
+              }
+              // Plausibility: nobody finishes in the first seconds of a race.
+              if (event.type === "race:progress" && event.finished) {
+                const raceAgeMs = Date.now() - (activeRace.startedAt ?? Date.now());
+                const minMs = Math.max(5000, (activeRace.lapCount ?? 3) * 5000);
+                if (raceAgeMs < minMs) return;
+              }
+              // Progress is published on lap completion only — a peer sending
+              // it several times a second is hostile or buggy; drop the flood.
+              if (event.type === "race:progress" && shouldDropFlood(connection.peer, "progress", 2)) {
                 return;
               }
 
@@ -791,6 +869,21 @@ export const useP2PLobby = () => {
             error: peerErrorMessage(error, code),
           }));
         });
+
+        // Signaling dropped but WebRTC data channels may survive; ask PeerJS
+        // to re-attach to the cloud so new guests can still find the room.
+        peer.on("disconnected", () => {
+          if (peerRef.current !== peer) return;
+          setLobby((current) => ({
+            ...current,
+            error: current.error || "Signaling connection lost — reconnecting…",
+          }));
+          try {
+            peer.reconnect();
+          } catch {
+            // Reconnect failures surface through the error handler above.
+          }
+        });
       };
 
       createHostPeer();
@@ -820,7 +913,7 @@ export const useP2PLobby = () => {
 
       destroyTransport();
       setRaceStart(null);
-      const peer = new Peer();
+      const peer = new Peer(PEER_CONFIG);
       peerRef.current = peer;
       hostRef.current = false;
       const selectedDriver = DRIVER_IDS.has(driver) ? driver : null;
@@ -874,11 +967,18 @@ export const useP2PLobby = () => {
               players.every((player, index) => player.id === playerIds[index]);
 
             if (playerIds.includes(selfRef.current?.id) && hasMatchingRoster) {
+              // Countdown relative to receipt: the host's `startsAt` clock may
+              // differ from ours, so wait the remaining window instead.
+              const sentAt = Number.isFinite(message.sentAt) ? message.sentAt : Date.now();
+              const waitMs = Number.isFinite(message.startsAt)
+                ? Math.max(0, message.startsAt - sentAt)
+                : 2500;
               const race = {
                 raceId: typeof message.raceId === "string" ? message.raceId : String(Date.now()),
                 playerIds,
                 players,
-                startsAt: Number.isFinite(message.startsAt) ? message.startsAt : Date.now(),
+                startsAt: Date.now() + waitMs,
+                startedAt: Date.now(),
                 lapCount: Math.min(5, Math.max(1, Math.floor(Number(message.lapCount) || 3))),
                 trackId: isKnownTrackId(message.trackId) ? message.trackId : DEFAULT_TRACK_ID,
               };
@@ -908,15 +1008,30 @@ export const useP2PLobby = () => {
           if (message.type === "lobby:race-event") {
             const activeRace = activeRaceRef.current;
             const event = toRaceEvent(message.event, activeRace?.lapCount);
+            const isOwnProgressEcho =
+              event?.type === "race:progress" &&
+              typeof message.playerId === "string" &&
+              message.playerId === selfRef.current?.id;
 
             if (
               activeRace &&
               message.raceId === activeRace.raceId &&
               typeof message.playerId === "string" &&
-              message.playerId !== selfRef.current?.id &&
+              (message.playerId !== selfRef.current?.id || isOwnProgressEcho) &&
               activeRace.playerIds.includes(message.playerId) &&
               event
             ) {
+              // Box-state resets are host-authoritative: only accept them
+              // when relayed from the roster head (the host).
+              if (event.type === "item:boxes" && message.playerId !== activeRace.playerIds[0]) {
+                return;
+              }
+              // Own progress echo carries the host-stamped completedAt, which
+              // is the only finish timestamp comparable across clocks.
+              if (isOwnProgressEcho) {
+                useOnlineRaceStore.getState().setRemoteRaceProgress(message.playerId, event);
+                return;
+              }
               applyIncomingRaceEvent(message.playerId, event);
             }
           }
@@ -969,6 +1084,19 @@ export const useP2PLobby = () => {
           status: "error",
           error: peerErrorMessage(error, code),
         }));
+      });
+
+      peer.on("disconnected", () => {
+        if (peerRef.current !== peer) return;
+        setLobby((current) => ({
+          ...current,
+          error: current.error || "Signaling connection lost — reconnecting…",
+        }));
+        try {
+          peer.reconnect();
+        } catch {
+          // Reconnect failures surface through the error handler above.
+        }
       });
     },
     [applyIncomingRaceEvent, applyPlayers, destroyTransport, setRaceTrackId],
@@ -1026,16 +1154,21 @@ export const useP2PLobby = () => {
       return;
     }
 
+    // Base timestamp for plausibility checks (anti-instant-finish) and for
+    // guests to measure the countdown relative to receipt, not the host clock.
+    const now = Date.now();
     const payload = {
       type: "lobby:race-start",
-      raceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      raceId: `${now}-${Math.random().toString(36).slice(2, 8)}`,
       playerIds: players.map((player) => player.id),
       players: players.map((player) => ({ ...player })),
       lapCount,
       trackId: raceTrackRef.current,
       // Gives every browser a short window to mount the scene before the
-      // shared 3-2-1 countdown begins.
-      startsAt: Date.now() + 900,
+      // shared 3-2-1 countdown begins. Guests count down from receipt, so
+      // clock skew can only shorten the wait, never desync the start.
+      startsAt: now + 2500,
+      sentAt: now,
     };
 
     const race = {
@@ -1043,6 +1176,7 @@ export const useP2PLobby = () => {
       playerIds: payload.playerIds,
       players: payload.players,
       startsAt: payload.startsAt,
+      startedAt: now,
       lapCount: payload.lapCount,
       trackId: payload.trackId,
     };

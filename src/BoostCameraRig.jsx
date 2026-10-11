@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { MathUtils } from "three";
 import { useGameStore } from "./store";
-import { useGameManager } from "./gameManager";
+import { playSfx } from "./audio.js";
 
 /**
  * FOV kick when boosting: widens the camera while mini-turbo is active,
@@ -38,15 +38,7 @@ export function BoostCameraRig() {
       const nowMs = performance.now();
       if (nowMs - lastBoostSfxRef.current > 600) {
         lastBoostSfxRef.current = nowMs;
-        try {
-          const rawVol = Number(useGameManager.getState().sfxVolume);
-          const vol = Number.isFinite(rawVol) ? Math.max(0, Math.min(1, rawVol)) : 0.7;
-          const sfx = new Audio("./music/boost_sound.mp3");
-          sfx.volume = vol;
-          sfx.play().catch(() => {});
-        } catch {
-          // ignore — audio must never break the render loop
-        }
+        playSfx("boost_sound.mp3", 1);
       }
     }
     wasBoostingRef.current = boosting;

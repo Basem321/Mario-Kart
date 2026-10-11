@@ -7,14 +7,20 @@ export const KartDust = ({ wheelStates }) => {
   const dustRefs = useRef([null, null, null, null]);
 
   useFrame(() => {
+    // Any wheel kicking dirt means the kart is on dirt (the old per-wheel
+    // set in the loop kept only the LAST wheel's value).
+    try {
+      useGameStore.getState().setIsOnDirt(wheelStates.some((w) => w?.shouldEmit));
+    } catch {
+      // ignore — store write must never break the frame
+    }
     wheelStates.forEach((wheel, i) => {
       const ref = dustRefs.current[i];
       if (!ref) return;
 
       const position = wheel.position;
-     
+
       ref.setPosition(position);
-      useGameStore.getState().setIsOnDirt(wheel.shouldEmit);
       if (wheel.shouldEmit) {
         ref.start();
       } else {

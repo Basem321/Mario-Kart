@@ -8,7 +8,7 @@ export const JoystickComponent = () => {
     setJoystick(e);
   };
 
-  const handleStop = (e) => {
+  const handleStop = () => {
     setJoystick({x: 0, y:0, distance: 0 });
   };
 

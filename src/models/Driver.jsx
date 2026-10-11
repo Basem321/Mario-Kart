@@ -14,7 +14,7 @@ const DRIVER_PATHS = {
   luigi: "/models/luigi-driver.glb",
 };
 
-export const Driver = forwardRef(function Driver({ character = "mario", itemAnim, ...props }, ref) {
+export const Driver = forwardRef(function Driver({ character = "mario", ...props }, ref) {
   const path = DRIVER_PATHS[character] ?? DRIVER_PATHS.mario;
   const { scene } = useGLTF(path);
   const model = useMemo(() => {

@@ -59,5 +59,4 @@ export function BVHEnsure() {
   return null;
 }
 
-useGLTF.preload("./models/mario-circuit-test-transformed.glb");
 useGLTF.preload("/models/kart.glb");

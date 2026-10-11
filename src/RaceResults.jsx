@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useGameManager } from "./gameManager";
+import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 import "./RaceResults.css";
 
@@ -30,6 +31,8 @@ export function RaceResults() {
   const selfId = useGameManager((s) => s.onlineSelfId);
   const gameOver = useGameManager((s) => s.gameOver);
   const remoteRaceProgress = useOnlineRaceStore((s) => s.remoteRaceProgress);
+  const remoteDistances = useOnlineRaceStore((s) => s.remoteDistances);
+  const selfDistance = useGameStore((s) => s.selfDistance);
 
   const standings = useMemo(() => {
     if (!isOnlineRace || !players?.length) return null;
@@ -42,6 +45,10 @@ export function RaceResults() {
           ? {
               completedLaps: localCompleted,
               finished: gameOver && localCompleted >= totalLaps,
+              // Host-stamped echo (see useP2PLobby): the only finish timestamp
+              // on the same clock as every remote racer. Without it the local
+              // row sorts as Infinity and always loses ties.
+              completedAt: remote?.completedAt,
             }
           : (remote ?? { completedLaps: 0, finished: false });
         return {
@@ -58,6 +65,8 @@ export function RaceResults() {
           completedAt: Number.isFinite(progress.completedAt)
             ? progress.completedAt
             : Infinity,
+          // Same tiebreak as the live HUD badge (laps, then distance).
+          dist: isSelf ? selfDistance || 0 : remoteDistances[player.id] || 0,
         };
       })
       .sort((a, b) => {
@@ -65,18 +74,23 @@ export function RaceResults() {
           return b.completedLaps - a.completedLaps;
         if (a.finished !== b.finished)
           return Number(b.finished) - Number(a.finished);
+        if (a.finished && b.finished && a.completedAt !== b.completedAt)
+          return a.completedAt - b.completedAt;
+        if (!a.finished && !b.finished && b.dist !== a.dist)
+          return b.dist - a.dist;
         if (a.completedAt !== b.completedAt)
           return a.completedAt - b.completedAt;
         return a.rosterIndex - b.rosterIndex;
       });
-  }, [gameOver, isOnlineRace, lapTimes, players, remoteRaceProgress, selfId, totalLaps]);
+  }, [gameOver, isOnlineRace, lapTimes, players, remoteDistances, remoteRaceProgress, selfDistance, selfId, totalLaps]);
 
   const selfRank = standings
     ? standings.findIndex((r) => r.isSelf) + 1
     : 1;
 
   // Result jingle: top 3 hear the winning sound, everyone below hears the
-  // losing sound. Plays once when the results appear.
+  // losing sound. Plays once when the results appear — keyed on mount, not on
+  // selfRank, so late remote finishers re-sorting the table never cut it off.
   const resultSoundPlayedRef = useRef(false);
   useEffect(() => {
     if (resultSoundPlayedRef.current) return;
@@ -87,7 +101,7 @@ export function RaceResults() {
     const topThree = selfRank >= 1 && selfRank <= 3;
     const sound =
       (topThree ? gm.winningSound : gm.gameOverSound) ??
-      new Audio(topThree ? "./music/winning_sound.mp3" : "./music/game-over.wav");
+      new Audio(topThree ? "/music/winning_sound.mp3" : "/music/game-over.wav");
     try {
       sound.volume = vol;
       sound.currentTime = 0;
@@ -102,7 +116,8 @@ export function RaceResults() {
         // ignore
       }
     };
-  }, [selfRank]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRetry = () => {
     // Stop the result jingle if the player retries while it's still playing.

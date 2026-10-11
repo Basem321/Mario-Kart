@@ -85,6 +85,10 @@ export const useGameStore = create((set) => ({
   setJoystick: (joystick) => set({ joystick: joystick }),
   jumpButtonPressed: false,
   setJumpButtonPressed: (pressed) => set({ jumpButtonPressed: pressed }),
+  // Touch / gamepad item button (B on mobile, X/LB on gamepads). Level flag —
+  // ItemBoxes edge-triggers it exactly like the E/G keyboard keys.
+  useItemPressed: false,
+  setUseItemPressed: (pressed) => set({ useItemPressed: pressed }),
   noiseTexture: null,
   setNoiseTexture: (noiseTexture) => set({noiseTexture: noiseTexture}),
   gamepad: null,
@@ -175,6 +179,11 @@ export const useGameStore = create((set) => ({
   // while the slot itself is already committed. {item, start, totalMs}.
   animGhost: null,
   setAnimGhost: (animGhost) => set({ animGhost }),
+  // Last checkpoint index actually driven through (world order), mirrored
+  // here by FinishLine only when a NEW one is reached. R respawns here —
+  // never at the nearest one — so Reset can't shortcut the course.
+  respawnCheckpointIndex: -1,
+  setRespawnCheckpointIndex: (respawnCheckpointIndex) => set({ respawnCheckpointIndex }),
   // Fresh session state: called on start/exit so stale boxes, live bombs,
   // explosions, carried bombs and stuns never leak into the next run.
   resetBattleState: () =>
@@ -188,6 +197,7 @@ export const useGameStore = create((set) => ({
       blooperSquirt: null,
       blueWarning: null,
       selfDistance: 0,
+      respawnCheckpointIndex: -1,
       shroomUntil: 0,
       spin: null,
       invulnUntil: 0,

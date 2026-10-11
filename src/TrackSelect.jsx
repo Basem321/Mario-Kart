@@ -16,7 +16,7 @@ const TrackSelect = ({
   useEffect(() => {
     TRACKS.forEach((track) => {
       if (track.id !== DEFAULT_TRACK_ID) {
-        useGLTF.preload(track.glb);
+        useGLTF.preload(track.glb, "/draco/");
       }
     });
   }, []);

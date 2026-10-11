@@ -6,7 +6,7 @@ import { useGameStore } from '../../store'
 
 extend({ MeshLineGeometry, MeshLineMaterial })
 
-export const Trails = ({ dash = 0.9, radius = 1, left}) => {
+export const Trails = ({ radius = 1, left}) => {
   const points = useMemo(() => {
     const pts = []
     const initialPos = new THREE.Vector3(0, 0, 0)
@@ -22,7 +22,7 @@ export const Trails = ({ dash = 0.9, radius = 1, left}) => {
     }
 
     return new THREE.CatmullRomCurve3(pts).getPoints(300).flatMap(p => p.toArray())
-  }, [radius])
+  }, [radius, left])
 
   return (
     <Fatline
@@ -30,17 +30,16 @@ export const Trails = ({ dash = 0.9, radius = 1, left}) => {
       width={0.005}
       color={new THREE.Color(0xFFFFFF).multiplyScalar(100)}
       speed={2}
-      dash={dash}
-      delay={Math.random()}
       radius={radius}
       left={left}
     />
   )
 }
 
-function Fatline({ curve, width, color, speed, dash, delay, radius, left}) {
+function Fatline({ curve, width, color, speed, radius, left}) {
   const ref = useRef()
   const geoRef = useRef()
+  const lastColorRef = useRef("")
   useFrame((_, delta) => {
     if (!ref.current || !ref.current.material) return
     const driftLevel = useGameStore.getState().driftLevel;
@@ -66,7 +65,11 @@ function Fatline({ curve, width, color, speed, dash, delay, radius, left}) {
         geoRef.current.setPoints(newCurve)
         ref.current.material.dashOffset = 0
       }
-      ref.current.material.color = new THREE.Color(driftLevel.color).multiplyScalar(100);
+      // Cache the color: allocating a THREE.Color every frame churns GC.
+      if (driftLevel.color !== lastColorRef.current) {
+        lastColorRef.current = driftLevel.color;
+        ref.current.material.color.set(driftLevel.color).multiplyScalar(100);
+      }
     } else {
       ref.current.material.dashOffset = 0
       ref.current.visible = false;

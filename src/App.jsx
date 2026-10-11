@@ -1,5 +1,5 @@
-import { Bvh, OrbitControls, KeyboardControls, Preload, useTexture,} from "@react-three/drei";
-import { Suspense, useEffect, useRef } from "react";
+import { KeyboardControls, useTexture,} from "@react-three/drei";
+import { useEffect } from "react";
 import { TrackScene } from "./TrackScene";
 import { Lighting } from "./misc/Lighting";
 import VFXParticles from "./wawa-vfx/VFXParticles";
@@ -37,8 +37,6 @@ export const App = () => {
   const gameStarted = useGameManager((state) => state.gameStarted);
   
   // Update time in both game modes
-  const lastLogTimeRef = useRef(0);
-  
   useFrame((state, delta) => {
     if (gameStarted) {
       // Ensure delta is positive and not too large to prevent weird jumps
@@ -49,21 +47,7 @@ export const App = () => {
 
       // Update time for both time trial and regular mode
       // (via getState: no re-render, no new subscription)
-      const manager = useGameManager.getState();
-      manager.updateLapTime(deltaMs);
-
-      // Log timer updates occasionally (every 2 seconds) to avoid console spam
-      const now = performance.now();
-      if (now - lastLogTimeRef.current > 2000) {
-        lastLogTimeRef.current = now;
-        console.log(
-          `Timer update: total=${manager.formatTime(manager.totalTime)}, lap=${
-            manager.isTimeTrial
-              ? manager.formatTime(manager.currentLapTime)
-              : "N/A"
-          }`
-        );
-      }
+      useGameManager.getState().updateLapTime(deltaMs);
     }
   });
 
@@ -130,6 +114,9 @@ export const App = () => {
           </KeyboardControls>
 
         <Composer/>
+        {/* Debug panel: dev only. Mounting Leva in production ships dozens
+            of sliders + their stores to every player for nothing. */}
+        {import.meta.env.DEV && (
         <Leva
           fill // default = false,  true makes the pane fill the parent dom node it's rendered in
           flat // default = false,  true removes border radius and shadow
@@ -138,6 +125,7 @@ export const App = () => {
           collapsed // default = false, when true the GUI is collpased
           hidden // def
         />
+        )}
       </>
   );
 };

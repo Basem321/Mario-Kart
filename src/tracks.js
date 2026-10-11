@@ -7,10 +7,22 @@ import {
 // below come from ds-shroom-ridge-config.json (Map Editor exports overwrite
 // that file to make editor changes permanent).
 import dsShroomRidgeConfig from "../ds-shroom-ridge-config.json";
+import waluigiStadiumConfig from "../waluigi-stadium-config.json";
+import marioCircuitConfig from "../mario-circuit-config.json";
 
 const shroomJson =
   dsShroomRidgeConfig && dsShroomRidgeConfig.trackId === "ds-shroom-ridge"
     ? dsShroomRidgeConfig
+    : {};
+
+const waluigiJson =
+  waluigiStadiumConfig && waluigiStadiumConfig.trackId === "waluigi-stadium"
+    ? waluigiStadiumConfig
+    : {};
+
+const marioJson =
+  marioCircuitConfig && marioCircuitConfig.trackId === "mario-circuit"
+    ? marioCircuitConfig
     : {};
 
 /**
@@ -84,6 +96,9 @@ export const TRACKS = [
       { position: [0.3, -1.7, 0.1], rotationY: 0 },
       { position: [2.6, -1.7, 3.4], rotationY: 0 },
     ],
+    // Reset/lap checkpoints (Map Editor export). Empty for Mario Circuit
+    // until authored — lap validation falls back to the far-gate rule.
+    checkpoints: marioJson.checkpoints ?? [],
   },
   {
     id: "waluigi-stadium",
@@ -179,6 +194,9 @@ export const TRACKS = [
       { position: [-0.4, -1.7, 11.1], rotationY: 0 },
       { position: [1.7, -1.7, 14.6], rotationY: 0 },
     ],
+    // Reset targets + lap-validation gates (Map Editor export, root JSON is
+    // the source of truth). R respawns at the last VISITED one, never nearest.
+    checkpoints: waluigiJson.checkpoints ?? [],
   },
   {
     id: "ds-shroom-ridge",

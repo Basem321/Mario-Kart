@@ -1,12 +1,11 @@
 import { useMemo } from "react";
 import { useGameManager } from "./gameManager";
+import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
 import "./OnlineRaceLeaderboard.css";
 
 const completedLapCount = (lapTimes) =>
   Array.isArray(lapTimes) ? lapTimes.length : 0;
-
-const lapLabel = (count) => `${count} ${count === 1 ? "lap" : "laps"}`;
 
 /**
  * Online-only race standings. Lap completions arrive through the reliable P2P
@@ -23,6 +22,8 @@ export function OnlineRaceLeaderboard() {
   const selfId = useGameManager((state) => state.onlineSelfId);
   const players = useGameManager((state) => state.onlinePlayers);
   const remoteRaceProgress = useOnlineRaceStore((state) => state.remoteRaceProgress);
+  const remoteDistances = useOnlineRaceStore((state) => state.remoteDistances);
+  const selfDistance = useGameStore((state) => state.selfDistance);
 
   const standings = useMemo(() => {
     const localCompletedLaps = completedLapCount(lapTimes);
@@ -36,6 +37,8 @@ export function OnlineRaceLeaderboard() {
               completedLaps: localCompletedLaps,
               currentLap,
               finished: gameOver && localCompletedLaps >= totalLaps,
+              // Host-stamped echo: same clock as every remote racer.
+              completedAt: remote?.completedAt,
             }
           : remote ?? { completedLaps: 0, currentLap: 1, finished: false };
 
@@ -47,15 +50,20 @@ export function OnlineRaceLeaderboard() {
           completedLaps: Math.min(totalLaps, Math.max(0, Number(progress.completedLaps) || 0)),
           finished: Boolean(progress.finished),
           completedAt: Number.isFinite(progress.completedAt) ? progress.completedAt : Infinity,
+          // Same tiebreak as the live HUD badge (laps, then distance).
+          dist: isSelf ? selfDistance || 0 : remoteDistances[player.id] || 0,
         };
       })
       .sort((a, b) => {
         if (b.completedLaps !== a.completedLaps) return b.completedLaps - a.completedLaps;
         if (a.finished !== b.finished) return Number(b.finished) - Number(a.finished);
+        if (a.finished && b.finished && a.completedAt !== b.completedAt)
+          return a.completedAt - b.completedAt;
+        if (!a.finished && !b.finished && b.dist !== a.dist) return b.dist - a.dist;
         if (a.completedAt !== b.completedAt) return a.completedAt - b.completedAt;
         return a.rosterIndex - b.rosterIndex;
       });
-  }, [currentLap, gameOver, lapTimes, players, remoteRaceProgress, selfId, totalLaps]);
+  }, [currentLap, gameOver, lapTimes, players, remoteDistances, remoteRaceProgress, selfDistance, selfId, totalLaps]);
 
   if (!isOnlineRace || !gameStarted || standings.length === 0) return null;
 

@@ -69,6 +69,8 @@ export function BoostPads() {
 
   useFrame((_, delta) => {
     if (!pads || pads.length === 0) return;
+    // True pause: pads neither animate nor trigger while paused.
+    if (useGameManager.getState().isPaused) return;
 
     // Animate chevron arrows moving forward
     if (boostTexture) {
@@ -85,9 +87,16 @@ export function BoostPads() {
       const hw = pad.width / 2;
       const hl = pad.length / 2;
 
-      // Check if player position is within pad bounds
-      const dx = Math.abs(playerPos.x - px);
-      const dz = Math.abs(playerPos.z - pz);
+      // Pad-frame test: the visual mesh rotates (pad.rotation yaw) but the
+      // old test was axis-aligned, so rotated pads triggered in a different
+      // rectangle than the one players see. Zero rotation = old behavior.
+      const yaw = Number(pad.rotation?.[1]) || 0;
+      const ox = playerPos.x - px;
+      const oz = playerPos.z - pz;
+      const cos = Math.cos(-yaw);
+      const sin = Math.sin(-yaw);
+      const dx = Math.abs(ox * cos - oz * sin);
+      const dz = Math.abs(ox * sin + oz * cos);
       const dy = Math.abs((useGameStore.getState().groundPosition ?? playerPos.y) - py);
 
       // Tighter height check so flying 3m+ above a pad can't re-trigger it

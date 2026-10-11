@@ -36,15 +36,16 @@ const ITEM_ICON_ORDER = [
 const ITEM_ICON_SRC = {
   mushroom1: "/images/items/mushroom.png",
   mushroom3: "/images/items/triple-mushroom.png",
-  golden: "/images/items/mushroom.png",
+  golden: "/images/items/mushroom.png", // + .gold tint until golden.png lands
   red1: "/images/items/red-shell.png",
   red3: "/images/items/triple-red-shell.png",
   blue: "/images/items/blue-shell.png",
   bullet: "/images/items/bullet-bill.png",
   blooper: "/images/items/blooper.png",
   bomb: "/images/items/bomb.png",
-  skid: "/images/items/mushroom.png",
-  wind: "/images/items/mushroom.png",
+  // skid/wind intentionally have no PNG: they render the emoji fallback
+  // (🛞/💨). Mapping them to mushroom.png made them indistinguishable from
+  // a single mushroom in the slot.
   mushroom: "/images/items/mushroom.png",
   red: "/images/items/red-shell.png",
 };
@@ -56,22 +57,25 @@ const ITEM_ICON_EMOJI = {
 };
 
 const GameUI = () => {
-  const {
-    isTimeTrial,
-    gameStarted,
-    gameOver,
-    currentLap,
-    totalLaps,
-    bestLapTime,
-    currentLapTime,
-    totalTime,
-    formatTime,
-    returnToHomepage,
-    musicVolume,
-    sfxVolume,
-    setMusicVolume,
-    setSfxVolume,
-  } = useGameManager();
+  // Rare-change subscriptions only. The per-frame lap clock (currentLapTime /
+  // totalTime, written 60x/sec) is read unsubscribed below — this component
+  // already re-renders at 10Hz via refreshKey, so subscribing the clock would
+  // only add 50 wasted renders/sec.
+  const isTimeTrial = useGameManager((s) => s.isTimeTrial);
+  const gameStarted = useGameManager((s) => s.gameStarted);
+  const gameOver = useGameManager((s) => s.gameOver);
+  const currentLap = useGameManager((s) => s.currentLap);
+  const totalLaps = useGameManager((s) => s.totalLaps);
+  const bestLapTime = useGameManager((s) => s.bestLapTime);
+  const formatTime = useGameManager((s) => s.formatTime);
+  const returnToHomepage = useGameManager((s) => s.returnToHomepage);
+  const musicVolume = useGameManager((s) => s.musicVolume);
+  const sfxVolume = useGameManager((s) => s.sfxVolume);
+  const setMusicVolume = useGameManager((s) => s.setMusicVolume);
+  const setSfxVolume = useGameManager((s) => s.setSfxVolume);
+  const gmSnap = useGameManager.getState();
+  const currentLapTime = gmSnap.currentLapTime;
+  const totalTime = gmSnap.totalTime;
 
   const [showGameOver, setShowGameOver] = useState(false);
   const [isPauseMenuOpen, setIsPauseMenuOpen] = useState(false);
@@ -119,23 +123,41 @@ const GameUI = () => {
     };
   }, [gameStarted, gameOver]);
 
-  // ESC key opens / closes the pause menu
+  // ESC key opens / closes the pause menu. Offline this is a TRUE pause
+  // (physics/items/timers freeze via gameManager.isPaused); online the menu
+  // is informational only and the race continues for everyone.
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "Escape" || e.code === "Escape") {
         if (!gameStarted || gameOver) return;
+        const gm = useGameManager.getState();
         setIsPauseMenuOpen((prev) => {
-          if (prev) {
-            setPauseTab("menu");
-            return false;
-          }
-          return true;
+          const next = !prev;
+          if (!gm.isOnlineRace) gm.setPaused(next);
+          if (!next) setPauseTab("menu");
+          return next;
         });
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [gameStarted, gameOver]);
+
+  const closePauseMenu = () => {
+    setIsPauseMenuOpen(false);
+    setPauseTab("menu");
+    useGameManager.getState().setPaused(false);
+  };
+
+  const openPauseMenu = () => {
+    setPauseTab("menu");
+    setIsPauseMenuOpen(true);
+    // Offline this is a true pause; online the menu is informational and the
+    // race continues for everyone.
+    if (!useGameManager.getState().isOnlineRace) {
+      useGameManager.getState().setPaused(true);
+    }
+  };
 
   // Boost wind overlay + live online position (no extra re-render cost:
   // isBoosting/speed come from the lightweight game store).
@@ -326,8 +348,7 @@ const GameUI = () => {
               type="button"
               className="esc-hud-btn"
               onClick={() => {
-                setPauseTab("menu");
-                setIsPauseMenuOpen(true);
+                openPauseMenu();
               }}
               title="Pause Menu (ESC)"
             >
@@ -374,8 +395,7 @@ const GameUI = () => {
               type="button"
               className="esc-hud-btn"
               onClick={() => {
-                setPauseTab("menu");
-                setIsPauseMenuOpen(true);
+                openPauseMenu();
               }}
               title="Pause Menu (ESC)"
             >
@@ -399,8 +419,7 @@ const GameUI = () => {
           className="pause-menu-backdrop"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setIsPauseMenuOpen(false);
-              setPauseTab("menu");
+              closePauseMenu();
             }
           }}
         >
@@ -408,15 +427,15 @@ const GameUI = () => {
             {pauseTab === "menu" ? (
               <>
                 <div className="pause-menu-header">
-                  <span className="pause-menu-kicker">GAME PAUSED</span>
+                  <span className="pause-menu-kicker">{isOnlineRace ? "ONLINE • RACE CONTINUES" : "GAME PAUSED"}</span>
                   <h2>PAUSE MENU</h2>
-                  <p>Press ESC to resume</p>
+                  <p>{isOnlineRace ? "Online race keeps running" : "Press ESC to resume"}</p>
                 </div>
                 <div className="pause-menu-actions">
                   <button
                     type="button"
                     className="pause-menu-btn resume"
-                    onClick={() => setIsPauseMenuOpen(false)}
+                    onClick={closePauseMenu}
                   >
                     Resume Race
                   </button>
@@ -425,7 +444,7 @@ const GameUI = () => {
                     className="pause-menu-btn reset-kart"
                     onClick={() => {
                       requestReset();
-                      setIsPauseMenuOpen(false);
+                      closePauseMenu();
                     }}
                   >
                     Reset Kart to Track (R)

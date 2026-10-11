@@ -100,7 +100,7 @@ const Controls = ({ onClose }) => {
                 <div className="key">E</div>
                 <div className="key">G</div>
               </div>
-              <span>Drop Bomb</span>
+              <span>Use Item / Drop Bomb</span>
             </div>
 
             <div className="control-item">
@@ -110,7 +110,7 @@ const Controls = ({ onClose }) => {
             
             <div className="control-item">
               <div className="key">R</div>
-              <span>Reset to nearest road</span>
+              <span>Reset to last checkpoint</span>
             </div>
 
             <div className="control-item">
@@ -146,6 +146,25 @@ const Controls = ({ onClose }) => {
                 </svg>
               </div>
               <span>Action Button: Jump/Drift</span>
+            </div>
+
+            <div className="mobile-control-item">
+              <div className="mobile-control-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="12" cy="12" r="10" fill="#e6a23b" />
+                  <text x="12" y="16" fill="white" fontSize="14" fontWeight="bold" textAnchor="middle">B</text>
+                </svg>
+              </div>
+              <span>Item Button: Use Item / Drop Bomb</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="controls-section">
+          <h3>Gamepad Controls</h3>
+          <div className="mobile-controls-info">
+            <div className="mobile-control-item">
+              <span>Left stick: steer • A: accelerate • B: brake • RT/LT: drift • X/LB: use item</span>
             </div>
           </div>
         </div>

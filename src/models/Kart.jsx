@@ -5,7 +5,7 @@ Command: npx gltfjsx@6.5.3 --shadows ./models/kart.glb
 
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
-import { useGLTF, useKeyboardControls, useProgress, useTexture } from "@react-three/drei";
+import { useGLTF, useKeyboardControls, useTexture } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { damp } from "three/src/math/MathUtils.js";
 import VFXEmitter from "../wawa-vfx/VFXEmitter.tsx";
@@ -26,6 +26,13 @@ import { itemConfig } from "../items/itemConfig.js";
 import { useGameManager } from "../gameManager.js";
 const raycaster = new Raycaster();
 const upRaycaster = new Raycaster();
+// Scratch for the 4 sequential per-frame wheel queries (never retained:
+// Raycaster.set copies values in, getWorldPosition writes into them).
+const _kartOrigin = new Vector3();
+const _kartRay = new Vector3();
+// Fixed ray directions (were re-allocated on every React render).
+const _downDir = new Vector3(0, -1, 0);
+const _upDir = new Vector3(0, 1, 0);
 
 export function Kart({
   speed,
@@ -56,7 +63,6 @@ export function Kart({
     { position: new Vector3(), shouldEmit: false },
   ]);
 
-  const {progress} = useProgress();
   const bodyRef = useRef(null);
 
   const leftParticles = useRef(null);
@@ -79,6 +85,12 @@ export function Kart({
   const wheelRef = useRef(null);
 
   const isDriftingRef = useRef(false);
+  // Store-write throttle: wheel/flame arrays are consumed via getState (no
+  // subscribers), so publishing them 60x/sec only churns GC. Positions go
+  // out every 3rd frame; level/power only when the value actually changes.
+  const storeTickRef = useRef(0);
+  const lastDriftKeyRef = useRef("");
+  const lastBoostRef = useRef(-1);
 
   const flamePositionLeftRef = useRef(null);
   const flamePositionRightRef = useRef(null);
@@ -205,8 +217,8 @@ export function Kart({
   // the render body (not an effect) so it is set before the very first frame.
   raycaster.camera = camera;
   upRaycaster.camera = camera;
-  const direction = new Vector3(0, -1, 0)
-  const upDirection = new Vector3(0, 1, 0)
+  const direction = _downDir;
+  const upDirection = _upDir;
   // Last floor height picked per wheel. Used as hysteresis memory so a
   // base-terrain mesh rendered just under the asphalt can never steal the
   // pick while the kart drives on top of it (see pickFloor).
@@ -215,7 +227,10 @@ export function Kart({
   const lastVoidResetRef = useRef(0);
 
   function rotateWheels(left, right, delta) {
-    const rotationSpeed = speed.current * 0.01;
+    // Frame-rate independent spin: the old `speed * 0.01` per frame spun the
+    // wheels 2.4x faster on 144Hz than on 60Hz.
+    const frameDt = Number.isFinite(delta) && delta > 0 ? Math.min(delta, 0.1) : 1 / 60;
+    const rotationSpeed = speed.current * 0.6 * frameDt;
     wheel0.current.rotation.x += rotationSpeed;
     wheel1.current.rotation.x += rotationSpeed;
     wheel2.current.rotation.x += rotationSpeed;
@@ -233,8 +248,11 @@ export function Kart({
 
   function getGroundPosition(wheelBase, wheel, offset = 0, wheelIndex, delta) {
     const cappedDelta = Math.min(Math.max(delta, 0.0005), 0.05);
-    const origin = new Vector3();
-    wheelBase.current.getWorldPosition(origin);
+    // 60fps-normalized frame steps for the per-frame climb/drop caps below.
+    const frameSteps = cappedDelta * 60;
+    // Module scratch shared across the 4 sequential wheel queries (never
+    // retained: Raycaster.set copies values in).
+    wheelBase.current.getWorldPosition(_kartOrigin);
 
     // Per-track tuning: Waluigi dirt is rough/bumpy with steep pit walls,
     // Mario asphalt is smooth. Rough needs a wider stick band (no micro
@@ -261,7 +279,7 @@ export function Kart({
 
     // Cast downward starting from 2.5 units above the current wheel base
     // so climbs, ramps and elevated bridges ahead can be detected smoothly from above
-    const rayOrigin = new Vector3(origin.x, origin.y + 2.5 * ks, origin.z);
+    const rayOrigin = _kartRay.set(_kartOrigin.x, _kartOrigin.y + 2.5 * ks, _kartOrigin.z);
     raycaster.set(rayOrigin, direction);
     raycaster.far = DOWN_FAR;
     raycaster.firstHitOnly = true;
@@ -274,7 +292,7 @@ export function Kart({
     const intersects = raycaster.intersectObjects(targets, true);
 
     const pickFloor = (hits) => {
-      const expectedY = origin.y - 0.78 * ks;
+      const expectedY = _kartOrigin.y - 0.78 * ks;
 
       // Usable up-facing surfaces, nearest-first.
       const floors = [];
@@ -339,7 +357,7 @@ export function Kart({
         const n = hit.face?.normal;
         if (n && n.y > FLOOR_MIN_Y) {
           // Only accept a step that is actually close above the wheel.
-          if (hit.point.y - origin.y <= UP_FAR_SCALED) {
+          if (hit.point.y - _kartOrigin.y <= UP_FAR_SCALED) {
             groundHit = hit;
             break;
           }
@@ -353,7 +371,7 @@ export function Kart({
         if (!hit.object.name.includes("ground")) continue;
         const n = hit.face?.normal;
         if (n && Math.abs(n.y) < FLOOR_MIN_Y) continue;
-        if (hit.point.y > origin.y + 0.6 * ks) continue;
+        if (hit.point.y > _kartOrigin.y + 0.6 * ks) continue;
         groundHit = hit;
         break;
       }
@@ -386,7 +404,9 @@ export function Kart({
         wheel.current.verticalVelocity = Math.max(0, Math.min(12, rawVy));
         // Limit climb per frame too so a steep lip can't teleport the wheel
         // 2m in one frame (that teleport is what looked like detachment).
-        const maxClimb = (isRoughTrack ? 0.55 : 0.35) * ks;
+        // Delta-scaled (defined per 60fps frame): a fixed per-frame cap
+        // climbs 2.4x faster on 144Hz than on 60Hz.
+        const maxClimb = (isRoughTrack ? 0.55 : 0.35) * ks * frameSteps;
         const climbedW = damp(prevW, targetW, 24, cappedDelta);
         wheel.current.position.y = Math.min(climbedW, prevW + maxClimb) * invKs;
         wheel.current.isAirborne = false;
@@ -441,8 +461,8 @@ export function Kart({
         const rawFlatVy = (targetW - prevW) / Math.max(cappedDelta, 0.001);
         wheel.current.verticalVelocity = Math.max(-25, Math.min(14, rawFlatVy));
         // Rough dirt dips need a faster follow than 0.1/frame or the kart
-        // visibly floats above the ground.
-        const maxDrop = (isRoughTrack ? 0.35 : 0.1) * ks;
+        // visibly floats above the ground. Delta-scaled like maxClimb above.
+        const maxDrop = (isRoughTrack ? 0.35 : 0.1) * ks * frameSteps;
         wheel.current.position.y = Math.max(targetW, prevW - maxDrop) * invKs;
         wheel.current.isAirborne = false;
         wheelAirTimeRef.current[wheelIndex] = 0;
@@ -492,7 +512,7 @@ export function Kart({
 
       // Fell into the void: Lakitu-style auto recovery onto the road.
       if (
-        origin.y < -25 &&
+        _kartOrigin.y < -25 &&
         performance.now() - lastVoidResetRef.current > 2000 &&
         useGameManager.getState().gameStarted
       ) {
@@ -577,6 +597,8 @@ export function Kart({
     bodyRef.current.position.y = averageYPos / ksBody + jumpOffset.current * 0.1;
   }
   useFrame((_, delta) => {
+    // True pause: freeze the whole kart rig (wheels/body/camera follow).
+    if (useGameManager.getState().isPaused) return;
     // Expired spin clears once (2.1 #1): held items come back, blink gate
     // below sees no spin. Single write, guarded so it fires one frame.
     const gsSpin = useGameStore.getState().spin;
@@ -744,6 +766,10 @@ export function Kart({
       const isSpinning = Boolean(sSpin && performance.now() < Number(sSpin.until));
 
       if (isSpinning) {
+        // Spin-out used to skip getGroundPosition entirely, freezing
+        // groundPosition (blue-shell targeting, wall heights), dust and
+        // drift marks on the last pre-spin value. Now the ground query runs
+        // first (below) and the spin only overwrites the VISUAL pose.
         wheel0.current.position.set(-0.7, -0.2, 0.7);
         wheel1.current.position.set(0.7, -0.2, 0.7);
         wheel2.current.position.set(-0.77, -0.137, -0.7);
@@ -758,15 +784,31 @@ export function Kart({
         wheel3.current.isAirborne = false;
         bodyRef.current.position.y = 0;
         bodyRef.current.rotation.set(0, 0, 0);
-      } else {
-        getGroundPosition(wheel0Base, wheel0, backWheelOffset.current.right, 0, delta);
-        getGroundPosition(wheel1Base, wheel1, backWheelOffset.current.left, 1, delta);
-        getGroundPosition(wheel2Base, wheel2, backWheelOffset.current.right, 2, delta);
-        getGroundPosition(wheel3Base, wheel3, backWheelOffset.current.left, 3, delta);
+      }
+      // Ground query ALWAYS runs (even mid-spin): keeps groundPosition,
+      // dust, wall-height and blue-shell data live. During a spin the visual
+      // pose above wins; physics (moveAndRotateKart) stays frozen.
+      getGroundPosition(wheel0Base, wheel0, backWheelOffset.current.right, 0, delta);
+      getGroundPosition(wheel1Base, wheel1, backWheelOffset.current.left, 1, delta);
+      getGroundPosition(wheel2Base, wheel2, backWheelOffset.current.right, 2, delta);
+      getGroundPosition(wheel3Base, wheel3, backWheelOffset.current.left, 3, delta);
 
+      if (isSpinning) {
+        // Re-apply the frozen visual pose (the queries above moved the
+        // wheels to their simulated spots).
+        wheel0.current.position.set(-0.7, -0.2, 0.7);
+        wheel1.current.position.set(0.7, -0.2, 0.7);
+        wheel2.current.position.set(-0.77, -0.137, -0.7);
+        wheel3.current.position.set(0.77, -0.137, -0.7);
+        bodyRef.current.position.y = 0;
+        bodyRef.current.rotation.set(0, 0, 0);
+      } else {
         const wheelPositions = getWheelPositions();
 
-        setWheelPositions([...wheelPositions, bodyRef.current]);
+        storeTickRef.current += 1;
+        if (storeTickRef.current % 3 === 0) {
+          setWheelPositions([...wheelPositions, bodyRef.current]);
+        }
         moveAndRotateKart(wheelPositions, delta);
       }
 
@@ -814,13 +856,23 @@ export function Kart({
         sparksLeftRef?.current?.setColor(driftLevel.color);
         sparksRightRef?.current?.setColor(driftLevel.color);
       }
-      setDriftLevel(driftLevel);
+      const driftKey = driftLevel.name;
+      if (driftKey !== lastDriftKeyRef.current) {
+        lastDriftKeyRef.current = driftKey;
+        setDriftLevel(driftLevel);
+      }
 
-      setFlamePositions([
-        flamePositionLeftRef.current.getWorldPosition(new Vector3()),
-        flamePositionRightRef.current.getWorldPosition(new Vector3()),
-      ]);
-      setBoostPower(driftLevel.threshold / 2);
+      if (storeTickRef.current % 3 === 0) {
+        setFlamePositions([
+          flamePositionLeftRef.current.getWorldPosition(new Vector3()),
+          flamePositionRightRef.current.getWorldPosition(new Vector3()),
+        ]);
+      }
+      const boostVal = (driftLevel.threshold ?? 0) / 2;
+      if (boostVal !== lastBoostRef.current) {
+        lastBoostRef.current = boostVal;
+        setBoostPower(boostVal);
+      }
     }
   });
 
@@ -834,7 +886,7 @@ export function Kart({
     <>
       {/* <pointLight intensity={2000} position={[0, 10, 0]}/> */}
 
-      <group key={progress} ref={groupRef} dispose={null}>
+      <group ref={groupRef} dispose={null}>
         <group ref={tumbleRef} name="spinGroup">
         {myBulletRide && (
           <group rotation-y={Math.PI}>

@@ -19,9 +19,9 @@ import {
   animT,
   gloveAnimPos,
   popScale,
-  useItemScale,
+  itemUseScale,
 } from "../items/animCurves.js";
-import { setHandGetter } from "../items/handAnchor.js";
+import { setHandGetter, clearHandGetter } from "../items/handAnchor.js";
 
 // Driver-local frame mount. MUST match the Driver mounts in Kart.jsx,
 // RemoteRacers.jsx and the gallery (position [0, 0.45, -0.1], scale 0.7).
@@ -69,10 +69,11 @@ export function GloveHand({
   // gallery render the same component without registering).
   useEffect(() => {
     if (!liveAnchor) return undefined;
-    setHandGetter((out) => {
+    const readPalm = (out) => {
       if (palmRef.current) palmRef.current.getWorldPosition(out);
-    });
-    return () => setHandGetter(null);
+    };
+    setHandGetter(readPalm);
+    return () => clearHandGetter(readPalm);
   }, [liveAnchor]);
 
   useFrame(({ clock }) => {
@@ -89,7 +90,7 @@ export function GloveHand({
     groupRef.current.position.set(p[0], p[1], p[2]);
     if (itemRef.current) {
       const pop = live && animName === "item_got" ? popScale(t) : 1;
-      const shrink = live && animName === "use_mushroom" ? useItemScale(animName, t, isGolden) : 1;
+      const shrink = live && animName === "use_mushroom" ? itemUseScale(animName, t, isGolden) : 1;
       itemRef.current.scale.setScalar((1 / 0.7) * pop * shrink);
     }
     // Ghost visibility expires with the throw (carried items ignore this).
