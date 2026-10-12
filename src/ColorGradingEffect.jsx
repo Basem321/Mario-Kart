@@ -466,7 +466,59 @@ export class ColorGradingEffect extends Effect {
 }
 
 
-export const ColorGrading = forwardRef((props, ref) => {
+export const HUE_NAMES = [
+  "Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"
+];
+
+// Static production values — identical to the Leva defaults below, so the
+// game renders exactly the same with zero debug UI.
+export const COLOR_GRADING_DEFAULTS = {
+  redMix: "#FF0000",
+  greenMix: "#00FF00",
+  blueMix: "#0000FF",
+  brightness: 0.03,
+  contrast: 1.03,
+  saturation: 0.15,
+  vibrancy: 0.3,
+  hueOffset: 0,
+  gamma: 1,
+  shadowTint: "#d8d8d8",
+  highlightTint: "#ffffff",
+  splitToneBalance: 0,
+  exposure: -0.5,
+  kelvin: 5900,
+  chromaticAberration: 0,
+};
+
+export const HUE_DEFAULT_VALUES = Object.fromEntries(
+  HUE_NAMES.map((hue) => [hue, { hue: 0, sat: 0, lum: 0 }])
+);
+
+const COLOR_GRADING_SCHEMA = {
+  redMix: { value: "#FF0000", label: "Red Mix" },
+  greenMix: {
+    value: "#00FF00",
+    label: "Green Mix",
+  },
+  blueMix: {
+    value: "#0000FF",
+    label: "Blue Mix",
+  },
+  brightness: { value: 0.03, min: -1, max: 1, step: 0.001 },
+  contrast: { value: 1.03, min: 0, max: 3, step: 0.001 },
+  saturation: { value: 0.15, min: -1, max: 3, step: 0.001 },
+  vibrancy: { value: 0.3, min: -1, max: 3, step: 0.001 },
+  hueOffset: { value: 0, min: -Math.PI, max: Math.PI, step: 0.001 },
+  gamma: { value: 1, min: 0, max: 3, step: 0.001 },
+  shadowTint: { value: "#d8d8d8", label: "Shadow Tint" },
+  highlightTint: { value: "#ffffff", label: "Highlight Tint" },
+  splitToneBalance: { value: 0, min: 0, max: 1, step: 0.001 },
+  exposure: { value: -.5, min: -1, max: 3, step: 0.001 },
+  kelvin: { value: 5900, min: 1000, max: 40000 },
+  chromaticAberration : { value : 0, min : -5, max : 5}
+};
+
+const ColorGradingInner = forwardRef(({ grading, hueValues }, ref) => {
   // Created once: was `new` on every render, which rebuilt the
   // postprocessing pass chain each frame and leaked GPU programs.
   const effect = useMemo(() => new ColorGradingEffect(), []);
@@ -488,47 +540,7 @@ export const ColorGrading = forwardRef((props, ref) => {
     exposure,
     kelvin,
     chromaticAberration
-  } = useControls("Color Grading", {
-    redMix: { value: "#FF0000", label: "Red Mix" },
-    greenMix: {
-      value: "#00FF00",
-      label: "Green Mix",
-    },
-    blueMix: {
-      value: "#0000FF",
-      label: "Blue Mix",
-    },
-    brightness: { value: 0.03, min: -1, max: 1, step: 0.001 },
-    contrast: { value: 1.03, min: 0, max: 3, step: 0.001 },
-    saturation: { value: 0.15, min: -1, max: 3, step: 0.001 },
-    vibrancy: { value: 0.3, min: -1, max: 3, step: 0.001 },
-    hueOffset: { value: 0, min: -Math.PI, max: Math.PI, step: 0.001 },
-    gamma: { value: 1, min: 0, max: 3, step: 0.001 },
-    shadowTint: { value: "#d8d8d8", label: "Shadow Tint" },
-    highlightTint: { value: "#ffffff", label: "Highlight Tint" },
-    splitToneBalance: { value: 0, min: 0, max: 1, step: 0.001 },
-    exposure: { value: -.5, min: -1, max: 3, step: 0.001 },
-    kelvin: { value: 5900, min: 1000, max: 40000 },
-    chromaticAberration : { value : 0, min : -5, max : 5}
-  });
-
-  const hues = [
-    "Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"
-  ];
-
-  const hueControls = useControls("Hue Adjustments", () =>
-    Object.fromEntries(
-      hues.map((hue) => [
-        `${hue}`,
-        {
-          value: { hue: 0, sat: 0, lum: 0 },
-          step: 0.01,
-          min: -1,
-          max: 1,
-        },
-      ])
-    )
-  );
+  } = grading;
 
   const currentTime = useRef(0);
 
@@ -538,10 +550,10 @@ export const ColorGrading = forwardRef((props, ref) => {
   useFrame((state, delta) => {
     if (!camera) return;
 
-    if (!hueControls) return;
-    const hueAdjust = hues.map(h => hueControls[0][h].hue);
-    const satAdjust = hues.map(h => hueControls[0][h].sat);
-    const lumAdjust = hues.map(h => hueControls[0][h].lum);
+    if (!hueValues) return;
+    const hueAdjust = HUE_NAMES.map(h => hueValues[h].hue);
+    const satAdjust = HUE_NAMES.map(h => hueValues[h].sat);
+    const lumAdjust = HUE_NAMES.map(h => hueValues[h].lum);
     currentTime.current += delta;
     
     const isBoosting = useGameStore.getState().isBoosting;
@@ -579,4 +591,51 @@ export const ColorGrading = forwardRef((props, ref) => {
   }, [effect, camera, ref, lensDirtTexture]);
 
   return <primitive object={effect} />;
+});
+
+// DEV-only tuner: keeps the Leva sliders for local tweaking. Never rendered
+// in production (see ColorGrading below).
+const ColorGradingDev = forwardRef((props, ref) => {
+  const grading = useControls("Color Grading", COLOR_GRADING_SCHEMA);
+
+  const hueControls = useControls("Hue Adjustments", () =>
+    Object.fromEntries(
+      HUE_NAMES.map((hue) => [
+        `${hue}`,
+        {
+          value: { hue: 0, sat: 0, lum: 0 },
+          step: 0.01,
+          min: -1,
+          max: 1,
+        },
+      ])
+    )
+  );
+
+  return (
+    <ColorGradingInner
+      ref={ref}
+      grading={grading}
+      hueValues={hueControls?.[0]}
+      {...props}
+    />
+  );
+});
+
+export const ColorGrading = forwardRef((props, ref) => {
+  // Root-cause fix: useControls auto-mounts Leva's global panel into
+  // document.body on every call (leva/dist useRenderRoot) — gating the
+  // <Leva> element alone does NOT stop it. So the hook itself must never
+  // execute in production; prod uses the identical static defaults.
+  if (import.meta.env.DEV) {
+    return <ColorGradingDev ref={ref} {...props} />;
+  }
+  return (
+    <ColorGradingInner
+      ref={ref}
+      grading={COLOR_GRADING_DEFAULTS}
+      hueValues={HUE_DEFAULT_VALUES}
+      {...props}
+    />
+  );
 });

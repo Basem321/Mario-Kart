@@ -7,7 +7,6 @@ import { Composer } from "./Composer";
 import { useThree, useFrame } from "@react-three/fiber";
 import { Skid } from "./particles/drift/Skid";
 import { BoostCameraRig } from "./BoostCameraRig";
-import { Leva } from "leva";
 import { useGameStore } from "./store";
 import { useGameManager } from "./gameManager";
 
@@ -114,18 +113,6 @@ export const App = () => {
           </KeyboardControls>
 
         <Composer/>
-        {/* Debug panel: dev only. Mounting Leva in production ships dozens
-            of sliders + their stores to every player for nothing. */}
-        {import.meta.env.DEV && (
-        <Leva
-          fill // default = false,  true makes the pane fill the parent dom node it's rendered in
-          flat // default = false,  true removes border radius and shadow
-          oneLineLabels // default = false, alternative layout for labels, with labels and fields on separate rows
-          hideTitleBar // default = false, hides the GUI header
-          collapsed // default = false, when true the GUI is collpased
-          hidden // def
-        />
-        )}
       </>
   );
 };
