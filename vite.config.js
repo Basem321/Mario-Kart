@@ -13,11 +13,12 @@ export default defineConfig({
        registerType: 'prompt',
        injectRegister: false,
        includeAssets: [ 'Game_icon.jpg'],
-       manifest: {
-         name: 'Mario Kart 3.js',
-         short_name: 'MK3.JS',
-         start_url: '/',
-         display: 'standalone',
+        manifest: {
+          name: 'Mario Kart on Web — Play Mario Kart Deluxe 8 & Mario Race Free',
+          short_name: 'Mario Kart Web',
+          description: 'Play Mario Kart on web free — Deluxe 8 style browser racing: drift, items & online Mario Race. No download!',
+          start_url: '/',
+          display: 'standalone',
          background_color: '#FF0000',
          theme_color: '#FF0000',
          icons: [

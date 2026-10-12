@@ -149,10 +149,19 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     const position = toRacePosition(candidate.bomb);
     const createdAt = Number(candidate.bomb?.createdAt);
     const rawScale = Number(candidate.bomb?.scale);
+    // Bomb owner. Declared by the sender, OVERWRITTEN by the host relay
+    // with the authenticated connection id (same pattern as shell:fired).
+    const ownerId =
+      typeof candidate.ownerId === "string" && candidate.ownerId
+        ? candidate.ownerId.slice(0, 64)
+        : typeof candidate.bomb?.ownerId === "string" && candidate.bomb.ownerId
+          ? candidate.bomb.ownerId.slice(0, 64)
+          : null;
 
     if (!id || !position) return null;
     return {
       type: "bomb:dropped",
+      ...(ownerId ? { ownerId } : {}),
       bomb: {
         id,
         ...position,
@@ -161,6 +170,7 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
         scale: Number.isFinite(rawScale)
           ? Math.max(0.2, Math.min(3, rawScale))
           : 1,
+        ...(ownerId ? { ownerId } : {}),
       },
     };
   }
@@ -170,6 +180,13 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     const position = toRacePosition(candidate);
     if (!bombId || !position) return null;
     const rawScale = Number(candidate.scale);
+    // Owner of the bomb that exploded. Declared by the sender, OVERWRITTEN
+    // by the host relay with the authenticated connection id (never trust
+    // the payload — a forged explode at a victim's position is a stun-lock).
+    const ownerId =
+      typeof candidate.ownerId === "string" && candidate.ownerId
+        ? candidate.ownerId.slice(0, 64)
+        : null;
 
     return {
       type: "bomb:explode",
@@ -178,6 +195,7 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
       scale: Number.isFinite(rawScale)
         ? Math.max(0.2, Math.min(3, rawScale))
         : 1,
+      ...(ownerId ? { ownerId } : {}),
     };
   }
 
@@ -289,7 +307,18 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
   if (candidate.type === "blue:explode") {
     const position = toRacePosition(candidate);
     if (!position) return null;
-    return { type: "blue:explode", ...position, fizzle: Boolean(candidate.fizzle) };
+    // Blue-shell owner. Declared by the sender, OVERWRITTEN by the host
+    // relay with the authenticated connection id.
+    const ownerId =
+      typeof candidate.ownerId === "string" && candidate.ownerId
+        ? candidate.ownerId.slice(0, 64)
+        : null;
+    return {
+      type: "blue:explode",
+      ...position,
+      fizzle: Boolean(candidate.fizzle),
+      ...(ownerId ? { ownerId } : {}),
+    };
   }
 
   if (candidate.type === "bullet:start") {
@@ -456,13 +485,13 @@ export const useP2PLobby = () => {
   }, []);
 
   const applyIncomingRaceEvent = useCallback((playerId, event) => {
-    // Authenticated sender guard: explosion / box-take events only apply
-    // when they come from a plausible owner. Guests relay through the host,
-    // so `playerId` here is already the host-stamped sender.
+    // Authenticated sender guard: explosion events only apply when the
+    // stamped owner matches the stamped sender. Guests relay through the
+    // host, so `playerId` here is already the host-stamped sender and
+    // `ownerId` was overwritten by the relay (never the payload). A forged
+    // explode at a victim's position would otherwise be a remote stun-lock.
     if (event.type === "bomb:explode" || event.type === "blue:explode") {
-      // Position is validated by toRaceEvent/toRacePosition; distance checks
-      // happen in ItemBoxes/PlayerController against the local kart.
-      // Drop empty-position hostile packets here (already filtered), keep rest.
+      if (event.ownerId && event.ownerId !== playerId) return;
     }
     if (event.type === "item:boxes" && Array.isArray(event.boxes) && event.boxes.length === 0) {
       // Defensive: validator already rejects empty lists; never wipe boxes.
@@ -553,7 +582,22 @@ export const useP2PLobby = () => {
       }
 
       if (hostRef.current) {
-        const relayedEvent = stampRaceProgress(event);
+        let relayedEvent = stampRaceProgress(event);
+        // The host's own bombs/shells carry its id as owner, exactly like
+        // the relay stamps for guests above.
+        if (
+          relayedEvent.type === "bomb:dropped" ||
+          relayedEvent.type === "bomb:explode" ||
+          relayedEvent.type === "blue:explode"
+        ) {
+          relayedEvent = { ...relayedEvent, ownerId: self.id };
+          if (relayedEvent.type === "bomb:dropped" && relayedEvent.bomb) {
+            relayedEvent = {
+              ...relayedEvent,
+              bomb: { ...relayedEvent.bomb, ownerId: self.id },
+            };
+          }
+        }
         // The host's own progress must also land in the local store with the
         // same host-stamped completedAt every guest sees — otherwise the
         // host's own results row sorts as Infinity and always loses ties.
@@ -760,7 +804,7 @@ export const useP2PLobby = () => {
 
             if (message.type === "race:event") {
               const activeRace = activeRaceRef.current;
-              const event = toRaceEvent(message.event, activeRace?.lapCount);
+              let event = toRaceEvent(message.event, activeRace?.lapCount);
 
               if (
                 !activeRace ||
@@ -778,6 +822,22 @@ export const useP2PLobby = () => {
               if (event.type === "bullet:start" && event.playerId !== connection.peer) {
                 return;
               }
+              // Explosions are stamped with the authenticated sender as
+              // owner (payload ownerId is never trusted). Guests receiving
+              // the relay check ownerId === playerId before applying.
+              if (
+                event.type === "bomb:dropped" ||
+                event.type === "bomb:explode" ||
+                event.type === "blue:explode"
+              ) {
+                event = { ...event, ownerId: connection.peer };
+                if (event.type === "bomb:dropped" && event.bomb) {
+                  event = {
+                    ...event,
+                    bomb: { ...event.bomb, ownerId: connection.peer },
+                  };
+                }
+              }
               if (event.type === "bullet:knock") {
                 // Only the host (or the ride owner via host relay) may knock;
                 // guests cannot knock other players directly.
@@ -788,6 +848,9 @@ export const useP2PLobby = () => {
               if (
                 (event.type === "shell:fired" && shouldDropFlood(connection.peer, "shell", 6)) ||
                 (event.type === "bomb:dropped" && shouldDropFlood(connection.peer, "bomb", 4)) ||
+                (event.type === "bomb:explode" && shouldDropFlood(connection.peer, "bombExplode", 4)) ||
+                (event.type === "blue:explode" && shouldDropFlood(connection.peer, "blueExplode", 2)) ||
+                (event.type === "item:boxTaken" && shouldDropFlood(connection.peer, "boxTaken", 8)) ||
                 (event.type === "blooper:ink" && shouldDropFlood(connection.peer, "blooper", 2))
               ) {
                 return;

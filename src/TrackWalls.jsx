@@ -343,18 +343,55 @@ export function TrackWalls() {
     mesh.computeBoundingSphere();
   }, [visibleSegments]);
 
-  if (visibleSegments.length === 0) return null;
+  // Debug overlay (report 3 §5 #7): ?debugWalls=1 draws the precomputed
+  // collision segments as lines so wall gaps / shortcut coverage can be
+  // checked visually without touching collision behaviour.
+  const debugWalls =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("debugWalls");
+  const debugGeometry = useMemo(() => {
+    if (!debugWalls || segments.length === 0) return null;
+    const positions = new Float32Array(segments.length * 6);
+    segments.forEach((s, i) => {
+      positions[i * 6] = s.ax;
+      positions[i * 6 + 1] = (s.y ?? 0) + 1;
+      positions[i * 6 + 2] = s.az;
+      positions[i * 6 + 3] = s.bx;
+      positions[i * 6 + 4] = (s.y ?? 0) + 1;
+      positions[i * 6 + 5] = s.bz;
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    return geo;
+  }, [debugWalls, segments]);
+  useEffect(
+    () => () => {
+      debugGeometry?.dispose();
+    },
+    [debugGeometry]
+  );
+
+  if (visibleSegments.length === 0 && !debugGeometry) return null;
 
   return (
-    <instancedMesh
-      ref={instancedRef}
-      name="wall-barrier"
-      args={[undefined, undefined, visibleSegments.length]}
-      frustumCulled={false}
-    >
-      <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial roughness={0.6} metalness={0.05} />
-    </instancedMesh>
+    <group>
+      {visibleSegments.length > 0 && (
+        <instancedMesh
+          ref={instancedRef}
+          name="wall-barrier"
+          args={[undefined, undefined, visibleSegments.length]}
+          frustumCulled={false}
+        >
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial roughness={0.6} metalness={0.05} />
+        </instancedMesh>
+      )}
+      {debugGeometry && (
+        <lineSegments geometry={debugGeometry} frustumCulled={false}>
+          <lineBasicMaterial color="#ffe14d" />
+        </lineSegments>
+      )}
+    </group>
   );
 }
 

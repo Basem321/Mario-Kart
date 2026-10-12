@@ -73,6 +73,13 @@ const PICKUP_RADIUS = 2.6;
 const BOMB_ARM_SECONDS = 1.0;
 const BOMB_TRIGGER_RADIUS = 3.4;
 const EXPLOSION_LIFE = 1.05;
+// Remote box-take plausibility: the taker must be within this XZ distance
+// of the box. Generous on purpose (transforms stream at 10-20 Hz and karts
+// are fast); a cross-map wipe is hostile and gets dropped.
+const BOX_TAKE_VERIFY_RADIUS = 8;
+// Same idea for bomb detonations: the detonator must touch the bomb unless
+// it owns it. Generous for the same networking reasons.
+const BOMB_EXPLODE_VERIFY_RADIUS = 10;
 
 const snapRaycaster = new THREE.Raycaster();
 const downDir = new THREE.Vector3(0, -1, 0);
@@ -660,10 +667,17 @@ const fireBlueShell = (pending) => {
 };
 
 const bombAgeMs = (bomb, now) => {
+  // Prefer the LOCAL receipt clock (`at`, performance.now at add time):
+  // createdAt crosses the network from the sender's wall clock, so a
+  // skewed sender would arm the bomb instantly (or never). `at` is always
+  // stamped locally in addDroppedBomb for local AND remote bombs.
+  if (Number.isFinite(bomb?.at)) {
+    return Math.max(0, now - bomb.at);
+  }
   if (Number.isFinite(bomb?.createdAt)) {
     return Math.max(0, Date.now() - bomb.createdAt);
   }
-  return now - (Number.isFinite(bomb?.at) ? bomb.at : now);
+  return 0;
 };
 
 const makeBombId = () => {
@@ -692,6 +706,12 @@ const addDroppedBomb = (bomb, remote = false) => {
       y: bomb.y,
       z: bomb.z,
       scale: clampBombScale(bomb?.scale),
+      // Owner of the bomb (host-stamped peer id for remote bombs, local
+      // racer id for our own). Explosions must come from this owner.
+      ownerId:
+        typeof bomb?.ownerId === "string" && bomb.ownerId
+          ? bomb.ownerId.slice(0, 64)
+          : null,
       createdAt: remote || !Number.isFinite(bomb.createdAt) ? Date.now() : bomb.createdAt,
       at: performance.now(),
     },
@@ -731,6 +751,9 @@ const triggerBombExplosion = (bomb, { broadcast = false } = {}) => {
       y: bomb.y,
       z: bomb.z,
       scale: Number.isFinite(Number(bomb?.scale)) ? bomb.scale : 1,
+      // Ownership proof: the host relay overwrites this with the
+      // authenticated sender id; receivers drop mismatches.
+      ownerId: myRacerId(),
     });
   }
 
@@ -890,6 +913,39 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         }
 
         if (event.type === "bomb:explode" && event.bombId) {
+          // Detonation must be legitimate: EITHER the bomb owner ends it
+          // (host stamps ownerId with the authenticated peer id) OR the
+          // sender touches the bomb (every client simulates every bomb, so
+          // a victim legitimately detonates on contact and broadcasts).
+          // A forged explode at a far-away victim's position is dropped.
+          const stored = useGameStore.getState().droppedBombs.find(
+            (entry) => entry.id === event.bombId
+          );
+          if (event.ownerId && event.ownerId !== event.playerId) return;
+          const ownerEnds =
+            Boolean(stored?.ownerId) && event.ownerId === stored.ownerId;
+          // Touch proof uses the EVENT coordinates (a forged bombId has no
+          // stored position to check against): the sender must stand next
+          // to the blast. Unknown sender position fails closed — a fake
+          // bombId at a victim's position must never detonate.
+          let touchEnds = false;
+          if (
+            !ownerEnds &&
+            Number.isFinite(event.x) &&
+            Number.isFinite(event.z)
+          ) {
+            const touchPos =
+              useOnlineRaceStore.getState().remoteRacers[event.playerId];
+            if (
+              Number.isFinite(touchPos?.x) &&
+              Number.isFinite(touchPos?.z) &&
+              Math.hypot(touchPos.x - event.x, touchPos.z - event.z) <=
+                BOMB_EXPLODE_VERIFY_RADIUS
+            ) {
+              touchEnds = true;
+            }
+          }
+          if (!ownerEnds && !touchEnds) return;
           triggerBombExplosion(
             {
               id: event.bombId,
@@ -916,6 +972,22 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
 
         if (event.type === "item:boxTaken" && Number.isInteger(event.boxId)) {
           const st4 = useGameStore.getState();
+          // The taker must be near the box: a remote peer wiping boxes
+          // across the map is hostile (or very laggy). Sender transforms
+          // stream at 10-20 Hz, so the radius is generous; unknown sender
+          // position fails open to avoid false desyncs on join.
+          const box = st4.itemBoxes.find((o) => o.id === event.boxId);
+          const senderPos =
+            useOnlineRaceStore.getState().remoteRacers[event.playerId];
+          if (
+            box &&
+            Number.isFinite(senderPos?.x) &&
+            Number.isFinite(senderPos?.z) &&
+            Math.hypot(senderPos.x - box.x, senderPos.z - box.z) >
+              BOX_TAKE_VERIFY_RADIUS
+          ) {
+            return;
+          }
           st4.setItemBoxes(
             st4.itemBoxes.map((o) =>
               o.id === event.boxId && o.active
@@ -1004,6 +1076,10 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         }
 
         if (event.type === "blue:explode" && Number.isFinite(event.x)) {
+          // Only the shell owner (host-stamped) may end the blue shell.
+          // A forged explode would clear everyone's shell + force a blast
+          // check at an attacker's coordinates.
+          if (event.ownerId && event.ownerId !== event.playerId) return;
           stopBlueAlarm();
           useGameStore.getState().setBlueWarning(null);
           const st2 = useGameStore.getState();
@@ -1257,9 +1333,13 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         scale: myScale,
         createdAt: Date.now(),
       };
-      addDroppedBomb(bomb);
+      addDroppedBomb({ ...bomb, ownerId: myRacerId() });
       publishOnlineRaceEvent({ type: "bomb:carried", carried: false });
-      publishOnlineRaceEvent({ type: "bomb:dropped", bomb });
+      publishOnlineRaceEvent({
+        type: "bomb:dropped",
+        ownerId: myRacerId(),
+        bomb: { ...bomb, ownerId: myRacerId() },
+      });
     };
     // Drop with G or E (edge trigger). Spin-out and the global use gap
     // gate every use (§10.6); lastUseAt is stamped on any committed press.
@@ -1489,6 +1569,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                 y: shell.y,
                 z: shell.z,
                 fizzle: true,
+                // Ownership proof (host relay overwrites with sender id).
+                ownerId: myRacerId(),
               });
               // Owner never receives its own publish: stop the local alarm
               // when WE were the target, otherwise it loops forever (solo /
@@ -1557,6 +1639,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                   y: ground,
                   z: tz,
                   fizzle: Boolean(immune),
+                  // Ownership proof (host relay overwrites with sender id).
+                  ownerId: myRacerId(),
                 });
                 // Owner never receives its own explode: stop the local alarm
                 // + clear the warning when WE were the target. The shell drops

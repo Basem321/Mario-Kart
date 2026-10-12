@@ -36,6 +36,15 @@ wallRaycaster.firstHitOnly = true;
 const _desiredDir = new Vector3();
 const _wallOrigin = new Vector3();
 const _wallDir = new Vector3();
+// Scratch for the wall-face height filter + collider dedup below.
+const _triA = new Vector3();
+const _triB = new Vector3();
+const _triC = new Vector3();
+const _colliderPos = new Vector3();
+// Faces shorter than this world-Y span are bumps/decor, not walls.
+// Shroom Ridge has low relief meshes (0.05-0.9 high) sitting inside the
+// asphalt that otherwise read as invisible walls narrowing the road.
+const MIN_WALL_FACE_HEIGHT = 0.5;
 const _camPos = new Vector3();
 const _camLook = new Vector3();
 const _camRearPos = new Vector3();
@@ -520,8 +529,17 @@ export const PlayerController = () => {
       meshCollidersTrackRef.current !== trackId
     ) {
       const list = [];
+      // Waluigi's GLB carries duplicated nodes (2x triangles): identical
+      // geometry at an identical world transform would raycast twice, so
+      // collapse those duplicates here (distinct placements still collide).
+      const seen = new Set();
       scene.traverse((obj) => {
-        if (obj.isMesh && obj.name.includes("ground")) list.push(obj);
+        if (!obj.isMesh || !obj.name.includes("ground")) return;
+        obj.getWorldPosition(_colliderPos);
+        const key = `${obj.geometry?.uuid ?? obj.uuid}|${Math.round(_colliderPos.x * 50)},${Math.round(_colliderPos.y * 50)},${Math.round(_colliderPos.z * 50)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        list.push(obj);
       });
       if (list.length > 0 || meshCollidersTrackRef.current !== trackId) {
         meshCollidersRef.current = list;
@@ -531,10 +549,27 @@ export const PlayerController = () => {
     return meshCollidersRef.current;
   };
 
-  // Second wall layer: horizontal ray from the kart against the real
+  // Second wall layer: horizontal rays from the kart against the real
   // track geometry. Only steep faces count as walls (floor is skipped).
   // The track group has no rotation (translation + uniform scale only),
   // so the object-space face normal is also the world normal direction.
+  // World-space Y span of a hit triangle: low relief INSIDE the asphalt
+  // never counts as a wall, even when its normal reads as steep.
+  function wallFaceSpanY(hit) {
+    const posAttr = hit.object?.geometry?.attributes?.position;
+    const face = hit.face;
+    if (!posAttr || !face) return Infinity;
+    _triA.fromBufferAttribute(posAttr, face.a);
+    _triB.fromBufferAttribute(posAttr, face.b);
+    _triC.fromBufferAttribute(posAttr, face.c);
+    hit.object.localToWorld(_triA);
+    hit.object.localToWorld(_triB);
+    hit.object.localToWorld(_triC);
+    return (
+      Math.max(_triA.y, _triB.y, _triC.y) -
+      Math.min(_triA.y, _triB.y, _triC.y)
+    );
+  }
   function resolveMeshWalls(prevX, prevZ, inX, inZ) {
     const colliders = getMeshColliders();
     if (!colliders || colliders.length === 0) {
@@ -546,49 +581,64 @@ export const PlayerController = () => {
     if (dist < 1e-6) {
       return { x: inX, z: inZ, hit: false, nx: 0, nz: 0 };
     }
-    const originY = (useGameStore.getState().groundPosition ?? 0) + 0.25;
-    wallRaycaster.set(
-      _wallOrigin.set(prevX, originY, prevZ),
-      _wallDir.set(dx / dist, 0, dz / dist)
-    );
-    wallRaycaster.far = dist + (KART_RADIUS + WALL_SKIN) * kartScale;
-    const hits = wallRaycaster.intersectObjects(colliders, false);
     // Waluigi's wheel floor needs n.y >= 0.4 (steep dirt pit walls are not
     // floor); the mesh-wall test must match, or slopes in (0.35, 0.4] are
     // neither floor nor wall and karts clip through them.
     const isRoughWalls =
       useGameManager.getState().selectedTrackId === "waluigi-stadium";
     const wallNormalY = isRoughWalls ? 0.4 : 0.35;
-    for (const h of hits) {
-      const n = h.face?.normal;
-      // Allow inclined slopes / ramps up to ~70 degrees to be drivable, not blocking walls
-      if (!n || Math.abs(n.y) > wallNormalY) continue; // floor/ramp/ceiling, not a wall
-      const nl = Math.hypot(n.x, n.z);
-      if (nl < 1e-4) continue;
-      let nx = n.x / nl;
-      let nz = n.z / nl;
-      // Face the kart: normal must point from wall toward the kart.
-      let ox = inX - h.point.x;
-      let oz = inZ - h.point.z;
-      let d = ox * nx + oz * nz;
-      if (d < 0) {
-        nx = -nx;
-        nz = -nz;
-        d = -d;
+    const minD = (KART_RADIUS + WALL_SKIN) * kartScale;
+    const dirX = dx / dist;
+    const dirZ = dz / dist;
+    const originY = (useGameStore.getState().groundPosition ?? 0) + 0.25;
+    // Three rays: center + both flanks at kart half-width. A single center
+    // ray misses side-swipe contact and corners, so karts clipped through
+    // walls at shallow angles (Waluigi ramp exclusions especially).
+    const lat = KART_RADIUS * kartScale;
+    let x = inX;
+    let z = inZ;
+    let hitAny = false;
+    let hitNx = 0;
+    let hitNz = 0;
+    for (const side of [0, 1, -1]) {
+      const ox = prevX - dirZ * lat * side;
+      const oz = prevZ + dirX * lat * side;
+      wallRaycaster.set(
+        _wallOrigin.set(ox, originY, oz),
+        _wallDir.set(dirX, 0, dirZ)
+      );
+      wallRaycaster.far = dist + minD;
+      const hits = wallRaycaster.intersectObjects(colliders, false);
+      for (const h of hits) {
+        const n = h.face?.normal;
+        // Allow inclined slopes / ramps up to ~70 degrees to be drivable, not blocking walls
+        if (!n || Math.abs(n.y) > wallNormalY) continue; // floor/ramp/ceiling, not a wall
+        // Low relief inside the road surface (curbs, decor seams) is not
+        // a wall even when its normal is steep — this was the Shroom
+        // Ridge "invisible walls narrowing the road" report.
+        if (wallFaceSpanY(h) < MIN_WALL_FACE_HEIGHT) continue;
+        const nl = Math.hypot(n.x, n.z);
+        if (nl < 1e-4) continue;
+        let nx = n.x / nl;
+        let nz = n.z / nl;
+        // Face the kart: normal must point from wall toward the kart.
+        const px = x - h.point.x;
+        const pz = z - h.point.z;
+        let d = px * nx + pz * nz;
+        if (d < 0) {
+          nx = -nx;
+          nz = -nz;
+          d = -d;
+        }
+        if (d >= minD) continue;
+        x = x + nx * (minD - d);
+        z = z + nz * (minD - d);
+        hitAny = true;
+        hitNx = nx;
+        hitNz = nz;
       }
-      const minD = (KART_RADIUS + WALL_SKIN) * kartScale;
-      if (d >= minD) {
-        return { x: inX, z: inZ, hit: false, nx: 0, nz: 0 };
-      }
-      return {
-        x: inX + nx * (minD - d),
-        z: inZ + nz * (minD - d),
-        hit: true,
-        nx,
-        nz,
-      };
     }
-    return { x: inX, z: inZ, hit: false, nx: 0, nz: 0 };
+    return { x, z, hit: hitAny, nx: hitNx, nz: hitNz };
   }
 
   // Poll the gamepad without spamming the store: setGamepad with a fresh

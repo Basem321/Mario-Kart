@@ -30,6 +30,8 @@ const upRaycaster = new Raycaster();
 // Raycaster.set copies values in, getWorldPosition writes into them).
 const _kartOrigin = new Vector3();
 const _kartRay = new Vector3();
+// Scratch for the spin-freeze deck-height sample (world Y per wheel).
+const _spinWorld = new Vector3();
 // Fixed ray directions (were re-allocated on every React render).
 const _downDir = new Vector3(0, -1, 0);
 const _upDir = new Vector3(0, 1, 0);
@@ -262,7 +264,10 @@ export function Kart({
       useGameManager.getState().selectedTrackId ?? "mario-circuit";
     const isRoughTrack = activeTrackIdForPhysics === "waluigi-stadium";
     const STICK_BAND = isRoughTrack ? 1.0 : 0.45;
-    const FLOOR_MIN_Y = isRoughTrack ? 0.4 : 0.15;
+    // Floor threshold matches the mesh-wall threshold (0.35 smooth,
+    // 0.4 rough): faces with n.y in (0.15, 0.35] used to be BOTH floor and
+    // wall, so near-vertical banks were drivable instead of blocking.
+    const FLOOR_MIN_Y = isRoughTrack ? 0.4 : 0.35;
     const DOWN_FAR = isRoughTrack ? 80 : 35;
     const UP_FAR = 1.5;
     const GRAVITY = isRoughTrack ? 24 : 18;
@@ -406,7 +411,17 @@ export function Kart({
         // 2m in one frame (that teleport is what looked like detachment).
         // Delta-scaled (defined per 60fps frame): a fixed per-frame cap
         // climbs 2.4x faster on 144Hz than on 60Hz.
-        const maxClimb = (isRoughTrack ? 0.55 : 0.35) * ks * frameSteps;
+        // Speed-scaled: the stadium kicker steepens to ~0.8 rise per unit
+        // run right before the lip, demanding ~48 u/s of climb at boost
+        // speed (60) — a fixed 0.55 cap (33 u/s) makes the wheels lag and
+        // sink into the ramp. At cruise speed the base cap is unchanged.
+        const maxClimb =
+          Math.max(
+            isRoughTrack ? 0.55 : 0.35,
+            speed.current * 0.016
+          ) *
+          ks *
+          frameSteps;
         const climbedW = damp(prevW, targetW, 24, cappedDelta);
         wheel.current.position.y = Math.min(climbedW, prevW + maxClimb) * invKs;
         wheel.current.isAirborne = false;
@@ -558,8 +573,13 @@ export function Kart({
     const c = wheelPositions[2];
     const d = wheelPositions[3];
 
-    let pitch = (c.y + d.y - (a.y + b.y)) * 0.5;
-    let roll = (b.y - a.y + d.y - c.y) * 0.5;
+    // Wheel world positions already scale with kart size, so the raw
+    // height deltas shrink with the kart: divide by the size scale (the
+    // wheelbase in world units) to keep the same visual tilt. At ks=1 this
+    // is exactly the old formula.
+    const ksTilt = Math.max(useGameStore.getState().kartScale ?? 1, 1e-3);
+    let pitch = ((c.y + d.y - (a.y + b.y)) * 0.5) / ksTilt;
+    let roll = ((b.y - a.y + d.y - c.y) * 0.5) / ksTilt;
     if (!Number.isFinite(pitch)) pitch = 0;
     if (!Number.isFinite(roll)) roll = 0;
     pitch = MathUtils.clamp(pitch, -0.45, 0.45);
@@ -795,12 +815,25 @@ export function Kart({
 
       if (isSpinning) {
         // Re-apply the frozen visual pose (the queries above moved the
-        // wheels to their simulated spots).
-        wheel0.current.position.set(-0.7, -0.2, 0.7);
-        wheel1.current.position.set(0.7, -0.2, 0.7);
-        wheel2.current.position.set(-0.77, -0.137, -0.7);
-        wheel3.current.position.set(0.77, -0.137, -0.7);
-        bodyRef.current.position.y = 0;
+        // wheels to their simulated spots). The player group sits at y=0,
+        // so every bit of ride height lives in these local offsets: pinning
+        // them at 0 dropped the whole kart to world zero on elevated decks.
+        // Lift the frozen pose by the live deck height instead.
+        const ksSpin = Math.max(useGameStore.getState().kartScale ?? 1, 1e-3);
+        const deckYs = [wheel0, wheel1, wheel2, wheel3].map((w) =>
+          w.current.getWorldPosition(_spinWorld).y
+        );
+        deckYs.sort((p, q) => p - q);
+        const deckBase =
+          deckYs.length === 4 && deckYs[3] - deckYs[0] > 3
+            ? (deckYs[1] + deckYs[2]) / 2
+            : (deckYs[0] + deckYs[1] + deckYs[2] + deckYs[3]) / 4;
+        const deckLift = (Number.isFinite(deckBase) ? deckBase : 0) / ksSpin;
+        wheel0.current.position.set(-0.7, deckLift - 0.2, 0.7);
+        wheel1.current.position.set(0.7, deckLift - 0.2, 0.7);
+        wheel2.current.position.set(-0.77, deckLift - 0.137, -0.7);
+        wheel3.current.position.set(0.77, deckLift - 0.137, -0.7);
+        bodyRef.current.position.y = deckLift + 0.65;
         bodyRef.current.rotation.set(0, 0, 0);
       } else {
         const wheelPositions = getWheelPositions();

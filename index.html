@@ -2,16 +2,93 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/jpeg" href="/Game_icon.jpg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
     <link rel="apple-touch-icon" href="/Game_icon.jpg" />
-    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="Mario Kart Web" />
     <meta name="theme-color" content="#ff0000" />
-    <title>Mario Kart 3.js</title>
+
+    <!-- Primary SEO: targets "mario kart on web", "mario kart deluxe 8 on web", "mario race", "mario kart" -->
+    <title>Mario Kart on Web | Play Mario Kart Deluxe 8 & Mario Race Free in Browser</title>
+    <meta
+      name="description"
+      content="Play Mario Kart on web free — Mario Kart Deluxe 8 style racing in your browser. Race Mario Circuit, Waluigi Stadium & Shroom Ridge, drift, boost & battle online. No download!"
+    />
+    <meta
+      name="keywords"
+      content="mario kart, mario kart on web, mario kart deluxe 8 on web, mario race, mario kart web, mario kart browser, mario kart free, mario kart 8 deluxe web, play mario kart online, mario racing game"
+    />
+    <meta name="author" content="Basem Ahmed" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <link rel="canonical" href="https://mariokart-brown.vercel.app/" />
+
+    <!-- Open Graph (Facebook / Discord / WhatsApp preview) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Mario Kart on Web" />
+    <meta property="og:url" content="https://mariokart-brown.vercel.app/" />
+    <meta property="og:title" content="Mario Kart on Web | Play Mario Kart Deluxe 8 & Mario Race Free" />
+    <meta
+      property="og:description"
+      content="Free browser Mario Kart: Deluxe 8 style races, drift & mini-turbo, items, online P2P races. Play Mario Race now — no download!"
+    />
+    <meta property="og:image" content="https://mariokart-brown.vercel.app/images/mario-kart-8-arcade-racing_1920x1200.jpg" />
+    <meta property="og:image:alt" content="Mario Kart on web — browser racing" />
+    <meta property="og:image:width" content="1920" />
+    <meta property="og:image:height" content="1200" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Mario Kart on Web | Play Mario Kart Deluxe 8 & Mario Race Free" />
+    <meta
+      name="twitter:description"
+      content="Play Mario Kart in your browser free — Deluxe 8 style racing, drift, items & online races. No download!"
+    />
+    <meta name="twitter:image" content="https://mariokart-brown.vercel.app/images/mario-kart-8-arcade-racing_1920x1200.jpg" />
+    <meta name="twitter:image:alt" content="Mario Kart on web — browser racing" />
+
+    <!-- Structured data: helps Google show it as a game -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Mario Kart on Web",
+        "alternateName": ["Mario Kart Deluxe 8 on Web", "Mario Race", "MK3.JS"],
+        "url": "https://mariokart-brown.vercel.app/",
+        "image": "https://mariokart-brown.vercel.app/images/mario-kart-8-arcade-racing_1920x1200.jpg",
+        "description": "Free fan-made browser racing game inspired by Mario Kart Deluxe 8. Race Mario Circuit, Waluigi Stadium and Shroom Ridge with drift, items and online P2P races. No download.",
+        "applicationCategory": "Game",
+        "operatingSystem": "Web",
+        "genre": ["Racing", "Arcade"],
+        "playMode": ["SinglePlayer", "MultiPlayer"],
+        "author": { "@type": "Person", "name": "Basem Ahmed" },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "isAccessibleForFree": true
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static fallback for crawlers / no-JS: replaced by React on load -->
+      <header>
+        <h1>Mario Kart on Web — Play Mario Kart Deluxe 8 &amp; Mario Race Free in Browser</h1>
+        <p>
+          Free browser Mario Kart racing: Mario Circuit, Waluigi Stadium and DS Shroom Ridge
+          with drift, mini-turbo, items and online races. No download — just open and race.
+        </p>
+      </header>
+    </div>
+    <noscript>
+      <h1>Mario Kart on Web — Play Mario Kart Deluxe 8 &amp; Mario Race Free</h1>
+      <p>
+        This Mario Kart web game needs JavaScript to run. Enable JavaScript to play Mario Race
+        in your browser free — drift, boost and race online with friends.
+      </p>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
