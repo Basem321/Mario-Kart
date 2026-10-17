@@ -841,11 +841,11 @@ export const useP2PLobby = () => {
                   };
                 }
               }
-              if (event.type === "bullet:knock") {
-                // Only the host (or the ride owner via host relay) may knock;
-                // guests cannot knock other players directly.
-                return;
-              }
+              // bullet:knock is relayed (not dropped): only the ride owner's
+              // client detects knocks, so dropping every guest knock meant a
+              // guest's Bullet Bill never hit anyone. The victim still
+              // validates it (isValidKnock: the authenticated sender must own
+              // that exact live ride), and the flood guard below bounds it.
               if (event.type === "item:boxes") {
                 // Box spawn/respawn is host-authoritative. Guests already
                 // reject relayed item:boxes that don't come from the host;
@@ -861,7 +861,15 @@ export const useP2PLobby = () => {
                 (event.type === "bomb:explode" && shouldDropFlood(connection.peer, "bombExplode", 4)) ||
                 (event.type === "blue:explode" && shouldDropFlood(connection.peer, "blueExplode", 2)) ||
                 (event.type === "item:boxTaken" && shouldDropFlood(connection.peer, "boxTaken", 8)) ||
-                (event.type === "blooper:ink" && shouldDropFlood(connection.peer, "blooper", 2))
+                (event.type === "blooper:ink" && shouldDropFlood(connection.peer, "blooper", 2)) ||
+                // One knock per victim per ride (max 9 victims in a lobby of 10).
+                (event.type === "bullet:knock" && shouldDropFlood(connection.peer, "knock", 12)) ||
+                (event.type === "bullet:start" && shouldDropFlood(connection.peer, "bulletStart", 2)) ||
+                (event.type === "bullet:end" && shouldDropFlood(connection.peer, "bulletEnd", 2)) ||
+                (event.type === "shell:hit" && shouldDropFlood(connection.peer, "shellHit", 10)) ||
+                (event.type === "blue:incoming" && shouldDropFlood(connection.peer, "blueIncoming", 2)) ||
+                (event.type === "item:carried" && shouldDropFlood(connection.peer, "itemCarried", 20)) ||
+                (event.type === "bomb:carried" && shouldDropFlood(connection.peer, "bombCarried", 10))
               ) {
                 return;
               }

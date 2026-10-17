@@ -84,23 +84,23 @@ const RemoteKart = ({ player, playerIndex }) => {
     }
     if (!kartRef.current || !visualRef.current) return;
 
-    const fallbackTarget = {
-      x: spawnSlot.position[0],
-      y: spawnSlot.position[1],
-      z: spawnSlot.position[2],
-      rotationY: spawnSlot.rotationY,
-      bodyY: 0,
-    };
-    const target = { ...fallbackTarget, ...remoteState };
+    // Scalars instead of `{ ...fallback, ...remoteState }`: no per-frame
+    // object allocation in useFrame (AGENTS.md perf rule). Falls back to the
+    // spawn slot until the first network state arrives.
+    const targetX = remoteState?.x ?? spawnSlot.position[0];
+    const targetY = remoteState?.y ?? spawnSlot.position[1];
+    const targetZ = remoteState?.z ?? spawnSlot.position[2];
+    const targetRotationY = remoteState?.rotationY ?? spawnSlot.rotationY;
+    const targetBodyY = remoteState?.bodyY ?? 0;
     // kartRef is the OUTER group: its position lives in the parent (world)
     // space, so damp it directly. (Only visualRef below is a child of the
     // scaled group and needs the rs conversion.)
     const rs = spawnSlot.kartScale ?? 1;
 
-    kartRef.current.position.x = MathUtils.damp(kartRef.current.position.x, target.x, 14, delta);
-    kartRef.current.position.y = MathUtils.damp(kartRef.current.position.y, target.y, 14, delta);
-    kartRef.current.position.z = MathUtils.damp(kartRef.current.position.z, target.z, 14, delta);
-    kartRef.current.rotation.y = smoothAngle(kartRef.current.rotation.y, target.rotationY, 16, delta);
+    kartRef.current.position.x = MathUtils.damp(kartRef.current.position.x, targetX, 14, delta);
+    kartRef.current.position.y = MathUtils.damp(kartRef.current.position.y, targetY, 14, delta);
+    kartRef.current.position.z = MathUtils.damp(kartRef.current.position.z, targetZ, 14, delta);
+    kartRef.current.rotation.y = smoothAngle(kartRef.current.rotation.y, targetRotationY, 16, delta);
     // Remote spin uses the SAME yaw-only spinPose curve as the local kart
     // (progress from the receipt clock): light 540deg, heavy 720deg, hop.
     const heavyRemote = typeof remoteAnim === "string" && remoteAnim.includes("heavy");
@@ -118,7 +118,7 @@ const RemoteKart = ({ player, playerIndex }) => {
     }
     visualRef.current.position.y = MathUtils.damp(
       visualRef.current.position.y * rs,
-      (Number.isFinite(target.bodyY) ? target.bodyY : 0) - 0.5,
+      (Number.isFinite(targetBodyY) ? targetBodyY : 0) - 0.5,
       12,
       delta,
     ) / rs + (spinPse ? spinPse.hop : 0);

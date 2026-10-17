@@ -7,6 +7,10 @@ import { useGameManager } from '../../gameManager';
 
 extend({ InstancedMesh2 });
 
+// Scratch quaternion for the per-frame body orientation (copied into each
+// instance below, never retained) — avoids one allocation per frame.
+const _worldQuat = new Quaternion();
+
 export const Skid = () => {
   const ref = useRef(null);
   const lifeTime = 9;
@@ -62,7 +66,7 @@ export const Skid = () => {
     const rightPos = wheelPositions[3]
     const body = wheelPositions[4];
     if (!leftPos || !rightPos || !body?.getWorldQuaternion) return;
-    const worldQuat = body.getWorldQuaternion(new Quaternion());
+    const worldQuat = body.getWorldQuaternion(_worldQuat);
 
     const isSpinning = Boolean(body.isDrifting);
     // Rear wheels differ slightly on slopes — only skip wild mismatches.
