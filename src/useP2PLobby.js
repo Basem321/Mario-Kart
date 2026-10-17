@@ -114,7 +114,10 @@ const toRaceTransform = (candidate) => {
     y,
     z,
     rotationY,
-    bodyY: Number.isFinite(bodyY) ? bodyY : 0,
+    // Same bounds as `y`: an unclamped bodyY from a hostile peer would put
+    // the remote kart's visual (and the homing/shell maths that reads it)
+    // arbitrarily far from the track.
+    bodyY: Number.isFinite(bodyY) ? Math.max(-500, Math.min(500, bodyY)) : 0,
     anim,
     animAt,
     invulnMs:
@@ -841,6 +844,13 @@ export const useP2PLobby = () => {
               if (event.type === "bullet:knock") {
                 // Only the host (or the ride owner via host relay) may knock;
                 // guests cannot knock other players directly.
+                return;
+              }
+              if (event.type === "item:boxes") {
+                // Box spawn/respawn is host-authoritative. Guests already
+                // reject relayed item:boxes that don't come from the host;
+                // the host must refuse them at the source too, otherwise any
+                // guest could overwrite the host's boxes locally.
                 return;
               }
               // Flood guard: one hostile peer must not grow activeShells /
