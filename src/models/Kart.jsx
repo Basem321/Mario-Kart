@@ -358,7 +358,10 @@ export function Kart({
       // Small step-up only (ramp lips, curb edges). The old 6m up-ray
       // teleported karts from pits straight through bridge decks and left
       // them stuck inside geometry / floating.
-      upRaycaster.set(origin, upDirection);
+      // Origin = the wheel base. This used a bare `origin`, which is not a
+      // local at all: it resolved to the browser global `window.origin` (a
+      // URL string), so the ray origin became NaN and this step-up never hit.
+      upRaycaster.set(_kartOrigin, upDirection);
       upRaycaster.far = UP_FAR_SCALED;
       upRaycaster.firstHitOnly = true;
       const upHits = upRaycaster.intersectObjects(targets, true);
