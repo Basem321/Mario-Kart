@@ -22,6 +22,19 @@ const ensureAudioContext = () => {
   return sharedAudioContext;
 };
 
+// Countdown timers live at module level so a restart ("Race Again") or the
+// end of a race can cancel them. Without this a stale 3-2-1 from the previous
+// session keeps ticking and can start a second countdown / flip gameStarted
+// behind the results screen.
+let countdownTimers = { poll: null, interval: null, go: null, verify: null };
+const clearCountdownTimers = () => {
+  window.clearTimeout(countdownTimers.poll);
+  window.clearInterval(countdownTimers.interval);
+  window.clearTimeout(countdownTimers.go);
+  window.clearTimeout(countdownTimers.verify);
+  countdownTimers = { poll: null, interval: null, go: null, verify: null };
+};
+
 export const useGameManager = create((set, get) => ({
   // Game state
   isPlaying: false,
@@ -89,6 +102,8 @@ export const useGameManager = create((set, get) => ({
   
   // Game control functions
   startGame: (isTimeTrial = false, onlineOptions = {}) => {
+    // A previous session's countdown must never tick into this one.
+    clearCountdownTimers();
     // Fresh battle state every run (boxes/bombs/explosions/stun).
     useGameStore.getState().resetBattleState();
     // Stop the previous session's tracks: startGame used to leak 4 new
@@ -197,6 +212,8 @@ export const useGameManager = create((set, get) => ({
   },
   
   startCountdown: () => {
+    // Calling this twice must not run two overlapping countdowns.
+    clearCountdownTimers();
     // Reset the countdown to ensure we start from 3
     set({ countdown: 3 });
 
@@ -233,14 +250,14 @@ export const useGameManager = create((set, get) => ({
           }
           
           // Show "GO!" for a short time, then start the game
-          setTimeout(() => {
+          countdownTimers.go = setTimeout(() => {
             set({ 
               gameStarted: true,
               countdown: -1 // Set to -1 to completely remove the countdown display
             });
             
             // Double check to ensure game is actually started after a short delay
-            setTimeout(() => {
+            countdownTimers.verify = setTimeout(() => {
               if (!get().gameStarted) {
                 set({ gameStarted: true, countdown: -1 });
               }
@@ -253,6 +270,7 @@ export const useGameManager = create((set, get) => ({
       }
     }, 1000);
 
+      countdownTimers.interval = countdownInterval;
       return () => clearInterval(countdownInterval);
     };
 
@@ -269,13 +287,14 @@ export const useGameManager = create((set, get) => ({
       if (progress >= 100 || Date.now() - startedAt > 30000) {
         beginTicks();
       } else {
-        window.setTimeout(waitForAssets, 200);
+        countdownTimers.poll = window.setTimeout(waitForAssets, 200);
       }
     };
     waitForAssets();
   },
   
   endGame: () => {
+    clearCountdownTimers();
     const { backgroundMusic } = get();
 
     if (backgroundMusic) {
