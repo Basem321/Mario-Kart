@@ -156,6 +156,10 @@ export const PlayerController = () => {
     if (d > BLAST_RADIUS) return;
     // Level gate: blasts on another deck don't shove through the floor.
     // latest.y may be absent on old payloads — then keep the legacy XZ rule.
+    // groundY must be declared BEFORE the gate: reading a later `const`
+    // threw a TDZ ReferenceError for every blast within range, so the
+    // shove + heavy spin below never ran.
+    const groundY = st.groundPosition;
     const blastY = Number(latest.y);
     if (Number.isFinite(blastY) && Number.isFinite(groundY) && Math.abs(blastY - groundY) > 5) {
       return;
@@ -163,7 +167,6 @@ export const PlayerController = () => {
     const push = (1 - d / BLAST_RADIUS) * 6 * kartScale;
     const nx = d > 1e-4 ? dx / d : 0;
     const nz = d > 1e-4 ? dz / d : 1;
-    const groundY = st.groundPosition;
     const segs = st.wallSegments;
     const resolved = resolveWallCollision(
       player.position.x,
