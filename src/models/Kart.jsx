@@ -32,6 +32,11 @@ const _kartOrigin = new Vector3();
 const _kartRay = new Vector3();
 // Scratch for the spin-freeze deck-height sample (world Y per wheel).
 const _spinWorld = new Vector3();
+// Per-wheel / per-flame world-position scratch. The store keeps these exact
+// objects (Skid/Flames only READ them inside their own frame and copy the
+// numbers out), so reusing them replaces 4+2 Vector3 allocations per frame.
+const _wheelWorld = [new Vector3(), new Vector3(), new Vector3(), new Vector3()];
+const _flameWorld = [new Vector3(), new Vector3()];
 // Fixed ray directions (were re-allocated on every React render).
 const _downDir = new Vector3(0, -1, 0);
 const _upDir = new Vector3(0, 1, 0);
@@ -540,7 +545,7 @@ export function Kart({
   function getWheelPositions() {
     const wheelPositions = [wheel0, wheel1, wheel2, wheel3].map(
       (wheel, index) => {
-        const position = wheel.current.getWorldPosition(new Vector3());
+        const position = wheel.current.getWorldPosition(_wheelWorld[index]);
         const localPos = wheel.current.position;
         dustWheelStates.current[index].position = localPos;
         dustWheelStates.current[index].shouldEmit = wheel.current.isOnDirt;
@@ -897,8 +902,8 @@ export function Kart({
 
       if (storeTickRef.current % 3 === 0) {
         setFlamePositions([
-          flamePositionLeftRef.current.getWorldPosition(new Vector3()),
-          flamePositionRightRef.current.getWorldPosition(new Vector3()),
+          flamePositionLeftRef.current.getWorldPosition(_flameWorld[0]),
+          flamePositionRightRef.current.getWorldPosition(_flameWorld[1]),
         ]);
       }
       const boostVal = (driftLevel.threshold ?? 0) / 2;
