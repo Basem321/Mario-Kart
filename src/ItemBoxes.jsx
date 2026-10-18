@@ -1490,7 +1490,14 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
 
     // Homing shells: every client moves every shell the same way (owner and
     // remotes share constants); ONLY the owner detects hits and broadcasts.
-    if (st.activeShells.length > 0) {
+    // Re-read the store: `st` was taken at the top of the frame, and the
+    // release-time spawns above (fireRedShell / fireBlueShell) have already
+    // appended a shell since. Looping the stale list and writing it back
+    // deleted the shell fired this very frame whenever any other shell was
+    // in flight (2nd/3rd shell of a triple, or any remote shell): it stayed
+    // visible to remotes but could never hit anyone.
+    const liveShells = useGameStore.getState().activeShells;
+    if (liveShells.length > 0) {
       const step = Math.min(delta, 0.05);
       const me = myRacerId();
       const ors = useOnlineRaceStore.getState();
@@ -1529,7 +1536,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         (v) => !shouldSkipVictim(v, now)
       );
       const next = [];
-      for (const shell of st.activeShells) {
+      for (const shell of liveShells) {
         // Hydrated remotes carry a real `at` (2.1 #6); NaN lifetimes expire.
         if (remoteShellExpired(shell, now)) continue;
         if (shell.kind === "blue") {
@@ -1755,8 +1762,8 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
         }
         next.push(moved);
       }
-      if (next.length !== st.activeShells.length) st.setActiveShells(next);
-      else if (next.some((s, i) => s.x !== st.activeShells[i].x)) {
+      if (next.length !== liveShells.length) st.setActiveShells(next);
+      else if (next.some((s, i) => s.x !== liveShells[i].x)) {
         st.setActiveShells(next);
       }
     }
