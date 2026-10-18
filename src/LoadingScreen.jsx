@@ -89,7 +89,7 @@ function getMarioShadow(frame) {
 export const LoadingScreen = ({ onStartWithoutStalled }) => {
   const screenRef = useRef(null);
   const barRef = useRef(null);
-  const { progress, item } = useProgress();
+  const { progress, item, errors } = useProgress();
   const gameStarted = useGameManager((s) => s.gameStarted);
   const isOnlineRace = useGameManager((s) => s.isOnlineRace);
   const onlinePlayers = useGameManager((s) => s.onlinePlayers);
@@ -100,6 +100,8 @@ export const LoadingScreen = ({ onStartWithoutStalled }) => {
   const loadProgress = useOnlineRaceStore((s) => s.loadProgress);
   const stalledIds = useOnlineRaceStore((s) => s.stalledIds);
   const isHost = useOnlineRaceStore((s) => s.isHost);
+
+  const hasAssetError = Array.isArray(errors) && errors.length > 0;
 
   const [frame, setFrame] = useState(0);
   const [barWidth, setBarWidth] = useState(0);
@@ -159,27 +161,31 @@ export const LoadingScreen = ({ onStartWithoutStalled }) => {
     };
   }, []);
 
-  // Online load reports: throttle to ~5/s until loaded or race starts
-  const selfLoaded = Boolean(isOnlineRace && loadProgress[onlineSelfId]?.loaded);
+  // Online load reports: throttle to 4/s until raceGo or raceError.
+  // We do NOT stop when selfLoaded is true so that a dropped WebRTC packet doesn't leave the
+  // host seeing us as not loaded, and we do NOT include `progress` in deps to prevent burst floods.
   useEffect(() => {
-    if (!isOnlineRace || selfLoaded || raceGo || raceError) return;
+    if (!isOnlineRace || raceGo || raceError) return;
 
-    publishOnlineRaceLoad({ progress: progress ?? 0, loaded: false });
-    const timer = window.setInterval(() => {
+    const sendReport = () => {
       const curProgress = useProgress.getState().progress ?? 0;
       const curLoaded = Boolean(useOnlineRaceStore.getState().loadProgress[onlineSelfId]?.loaded);
       publishOnlineRaceLoad({
         progress: curProgress,
         loaded: curLoaded,
       });
-    }, 200);
+    };
+
+    sendReport();
+    const timer = window.setInterval(sendReport, 250);
 
     return () => window.clearInterval(timer);
-  }, [isOnlineRace, selfLoaded, raceGo, raceError, onlineSelfId, progress]);
+  }, [isOnlineRace, raceGo, raceError, onlineSelfId]);
 
-  // Determine readiness: requires both asset download and visual ramp completion
+  // Determine readiness: requires both asset download and visual ramp completion,
+  // and that no asset loading errors occurred.
   useEffect(() => {
-    if (isReady) return;
+    if (isReady || hasAssetError) return;
     if (isOnlineRace) {
       if (raceGo && visualProgress >= 100) {
         setIsReady(true);
@@ -189,7 +195,7 @@ export const LoadingScreen = ({ onStartWithoutStalled }) => {
         setIsReady(true);
       }
     }
-  }, [isOnlineRace, raceGo, progress, visualProgress, isReady]);
+  }, [isOnlineRace, raceGo, progress, visualProgress, isReady, hasAssetError]);
 
   // Walk cycle animation: swap frame 0/1 every 140ms while loading
   const isMoving = !isReady && !isStarting;
@@ -299,12 +305,16 @@ export const LoadingScreen = ({ onStartWithoutStalled }) => {
         <div className="cloud c2"></div>
         <div className="cloud c3"></div>
 
-        {raceError ? (
+        {raceError || hasAssetError ? (
           <div className="race-error-card" role="alert">
-            <strong>Race unavailable</strong>
-            <p>{raceError}</p>
+            <strong>{raceError ? "Race unavailable" : "Failed to load assets"}</strong>
+            <p>
+              {raceError
+                ? raceError
+                : "One or more game assets failed to load. Please check your connection and retry."}
+            </p>
             <button type="button" onClick={() => window.location.reload()}>
-              Back to home
+              {raceError ? "Back to home" : "Retry"}
             </button>
           </div>
         ) : (
