@@ -28,8 +28,8 @@ export function FinishLine() {
   const prevSRef = useRef(0);
   const maxDistRef = useRef(0);
   // Anti-cut gates: checkpoint indices driven through since the last counted
-  // lap (empty at race start — the grid-to-line stub of lap 1 counts freely,
-  // every later crossing must prove a full tour first).
+  // lap (empty at race start). Every crossing, lap 1 included, must prove a
+  // full tour first — the grid-to-line stub is not a lap.
   const visitedRef = useRef(new Set());
   // Far-gate fallback for tracks with no authored checkpoints (Mario Circuit):
   // radial distance from the line that proves the kart left the start area.
@@ -235,13 +235,13 @@ export function FinishLine() {
     const prevS = prevSRef.current;
 
     // عبور من ورا الخط لقدامه + جوه عرض الخط + بعيد كفاية + عدى وقت كفاية
-    // + إثبات لفة كاملة (ما عدا أول عبور: stub الشبكة للخط بيتحسب عادي).
-    const lapsDone = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
+    // + إثبات لفة كاملة. الشرط ده بيتطبق على كل اللفات بما فيها الأولى:
+    // أول عبور من الشبكة للخط (الـ stub) مش لفة، ولو اتحسب كان اللاعب
+    // المتأخر في البداية (أو اللي رجّع لورا 28م وعدّى الخط) ياخد لفة ببلاش.
     const tourProven =
-      lapsDone === 0 ||
-      (checkpoints.length > 0
+      checkpoints.length > 0
         ? visitedRef.current.size >= checkpoints.length
-        : farVisitedRef.current);
+        : farVisitedRef.current;
     if (
       maxDistRef.current > MIN_DIST &&
       prevS <= 0 &&

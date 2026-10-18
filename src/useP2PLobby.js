@@ -738,7 +738,15 @@ export const useP2PLobby = () => {
           if (peerRef.current !== peer) return;
 
           hostConnectionsRef.current.delete(peerId);
-          useOnlineRaceStore.getState().removeRemoteRacer(peerId);
+          // Mid-race the racer's last transform, laps and distance must
+          // survive the disconnect: wiping them snapped the kart back to its
+          // grid slot and dropped a racer who already finished to 0 laps in
+          // the host's standings (guests never wipe, so views disagreed).
+          // The store is cleared at race start, so lobby-phase removal is
+          // the only case that still needs it.
+          if (!activeRaceRef.current) {
+            useOnlineRaceStore.getState().removeRemoteRacer(peerId);
+          }
           const nextPlayers = playersRef.current.filter(({ id }) => id !== peerId);
           applyPlayers(nextPlayers);
           broadcastLobbyState();

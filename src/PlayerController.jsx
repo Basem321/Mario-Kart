@@ -402,7 +402,9 @@ export const PlayerController = () => {
     // kart is over a true void with no road nearby, drop it back on spawn
     // instead of leaving it hanging in the air forever (old R-does-nothing bug).
     if (!point) {
-      const fallback = getOnlineSpawnSlot(0, activeTrack);
+      // This racer's OWN grid slot (online index included), not slot 0:
+      // every online racer rescued to slot 0 stacked on the same spot.
+      const fallback = spawnSlot;
       player.position.x = fallback.position[0];
       player.position.z = fallback.position[2];
       if (Number.isFinite(fallback.rotationY)) {
