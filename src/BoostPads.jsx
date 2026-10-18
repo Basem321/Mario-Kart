@@ -95,8 +95,12 @@ export function BoostPads() {
       const oz = playerPos.z - pz;
       const cos = Math.cos(-yaw);
       const sin = Math.sin(-yaw);
-      const dx = Math.abs(ox * cos - oz * sin);
-      const dz = Math.abs(ox * sin + oz * cos);
+      // World -> pad-local needs R_y(-yaw). With cos/sin of -yaw that is
+      // (ox*cos + oz*sin, -ox*sin + oz*cos); the previous signs applied
+      // R_y(+yaw) instead, so any pad not at a multiple of 90deg was tested
+      // against a rectangle rotated 2*yaw away from the one drawn.
+      const dx = Math.abs(ox * cos + oz * sin);
+      const dz = Math.abs(-ox * sin + oz * cos);
       const dy = Math.abs((useGameStore.getState().groundPosition ?? playerPos.y) - py);
 
       // Tighter height check so flying 3m+ above a pad can't re-trigger it
