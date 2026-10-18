@@ -12,6 +12,49 @@ export const useOnlineRaceStore = create((set) => ({
   // True on the lobby host: the host owns box spawn/respawn (item:boxes).
   isHost: false,
   setIsHost: (isHost) => set({ isHost: Boolean(isHost) }),
+  // Asset-load gate before the shared countdown (race-go handshake).
+  // `progress` is display-only (drei useProgress can dip as new assets enter
+  // the queue); `loaded` is the explicit "track + walls committed" signal and
+  // is latched — once true it never reverts, so a progress dip is harmless.
+  loadProgress: {},
+  setRemoteLoadProgress: (playerId, patch) =>
+    set((state) => {
+      if (!playerId) return state;
+      const prev = state.loadProgress[playerId] ?? {};
+      const rawProgress = Number(patch?.progress);
+      const progress =
+        Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, rawProgress)) : prev.progress;
+      // Latch: a stalled peer cannot "un-load" itself.
+      const loaded = prev.loaded === true || Boolean(patch?.loaded);
+      if (prev.progress === progress && prev.loaded === loaded) return state;
+      return {
+        loadProgress: {
+          ...state.loadProgress,
+          [playerId]: { progress, loaded },
+        },
+      };
+    }),
+  removeRemoteLoadProgress: (playerId) =>
+    set((state) => {
+      if (!state.loadProgress[playerId]) return state;
+      const { [playerId]: _removed, ...loadProgress } = state.loadProgress;
+      return { loadProgress };
+    }),
+  clearLoadGate: () =>
+    set({ loadProgress: {}, raceGo: null, raceError: "", stalledIds: [] }),
+  // Set once everyone finished loading: carries the final (possibly trimmed)
+  // roster so every client starts the same countdown from the same roster.
+  raceGo: null,
+  setRaceGo: (go) => set({ raceGo: go }),
+  // Fatal race-phase errors (kicked by host, host disconnected mid-load...).
+  // LoadingScreen renders these with a way back home instead of freezing.
+  raceError: "",
+  setRaceError: (message) =>
+    set({ raceError: typeof message === "string" ? message : "" }),
+  // Player ids the host stalled out while still loading (host sees an
+  // explicit "Start without X" choice; nothing is kicked silently).
+  stalledIds: [],
+  setStalledIds: (ids) => set({ stalledIds: Array.isArray(ids) ? ids : [] }),
   setRemoteRacer: (playerId, transform) =>
     set((state) => {
       const prev = state.remoteRacers[playerId];
@@ -108,11 +151,25 @@ export const useOnlineRaceStore = create((set) => ({
     }),
   removeRemoteRacer: (playerId) =>
     set((state) => {
-      if (!state.remoteRacers[playerId] && !state.remoteRaceProgress[playerId]) return state;
+      if (
+        !state.remoteRacers[playerId] &&
+        !state.remoteRaceProgress[playerId] &&
+        !state.loadProgress[playerId]
+      ) {
+        return state;
+      }
       const { [playerId]: _removed, ...remoteRacers } = state.remoteRacers;
       const { [playerId]: _removedProgress, ...remoteRaceProgress } = state.remoteRaceProgress;
       const { [playerId]: _removedDist, ...remoteDistances } = state.remoteDistances;
-      return { remoteRacers, remoteRaceProgress, remoteDistances };
+      const { [playerId]: _removedLoad, ...loadProgress } = state.loadProgress;
+      return { remoteRacers, remoteRaceProgress, remoteDistances, loadProgress };
     }),
-  clearRemoteRacers: () => set({ remoteRacers: {}, remoteRaceProgress: {}, remoteDistances: {} }),
+  clearRemoteRacers: () =>
+    set({
+      remoteRacers: {},
+      remoteRaceProgress: {},
+      remoteDistances: {},
+      loadProgress: {},
+      stalledIds: [],
+    }),
 }));

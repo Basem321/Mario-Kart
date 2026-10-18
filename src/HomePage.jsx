@@ -276,67 +276,78 @@ const HomePage = ({ onStartGame, onTimeTrial, onOpenLobby }) => {
       {showControls && (
         <div className="controls-modal">
           <div className="controls-content">
-            <h2>Game Controls</h2>
-            <div className="controls-grid">
-              <div className="control-item">
-                <div className="key">W / ↑</div>
-                <span>Accelerate</span>
-              </div>
-              <div className="control-item">
-                <div className="key">S / ↓</div>
-                <span>Brake / Reverse</span>
-              </div>
-              <div className="control-item">
-                <div className="key">A / D / ← / →</div>
-                <span>Steer Left / Right</span>
-              </div>
-              <div className="control-item">
-                <div className="key">SPACE</div>
-                <span>Drift (Hold, release for boost)</span>
-              </div>
-              <div className="control-item">
-                <div className="key">E / G</div>
-                <span>Drop Bomb</span>
-              </div>
-              <div className="control-item">
-                <div className="key">H</div>
-                <span>Honk</span>
-              </div>
-              <div className="control-item">
-                <div className="key">R</div>
-                <span>Reset to nearest road</span>
-              </div>
-              <div className="control-item">
-                <div className="key">Q</div>
-                <span>Look Behind (Hold)</span>
-              </div>
-              <div className="control-item">
-                <div className="key">ESC</div>
-                <span>Pause Menu</span>
-              </div>
-            </div>
-            <p className="control-info">On mobile, use the on-screen controls to play!</p>
-            
             {countdown !== null ? (
-              <div className="start-countdown">
-                <p>
-                  {countdown > 0 
-                    ? `The game will start in `
-                    : `Let's go! `}
-                  <span id="countdown" className="countdown-number">
-                    {countdown > 0 ? countdown : "GO!"}
-                  </span>
+              <div className="get-ready-screen">
+                <p className="get-ready-title">
+                  {countdown > 0 ? "Get Ready!" : "It's racing time"}
+                </p>
+                <div id="countdown" className="get-ready-number">
+                  {countdown > 0 ? countdown : "GO!"}
+                </div>
+                <p className="get-ready-sub">
+                  {selectedMode === 'timeTrial' ? 'Time Trial loading…' : 'Grand Prix loading…'}
                 </p>
               </div>
             ) : (
-              <div className="control-buttons">
-                <button onClick={() => handleRegularStart()} className="start-game-btn">
-                  Start Game
+              <>
+                <button
+                  type="button"
+                  className="controls-close"
+                  aria-label="Close controls"
+                  onClick={() => setShowControls(false)}
+                >
+                  ✕
                 </button>
-                <button onClick={() => handleTimeTrialStart()} className="start-trial-btn">
-                  Start Time Trial
-                </button>
-              </div>
+                <h2>Game Controls</h2>
+                <div className="controls-grid">
+                  <div className="control-item">
+                    <div className="key">W / ↑</div>
+                    <span>Accelerate</span>
+                  </div>
+                  <div className="control-item">
+                    <div className="key">S / ↓</div>
+                    <span>Brake / Reverse</span>
+                  </div>
+                  <div className="control-item">
+                    <div className="key">A / D / ← / →</div>
+                    <span>Steer Left / Right</span>
+                  </div>
+                  <div className="control-item">
+                    <div className="key">SPACE</div>
+                    <span>Drift (Hold, release for boost)</span>
+                  </div>
+                  <div className="control-item">
+                    <div className="key">E / G</div>
+                    <span>Drop Bomb</span>
+                  </div>
+                  <div className="control-item">
+                    <div className="key">H</div>
+                    <span>Honk</span>
+                  </div>
+                  <div className="control-item">
+                    <div className="key">R</div>
+                    <span>Reset to nearest road</span>
+                  </div>
+                  <div className="control-item">
+                    <div className="key">Q</div>
+                    <span>Look Behind (Hold)</span>
+                  </div>
+                  <div className="control-item">
+                    <div className="key">ESC</div>
+                    <span>Pause Menu</span>
+                  </div>
+                </div>
+                <p className="control-info">On mobile, use the on-screen controls to play!</p>
+
+                <div className="control-buttons">
+                  <button onClick={() => handleRegularStart()} className="start-game-btn">
+                    Start Game
+                  </button>
+                  <button onClick={() => handleTimeTrialStart()} className="start-trial-btn">
+                    Start Time Trial
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>

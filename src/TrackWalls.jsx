@@ -1,8 +1,9 @@
 import { useLayoutEffect, useMemo, useRef, useEffect } from "react";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF, useProgress } from "@react-three/drei";
 import * as THREE from "three";
 import { useGameStore } from "./store";
 import { useGameManager } from "./gameManager";
+import { publishOnlineRaceLoad } from "./onlineRaceTransport";
 import { getRoadMapData, trackConfigToTransform } from "./trackRoad";
 import { getTrack, getMergedRoadGeometry, trackToWorld } from "./tracks";
 import { useMapEditorStore } from "./mapEditorStore";
@@ -302,6 +303,20 @@ export function TrackWalls() {
         outer: Boolean(s.outer),
       }))
     );
+    // Online load-gate: report readiness explicitly NOW — walls and road
+    // data are committed, i.e. physics can spawn. drei's progress alone is
+    // not a readiness signal (cached assets read 100 before Suspense even
+    // starts the new track, and the value dips as new assets enqueue), so it
+    // only feeds the display bar.
+    if (useGameManager.getState().isOnlineRace && segments.length > 0) {
+      let displayProgress = 100;
+      try {
+        displayProgress = useProgress.getState().progress ?? 100;
+      } catch {
+        displayProgress = 100;
+      }
+      publishOnlineRaceLoad({ progress: displayProgress, loaded: true });
+    }
     return () => setWallSegments([]);
   }, [segments, setWallSegments]);
 

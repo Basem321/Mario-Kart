@@ -345,39 +345,102 @@ section {
   background: rgba(0, 0, 0, 0.85);
   z-index: 1000;
   backdrop-filter: blur(10px);
+  padding: clamp(0.6rem, 3vw, 2rem);
 }
 
 .controls-content {
   background: linear-gradient(135deg, var(--bg-light), var(--bg-dark));
   border-radius: var(--border-radius-lg);
   box-shadow: var(--shadow-large);
-  padding: 2rem;
+  padding: clamp(1.1rem, 4vw, 2rem);
   max-width: 600px;
-  width: 90%;
+  width: 100%;
+  max-height: 92dvh;
+  overflow-y: auto;
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.controls-close {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.controls-close:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .controls-content h2 {
   text-align: center;
   color: var(--accent-color);
   margin-bottom: 1.5rem;
-  font-size: 1.8rem;
+  font-size: clamp(1.3rem, 4vw, 1.8rem);
 }
 
 .controls-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: clamp(0.6rem, 2vw, 1rem);
   margin: 1.5rem 0;
+}
+
+/* Get Ready screen: shown inside the modal once the countdown starts */
+.get-ready-screen {
+  min-height: min(60dvh, 420px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: clamp(0.8rem, 3vw, 1.5rem);
+  animation: getReadyIn 0.35s ease-out;
+}
+
+.get-ready-title {
+  font-size: clamp(1.2rem, 4.5vw, 2rem);
+  font-weight: 800;
+  color: var(--accent-color);
+  margin: 0;
+  letter-spacing: 0.05em;
+}
+
+.get-ready-number {
+  font-family: "mario_kart_f2", sans-serif;
+  font-size: clamp(6rem, 26vmin, 12rem);
+  line-height: 1;
+  color: #fde902;
+  text-shadow: 4px 4px 0 #e60012, 8px 8px 0 rgba(0, 0, 0, 0.5);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.get-ready-sub {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: clamp(0.85rem, 2.5vw, 1rem);
+  font-style: italic;
+}
+
+@keyframes getReadyIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .control-item {
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  margin-bottom: 0.5rem;
-}
+  margin-bottom: 0.5rem;}
 
 .key {
   background: rgba(255, 255, 255, 0.9);
@@ -403,6 +466,7 @@ section {
   justify-content: center;
   gap: 1rem;
   margin-top: 1rem;
+  flex-wrap: wrap;
 }
 
 .start-game-btn, .start-trial-btn {
@@ -431,25 +495,6 @@ section {
 
 .start-trial-btn:hover {
   background-color: var(--secondary-hover);
-}
-
-.start-countdown {
-  text-align: center;
-  margin: 1rem 0;
-  font-size: 1.2rem;
-}
-
-.countdown-number {
-  display: inline-block;
-  font-size: 2.5rem;
-  font-weight: 800;
-  color: var(--accent-color);
-  margin: 0 0.3rem;
-  min-width: 60px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 50%;
-  aspect-ratio: 1/1;
-  line-height: 60px;
 }
 
 /* Features Section */

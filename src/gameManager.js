@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { useProgress } from "@react-three/drei";
 import { useGameStore } from "./store";
 
 // One shared AudioContext for all sessions. Creating a new context per
@@ -212,85 +211,8 @@ export const useGameManager = create((set, get) => ({
   },
   
   startCountdown: () => {
-    // Calling this twice must not run two overlapping countdowns.
     clearCountdownTimers();
-    // Reset the countdown to ensure we start from 3
     set({ countdown: 3 });
-
-    // Wait for the course + kart assets before ticking: starting 3-2-1 on a
-    // cold multi-MB download leaves gameStarted=true with no track (null
-    // positions, no walls). Polls drei's loader progress; gives up after 30s
-    // so a hung asset can never soft-lock the race.
-    const beginTicks = () => {
-      // Start a timer that updates every second
-      let currentCount = 3;
-    const countdownInterval = setInterval(() => {
-      currentCount -= 1;
-      
-      if (currentCount >= 0) {
-        // Update the countdown state
-        set({ countdown: currentCount });
-        
-        // When we reach 0, play sounds and start the game
-        if (currentCount === 0) {
-          const state = get();
-          const { gameStartSound, backgroundMusic } = state;
-          
-          // Play sound effects
-          try {
-            if (gameStartSound) {
-              gameStartSound.play().catch(() => {});
-            }
-            
-            if (backgroundMusic) {
-              backgroundMusic.play().catch(() => {});
-            }
-          } catch (error) {
-            console.error("Error playing audio:", error);
-          }
-          
-          // Show "GO!" for a short time, then start the game
-          countdownTimers.go = setTimeout(() => {
-            set({ 
-              gameStarted: true,
-              countdown: -1 // Set to -1 to completely remove the countdown display
-            });
-            
-            // Double check to ensure game is actually started after a short delay
-            countdownTimers.verify = setTimeout(() => {
-              if (!get().gameStarted) {
-                set({ gameStarted: true, countdown: -1 });
-              }
-            }, 300);
-          }, 800); // Reduced from 1000ms to 800ms for faster transition
-          
-          // Clear the interval
-          clearInterval(countdownInterval);
-        }
-      }
-    }, 1000);
-
-      countdownTimers.interval = countdownInterval;
-      return () => clearInterval(countdownInterval);
-    };
-
-    // drei's loader progress lives in a zustand store — readable here without
-    // React. Cached tracks report 100 instantly, so warm starts tick at once.
-    const startedAt = Date.now();
-    const waitForAssets = () => {
-      let progress = 100;
-      try {
-        progress = useProgress.getState().progress ?? 100;
-      } catch {
-        progress = 100;
-      }
-      if (progress >= 100 || Date.now() - startedAt > 30000) {
-        beginTicks();
-      } else {
-        countdownTimers.poll = window.setTimeout(waitForAssets, 200);
-      }
-    };
-    waitForAssets();
   },
   
   endGame: () => {

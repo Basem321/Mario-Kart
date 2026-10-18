@@ -138,6 +138,23 @@ const toRacePosition = (candidate) => {
   return { x, y, z };
 };
 
+// Load-state for the race-go handshake. `progress` is display-only (drei's
+// useProgress legitimately dips as new assets enter the queue) so it is only
+// clamped to 0..100 — no monotonic rule that would reject honest reports.
+// `loaded` is the explicit readiness signal from the receiver's track+walls
+// commit; the per-player store latches it, so false after true is ignored.
+const toLoadProgress = (candidate) => {
+  if (!candidate || typeof candidate !== "object") return null;
+
+  const progress = Number(candidate.progress);
+  if (!Number.isFinite(progress)) return null;
+
+  return {
+    progress: Math.max(0, Math.min(100, progress)),
+    loaded: Boolean(candidate.loaded),
+  };
+};
+
 // P2P peers are untrusted inputs, so only a compact whitelist of gameplay
 // actions reaches the Three.js scene. Movement has its own validator above.
 const toRaceEvent = (candidate, maxLapCount = 5) => {
@@ -438,6 +455,54 @@ export const useP2PLobby = () => {
   const selfRef = useRef(null);
   const playersRef = useRef([]);
   const activeRaceRef = useRef(null);
+  // Last wall-clock time each peer's load state actually moved. Missing
+  // entry falls back to the race's startedAt so a silently-dead peer cannot
+  // stall the gate forever (host stall detector feeds "Start without X").
+  const loadMoveAtRef = useRef(new Map());
+  const stallTimerRef = useRef(null);
+
+  const clearStallTimer = useCallback(() => {
+    if (stallTimerRef.current) {
+      window.clearInterval(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
+  }, []);
+
+  const recordLoadMove = useCallback((playerId) => {
+    if (playerId) loadMoveAtRef.current.set(playerId, Date.now());
+  }, []);
+
+  const isLoadPhase = useCallback(() => {
+    const activeRace = activeRaceRef.current;
+    return Boolean(activeRace && !useOnlineRaceStore.getState().raceGo);
+  }, []);
+
+  const openRaceGate = useCallback((payload) => {
+    clearStallTimer();
+    useOnlineRaceStore.getState().setStalledIds([]);
+    useOnlineRaceStore.getState().setRaceGo({
+      raceId: payload.raceId,
+      playerIds: payload.playerIds,
+      players: payload.players,
+      sentAt: typeof payload.sentAt === "number" ? payload.sentAt : Date.now(),
+    });
+  }, [clearStallTimer]);
+
+  // Host-authoritative trim: whenever a roster drop happens during the load
+  // phase every client must converge on the same final roster, including
+  // dropping the state of removed players.
+  const trimRosterToIds = useCallback((roster, playerIds) => {
+    const keep = new Set(playerIds);
+    const dropped = roster.players.filter((player) => !keep.has(player.id));
+    dropped.forEach((player) => {
+      useOnlineRaceStore.getState().removeRemoteRacer(player.id);
+    });
+    return {
+      ...roster,
+      playerIds: [...playerIds],
+      players: roster.players.filter((player) => keep.has(player.id)),
+    };
+  }, []);
 
   const applyPlayers = useCallback((nextPlayers) => {
     playersRef.current = nextPlayers;
@@ -634,6 +699,94 @@ export const useP2PLobby = () => {
     [broadcastRaceTransform],
   );
 
+  const checkLoadGate = useCallback(() => {
+    const activeRace = activeRaceRef.current;
+    if (!activeRace || !hostRef.current) return;
+    if (useOnlineRaceStore.getState().raceGo) return;
+
+    const loadProgress = useOnlineRaceStore.getState().loadProgress;
+    const allLoaded = activeRace.playerIds.every(
+      (id) => loadProgress[id]?.loaded === true,
+    );
+    if (!allLoaded) return;
+
+    const payload = {
+      type: "lobby:race-go",
+      raceId: activeRace.raceId,
+      playerIds: activeRace.playerIds,
+      players: activeRace.players,
+      sentAt: Date.now(),
+    };
+    broadcastRaceTransform(payload);
+    openRaceGate(payload);
+  }, [broadcastRaceTransform, openRaceGate]);
+
+  const applyRemoteLoadProgress = useCallback(
+    (playerId, state) => {
+      if (!playerId || !state || !activeRaceRef.current) return;
+      if (!activeRaceRef.current.playerIds.includes(playerId)) return;
+
+      const store = useOnlineRaceStore.getState();
+      const before = store.loadProgress[playerId];
+      store.setRemoteLoadProgress(playerId, state);
+
+      // Stall tracking only cares about movement (host side); the store
+      // latches `loaded`, so a dip after true never re-arms the timer.
+      const after = useOnlineRaceStore.getState().loadProgress[playerId];
+      if (
+        after &&
+        (before?.progress !== after.progress || before?.loaded !== after.loaded)
+      ) {
+        recordLoadMove(playerId);
+      }
+
+      if (hostRef.current) checkLoadGate();
+    },
+    [checkLoadGate, recordLoadMove],
+  );
+
+  const publishLoadProgress = useCallback(
+    (candidate) => {
+      const activeRace = activeRaceRef.current;
+      const self = selfRef.current;
+      const state = toLoadProgress(candidate);
+
+      if (!activeRace || !self?.id || !state || !activeRace.playerIds.includes(self.id)) {
+        return;
+      }
+
+      applyRemoteLoadProgress(self.id, state);
+
+      const message = {
+        type: "race:load",
+        raceId: activeRace.raceId,
+        progress: state.progress,
+        loaded: state.loaded,
+      };
+
+      if (hostRef.current) {
+        broadcastRaceTransform({
+          type: "lobby:race-load",
+          raceId: activeRace.raceId,
+          playerId: self.id,
+          progress: state.progress,
+          loaded: state.loaded,
+        });
+        return;
+      }
+
+      const connection = guestConnectionRef.current;
+      if (!connection?.open) return;
+
+      try {
+        connection.send(message);
+      } catch {
+        // Connection errors surface through PeerJS's close/error handlers.
+      }
+    },
+    [applyRemoteLoadProgress, broadcastRaceTransform],
+  );
+
   const setRaceTrackId = useCallback((trackId) => {
     if (!isKnownTrackId(trackId)) return;
     raceTrackRef.current = trackId;
@@ -646,6 +799,8 @@ export const useP2PLobby = () => {
     const peer = peerRef.current;
     peerRef.current = null;
     hostRef.current = false;
+    clearStallTimer();
+    loadMoveAtRef.current = new Map();
 
     if (guestConnectionRef.current) {
       try {
@@ -677,7 +832,7 @@ export const useP2PLobby = () => {
     playersRef.current = [];
     activeRaceRef.current = null;
     useOnlineRaceStore.getState().clearRemoteRacers();
-  }, []);
+  }, [clearStallTimer]);
 
   const leaveLobby = useCallback(() => {
     destroyTransport();
@@ -902,6 +1057,31 @@ export const useP2PLobby = () => {
                 event: relayedEvent,
               });
             }
+
+            if (message.type === "race:load") {
+              const activeRace = activeRaceRef.current;
+              const state = toLoadProgress(message);
+
+              if (
+                !activeRace ||
+                message.raceId !== activeRace.raceId ||
+                !activeRace.playerIds.includes(connection.peer) ||
+                !state
+              ) {
+                return;
+              }
+              // ~2 reports/sec client-side; a hostile burst beyond that is noise.
+              if (shouldDropFlood(connection.peer, "load", 15)) return;
+
+              applyRemoteLoadProgress(connection.peer, state);
+              broadcastRaceTransform({
+                type: "lobby:race-load",
+                raceId: activeRace.raceId,
+                playerId: connection.peer,
+                progress: state.progress,
+                loaded: state.loaded,
+              });
+            }
           };
 
           connection.on("data", receiveLobbyMessage);
@@ -980,6 +1160,7 @@ export const useP2PLobby = () => {
     [
       applyIncomingRaceEvent,
       applyPlayers,
+      applyRemoteLoadProgress,
       broadcastLobbyState,
       broadcastRaceTransform,
       destroyTransport,
@@ -1056,22 +1237,17 @@ export const useP2PLobby = () => {
               players.every((player, index) => player.id === playerIds[index]);
 
             if (playerIds.includes(selfRef.current?.id) && hasMatchingRoster) {
-              // Countdown relative to receipt: the host's `startsAt` clock may
-              // differ from ours, so wait the remaining window instead.
-              const sentAt = Number.isFinite(message.sentAt) ? message.sentAt : Date.now();
-              const waitMs = Number.isFinite(message.startsAt)
-                ? Math.max(0, message.startsAt - sentAt)
-                : 2500;
               const race = {
                 raceId: typeof message.raceId === "string" ? message.raceId : String(Date.now()),
                 playerIds,
                 players,
-                startsAt: Date.now() + waitMs,
                 startedAt: Date.now(),
                 lapCount: Math.min(5, Math.max(1, Math.floor(Number(message.lapCount) || 3))),
                 trackId: isKnownTrackId(message.trackId) ? message.trackId : DEFAULT_TRACK_ID,
               };
               activeRaceRef.current = race;
+              loadMoveAtRef.current = new Map();
+              useOnlineRaceStore.getState().clearLoadGate();
               useOnlineRaceStore.getState().clearRemoteRacers();
               useOnlineRaceStore.getState().setIsHost(false);
               setRaceStart(race);
@@ -1125,8 +1301,58 @@ export const useP2PLobby = () => {
             }
           }
 
+          if (message.type === "lobby:race-load") {
+            const activeRace = activeRaceRef.current;
+            const state = toLoadProgress(message);
+
+            if (
+              !activeRace ||
+              message.raceId !== activeRace.raceId ||
+              typeof message.playerId !== "string" ||
+              // Own state is applied locally on send; echoes are noise.
+              message.playerId === selfRef.current?.id ||
+              !activeRace.playerIds.includes(message.playerId) ||
+              !state
+            ) {
+              return;
+            }
+
+            useOnlineRaceStore.getState().setRemoteLoadProgress(message.playerId, state);
+          }
+
+          if (message.type === "lobby:race-go" && Array.isArray(message.playerIds)) {
+            const activeRace = activeRaceRef.current;
+
+            if (!activeRace || message.raceId !== activeRace.raceId || !Array.isArray(message.players)) {
+              return;
+            }
+
+            const playerIds = message.playerIds.filter((id) => typeof id === "string");
+            const players = message.players.map((player) => toPlayer(player)).filter(Boolean);
+
+            if (players.length !== playerIds.length || !playerIds.includes(selfRef.current?.id)) {
+              // The host trimmed us out entirely (Start-without-X).
+              useOnlineRaceStore.getState().setRaceError("The race started without you — your browser was still loading when the host gave up on it.");
+              return;
+            }
+
+            // Converge on the host's final roster (dropped players' state goes
+            // with it), then open the shared gate.
+            const trimmedRace = trimRosterToIds(activeRace, playerIds);
+            activeRaceRef.current = trimmedRace;
+            openRaceGate({
+              raceId: activeRace.raceId,
+              playerIds,
+              players: trimmedRace.players,
+              sentAt: message.sentAt,
+            });
+          }
+
           if (message.type === "lobby:error" && typeof message.message === "string") {
             setLobby((current) => ({ ...current, status: "error", error: message.message }));
+            if (isLoadPhase()) {
+              useOnlineRaceStore.getState().setRaceError(message.message);
+            }
           }
         });
 
@@ -1142,6 +1368,23 @@ export const useP2PLobby = () => {
               error: "The lobby host closed the connection before you could join.",
             }));
           }
+
+          if (isLoadPhase() && activeRaceRef.current) {
+            const selfId = selfRef.current?.id;
+            const currentLoad = useOnlineRaceStore.getState().loadProgress[selfId];
+            if (currentLoad) {
+              try {
+                connection.send({
+                  type: "race:load",
+                  raceId: activeRaceRef.current.raceId,
+                  progress: currentLoad.progress ?? 0,
+                  loaded: Boolean(currentLoad.loaded),
+                });
+              } catch {
+                // ignore
+              }
+            }
+          }
         });
 
         connection.on("close", () => {
@@ -1152,6 +1395,18 @@ export const useP2PLobby = () => {
             status: "error",
             error: "The lobby host disconnected.",
           }));
+          // During the load phase the whole race endpoint is gone for this
+          // browser: the canvas is up with no way forward. Surface it as a
+          // recoverable race error (LoadingScreen overlay) instead of a
+          // frozen white screen. A kicked guest's lobby:error already set a
+          // clearer message — keep whichever came first.
+          if (isLoadPhase()) {
+            const store = useOnlineRaceStore.getState();
+            store.setRaceError(
+              store.raceError ||
+                "The lobby host discontinued while everyone was still loading. Start a new lobby.",
+            );
+          }
         });
 
         connection.on("error", (error) => {
@@ -1188,7 +1443,15 @@ export const useP2PLobby = () => {
         }
       });
     },
-    [applyIncomingRaceEvent, applyPlayers, destroyTransport, setRaceTrackId],
+    [
+      applyIncomingRaceEvent,
+      applyPlayers,
+      destroyTransport,
+      isLoadPhase,
+      openRaceGate,
+      setRaceTrackId,
+      trimRosterToIds,
+    ],
   );
 
   const updateDriver = useCallback(
@@ -1220,6 +1483,37 @@ export const useP2PLobby = () => {
     },
     [applyPlayers, broadcastLobbyState],
   );
+
+  // Stall watchdog (host): flags peers whose load report has been frozen for
+  // over 25 s. Never auto-kicks — the host chooses "Start without X" from the
+  // loading screen, so a slow phone is never robbed of its race, but a dead
+  // one can't lock everyone out forever either.
+  const startStallWatcher = useCallback(() => {
+    clearStallTimer();
+    stallTimerRef.current = window.setInterval(() => {
+      const activeRace = activeRaceRef.current;
+      if (!activeRace || !hostRef.current) {
+        clearStallTimer();
+        return;
+      }
+      if (useOnlineRaceStore.getState().raceGo) {
+        clearStallTimer();
+        return;
+      }
+
+      const loadProgress = useOnlineRaceStore.getState().loadProgress;
+      const now = Date.now();
+      const stalled = activeRace.playerIds.filter((id) => {
+        if (loadProgress[id]?.loaded) return false;
+        const lastMove = loadMoveAtRef.current.get(id) ?? activeRace.startedAt;
+        return now - lastMove > 25000;
+      });
+      const current = useOnlineRaceStore.getState().stalledIds;
+      if (stalled.join("\n") !== (current ?? []).join("\n")) {
+        useOnlineRaceStore.getState().setStalledIds(stalled);
+      }
+    }, 5000);
+  }, [clearStallTimer]);
 
   const startRace = useCallback((requestedLapCount = 3) => {
     const players = playersRef.current;
@@ -1253,10 +1547,6 @@ export const useP2PLobby = () => {
       players: players.map((player) => ({ ...player })),
       lapCount,
       trackId: raceTrackRef.current,
-      // Gives every browser a short window to mount the scene before the
-      // shared 3-2-1 countdown begins. Guests count down from receipt, so
-      // clock skew can only shorten the wait, never desync the start.
-      startsAt: now + 2500,
       sentAt: now,
     };
 
@@ -1264,17 +1554,70 @@ export const useP2PLobby = () => {
       raceId: payload.raceId,
       playerIds: payload.playerIds,
       players: payload.players,
-      startsAt: payload.startsAt,
       startedAt: now,
       lapCount: payload.lapCount,
       trackId: payload.trackId,
     };
     activeRaceRef.current = race;
+    loadMoveAtRef.current = new Map();
+    useOnlineRaceStore.getState().clearLoadGate();
     useOnlineRaceStore.getState().clearRemoteRacers();
     useOnlineRaceStore.getState().setIsHost(hostRef.current);
     setRaceStart(race);
     broadcastRaceTransform(payload);
-  }, [broadcastRaceTransform]);
+    // Host-only watchdog: if a peer's load state freezes mid-gate the host
+    // (and only the host) gets the explicit "Start without X" option.
+    if (hostRef.current) startStallWatcher();
+  }, [broadcastRaceTransform, startStallWatcher]);
+
+  const startWithoutStalled = useCallback(() => {
+    const activeRace = activeRaceRef.current;
+    if (!activeRace || !hostRef.current) return;
+    if (useOnlineRaceStore.getState().raceGo) return;
+
+    const stalled = new Set(useOnlineRaceStore.getState().stalledIds);
+    if (stalled.size === 0) return;
+
+    const keptIds = activeRace.playerIds.filter((id) => !stalled.has(id));
+    // Preserve the same two-participant minimum a lobby race is built on.
+    if (keptIds.length < 2) return;
+
+    hostConnectionsRef.current.forEach((connection, peerId) => {
+      if (!stalled.has(peerId)) return;
+      try {
+        connection.send({
+          type: "lobby:error",
+          message: "The race started without you — your connection stalled while loading.",
+        });
+      } catch {
+        // The peer may already be gone.
+      }
+      try {
+        connection.close();
+      } catch {
+        // The connection may already be closed.
+      }
+    });
+    hostConnectionsRef.current.forEach((connection, peerId) => {
+      if (stalled.has(peerId)) hostConnectionsRef.current.delete(peerId);
+    });
+
+    const payload = {
+      type: "lobby:race-go",
+      raceId: activeRace.raceId,
+      playerIds: keptIds,
+      players: activeRace.players.filter((player) => keptIds.includes(player.id)),
+      sentAt: Date.now(),
+    };
+
+    const trimmedRace = trimRosterToIds(activeRace, keptIds);
+    activeRaceRef.current = trimmedRace;
+    playersRef.current = trimmedRace.players;
+    applyPlayers(trimmedRace.players);
+    broadcastLobbyState();
+    broadcastRaceTransform(payload);
+    openRaceGate(payload);
+  }, [applyPlayers, broadcastLobbyState, broadcastRaceTransform, openRaceGate, trimRosterToIds]);
 
   const clearRaceStart = useCallback(() => setRaceStart(null), []);
 
@@ -1283,8 +1626,9 @@ export const useP2PLobby = () => {
       setOnlineRaceTransport({
         publishTransform: publishRaceTransform,
         publishEvent: publishRaceEvent,
+        publishLoad: publishLoadProgress,
       }),
-    [publishRaceEvent, publishRaceTransform],
+    [publishLoadProgress, publishRaceEvent, publishRaceTransform],
   );
   useEffect(() => () => destroyTransport(), [destroyTransport]);
 
@@ -1297,6 +1641,7 @@ export const useP2PLobby = () => {
     joinLobby,
     updateDriver,
     startRace,
+    startWithoutStalled,
     clearRaceStart,
     leaveLobby,
   };

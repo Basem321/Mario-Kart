@@ -1,5 +1,6 @@
 let publishTransform = null;
 let publishEvent = null;
+let publishLoad = null;
 const eventListeners = new Set();
 
 // PlayerController lives inside the Three.js canvas while the PeerJS
@@ -15,9 +16,11 @@ export const setOnlineRaceTransport = (nextTransport) => {
         : null;
   const nextEvent =
     typeof nextTransport?.publishEvent === "function" ? nextTransport.publishEvent : null;
+  const nextLoad = typeof nextTransport?.publishLoad === "function" ? nextTransport.publishLoad : null;
 
   publishTransform = nextTransform;
   publishEvent = nextEvent;
+  publishLoad = nextLoad;
 
   return () => {
     if (publishTransform === nextTransform) {
@@ -25,6 +28,9 @@ export const setOnlineRaceTransport = (nextTransport) => {
     }
     if (publishEvent === nextEvent) {
       publishEvent = null;
+    }
+    if (publishLoad === nextLoad) {
+      publishLoad = null;
     }
   };
 };
@@ -39,6 +45,12 @@ export const publishOnlineRaceTransform = (transform) => {
 // coupling the Three.js scene to the lobby UI.
 export const publishOnlineRaceEvent = (event) => {
   publishEvent?.(event);
+};
+
+// Pre-race load-gate reports (display progress + explicit loaded flag).
+// Throttle at the call site — this goes straight over the wire.
+export const publishOnlineRaceLoad = (state) => {
+  publishLoad?.(state);
 };
 
 export const subscribeOnlineRaceEvents = (listener) => {

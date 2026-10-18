@@ -51,6 +51,9 @@ const Root = () => {
   const gameStarted = useGameManager((s) => s.gameStarted);
   const setDriver = useGameManager((s) => s.setDriver);
   const setTrackId = useGameManager((s) => s.setTrackId);
+  // Pre-race load gate: the shared 3-2-1 may only begin once race-go says
+  // every browser finished loading the course (or the host started anyway).
+  const raceGo = useOnlineRaceStore((s) => s.raceGo);
 
   // Chosen right after the homepage countdown, before the race starts.
   const [pendingMode, setPendingMode] = useState(null); // null | 'regular' | 'trial'
@@ -90,8 +93,6 @@ const Root = () => {
       raceId: raceStart.raceId,
       lapCount: raceStart.lapCount,
     });
-    const countdownDelay = Math.max(0, (raceStart.startsAt ?? Date.now()) - Date.now());
-    window.setTimeout(() => startCountdown(), countdownDelay);
     p2pLobby.clearRaceStart();
   // Deliberately field-level deps: p2pLobby itself is a fresh object every
   // render, so depending on it would re-fire the race start endlessly.
@@ -104,8 +105,14 @@ const Root = () => {
     setDriver,
     setTrackId,
     startGame,
-    startCountdown,
   ]);
+
+  // Countdown opens only on race-go — never on a timer. Offline flows call
+  // startCountdown themselves; the online handshake reaches here.
+  useEffect(() => {
+    if (!raceGo) return;
+    startCountdown();
+  }, [raceGo, startCountdown]);
 
   // Initialize audio context on user interaction
   useEffect(() => {
@@ -169,9 +176,6 @@ const Root = () => {
     setDriver(driver);
     setPendingMode(null);
     startGame(isTrial);
-    setTimeout(() => {
-      startCountdown(); // Start the countdown after state update completes
-    }, 100);
   };
 
   const requestJoinLobby = ({ name, code }) => {
@@ -247,8 +251,7 @@ const Root = () => {
               <WebGPUCanvas />
             </Suspense>
           </ErrorBoundary>
-          {/* Always show LoadingScreen initially; it will handle its own visibility */}
-          <LoadingScreen />
+          <LoadingScreen onStartWithoutStalled={p2pLobby.startWithoutStalled} />
           {/* Only show GameUI when game has actually started */}
           {gameStarted && <GameUI />}
           {/* Safety mechanism to ensure game starts */}

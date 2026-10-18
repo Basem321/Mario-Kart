@@ -1,11 +1,12 @@
 import { Effect } from "postprocessing";
 import { Uniform, Vector2, Vector3, Euler, Quaternion, Color} from "three";
-import { forwardRef, useEffect, useMemo, useRef} from "react";
+import { forwardRef, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useGameStore } from "./store";
+import { useGameManager } from "./gameManager";
 import { damp } from "three/src/math/MathUtils.js";
-import { useControls } from "leva";
 import { useTexture } from "@react-three/drei";
+import { TRACK_COLOR_PRESETS, liveDevGrading } from "./colorGradingConfig";
 
 const fragmentShader = /* glsl */ `
 uniform sampler2D tDiffuse;
@@ -376,17 +377,17 @@ export class ColorGradingEffect extends Effect {
         ["iTime", new Uniform(0)],
         ["motionDirection", new Uniform(new Vector2(0, 0))],
         ["motionStrength", new Uniform(0)],
-        ["uRedMix", new Uniform(new Vector3(1, 0, 0))],
-        ["uGreenMix", new Uniform(new Vector3(0, 1, 0))],
-        ["uBlueMix", new Uniform(new Vector3(0, 0, 1))],
+        ["uRedMix", new Uniform(new Color(1, 0, 0))],
+        ["uGreenMix", new Uniform(new Color(0, 1, 0))],
+        ["uBlueMix", new Uniform(new Color(0, 0, 1))],
         ["uSaturation", new Uniform(1)],
         ["uVibrancy", new Uniform(1)],
         ["uBrightness", new Uniform(0)],
         ["uContrast", new Uniform(1)],
         ["uHueOffset", new Uniform(0)],
         ["uGamma", new Uniform(1)],
-        ["uShadowTint", new Uniform(new Vector3(1.0, 0.9, 0.9))],
-        ["uHighlightTint", new Uniform(new Vector3(0.9, 1.0, 1.0))],
+        ["uShadowTint", new Uniform(new Color(1.0, 0.9, 0.9))],
+        ["uHighlightTint", new Uniform(new Color(0.9, 1.0, 1.0))],
         ["uSplitToneBalance", new Uniform(0.0)],
         ["uExposure", new Uniform(0)],
         ["uKelvin", new Uniform(5500)],
@@ -402,7 +403,6 @@ export class ColorGradingEffect extends Effect {
   }
 
   updateTime(t) {
-
     this.uniforms.get("iTime").value = t;
   }
 
@@ -423,17 +423,28 @@ export class ColorGradingEffect extends Effect {
     kelvin,
     chromaticAberration
   ) {
-    this.uniforms.get("uRedMix").value = new Color(red);
-    this.uniforms.get("uGreenMix").value = new Color(green);
-    this.uniforms.get("uBlueMix").value = new Color(blue);
+    const uRed = this.uniforms.get("uRedMix").value;
+    if (red?.isColor) uRed.copy(red); else if (red) uRed.set(red);
+
+    const uGreen = this.uniforms.get("uGreenMix").value;
+    if (green?.isColor) uGreen.copy(green); else if (green) uGreen.set(green);
+
+    const uBlue = this.uniforms.get("uBlueMix").value;
+    if (blue?.isColor) uBlue.copy(blue); else if (blue) uBlue.set(blue);
+
     this.uniforms.get("uBrightness").value = brightness;
     this.uniforms.get("uContrast").value = contrast;
     this.uniforms.get("uSaturation").value = saturation;
     this.uniforms.get("uVibrancy").value = vibrancy;
     this.uniforms.get("uHueOffset").value = hueOffset;
     this.uniforms.get("uGamma").value = gamma;
-    this.uniforms.get("uShadowTint").value = new Color(shadowTint);
-    this.uniforms.get("uHighlightTint").value = new Color(highlightTint);
+
+    const uShadow = this.uniforms.get("uShadowTint").value;
+    if (shadowTint?.isColor) uShadow.copy(shadowTint); else if (shadowTint) uShadow.set(shadowTint);
+
+    const uHighlight = this.uniforms.get("uHighlightTint").value;
+    if (highlightTint?.isColor) uHighlight.copy(highlightTint); else if (highlightTint) uHighlight.set(highlightTint);
+
     this.uniforms.get("uSplitToneBalance").value = splitToneBalance;
     this.uniforms.get("uExposure").value = exposure;
     this.uniforms.get("uKelvin").value = kelvin;
@@ -466,121 +477,100 @@ export class ColorGradingEffect extends Effect {
 }
 
 
-export const HUE_NAMES = [
-  "Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"
-];
 
-// Static production values — identical to the Leva defaults below, so the
-// game renders exactly the same with zero debug UI.
-export const COLOR_GRADING_DEFAULTS = {
-  redMix: "#FF0000",
-  greenMix: "#00FF00",
-  blueMix: "#0000FF",
-  brightness: 0.03,
-  contrast: 1.03,
-  saturation: 0.15,
-  vibrancy: 0.3,
-  hueOffset: 0,
-  gamma: 1,
-  shadowTint: "#d8d8d8",
-  highlightTint: "#ffffff",
-  splitToneBalance: 0,
-  exposure: -0.5,
-  kelvin: 5900,
-  chromaticAberration: 0,
-};
+const isColorDebug =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("debug") === "color";
 
-export const HUE_DEFAULT_VALUES = Object.fromEntries(
-  HUE_NAMES.map((hue) => [hue, { hue: 0, sat: 0, lum: 0 }])
-);
+const LazyColorGradingDev = isColorDebug
+  ? lazy(() => import("./ColorGradingDev"))
+  : null;
 
-const COLOR_GRADING_SCHEMA = {
-  redMix: { value: "#FF0000", label: "Red Mix" },
-  greenMix: {
-    value: "#00FF00",
-    label: "Green Mix",
-  },
-  blueMix: {
-    value: "#0000FF",
-    label: "Blue Mix",
-  },
-  brightness: { value: 0.03, min: -1, max: 1, step: 0.001 },
-  contrast: { value: 1.03, min: 0, max: 3, step: 0.001 },
-  saturation: { value: 0.15, min: -1, max: 3, step: 0.001 },
-  vibrancy: { value: 0.3, min: -1, max: 3, step: 0.001 },
-  hueOffset: { value: 0, min: -Math.PI, max: Math.PI, step: 0.001 },
-  gamma: { value: 1, min: 0, max: 3, step: 0.001 },
-  shadowTint: { value: "#d8d8d8", label: "Shadow Tint" },
-  highlightTint: { value: "#ffffff", label: "Highlight Tint" },
-  splitToneBalance: { value: 0, min: 0, max: 1, step: 0.001 },
-  exposure: { value: -.5, min: -1, max: 3, step: 0.001 },
-  kelvin: { value: 5900, min: 1000, max: 40000 },
-  chromaticAberration : { value : 0, min : -5, max : 5}
-};
+const STATIC_HSL_ZERO = new Float32Array(8);
 
-const ColorGradingInner = forwardRef(({ grading, hueValues }, ref) => {
-  // Created once: was `new` on every render, which rebuilt the
-  // postprocessing pass chain each frame and leaked GPU programs.
+export const ColorGrading = forwardRef((props, ref) => {
   const effect = useMemo(() => new ColorGradingEffect(), []);
   const { camera } = useThree();
 
-  let {
-    redMix,
-    greenMix,
-    blueMix,
-    brightness,
-    contrast,
-    saturation,
-    vibrancy,
-    hueOffset,
-    gamma,
-    shadowTint,
-    highlightTint,
-    splitToneBalance,
-    exposure,
-    kelvin,
-    chromaticAberration
-  } = grading;
+  const currentGrading = useRef({
+    brightness: 0.02,
+    contrast: 1.03,
+    saturation: 0.14,
+    vibrancy: 0.28,
+    hueOffset: 0,
+    gamma: 1.0,
+    splitToneBalance: 0.0,
+    exposure: -0.4,
+    kelvin: 5800,
+    chromaticAberration: 0,
+  });
+
+  const currentShadowColor = useRef(new Color("#dad8d8"));
+  const currentHighlightColor = useRef(new Color("#ffffff"));
+  const targetShadowColor = useMemo(() => new Color("#dad8d8"), []);
+  const targetHighlightColor = useMemo(() => new Color("#ffffff"), []);
 
   const currentTime = useRef(0);
-
   const dirtOpacity = useRef(0);
-  const lensDirtTexture = useTexture('./textures/lensDirt.jpg');
+  const lensDirtTexture = useTexture("./textures/lensDirt.jpg");
 
   useFrame((state, delta) => {
     if (!camera) return;
 
-    if (!hueValues) return;
-    const hueAdjust = HUE_NAMES.map(h => hueValues[h].hue);
-    const satAdjust = HUE_NAMES.map(h => hueValues[h].sat);
-    const lumAdjust = HUE_NAMES.map(h => hueValues[h].lum);
     currentTime.current += delta;
-    
+
+    const selectedTrackId =
+      useGameManager.getState().selectedTrackId ?? "mario-circuit";
+    const trackPreset =
+      TRACK_COLOR_PRESETS[selectedTrackId] ?? TRACK_COLOR_PRESETS["mario-circuit"];
+    const targetPreset = liveDevGrading.current ?? trackPreset;
+
+    const cur = currentGrading.current;
+    const lambda = liveDevGrading.current ? 15.0 : 3.5;
+
+    cur.brightness = damp(cur.brightness, targetPreset.brightness, lambda, delta);
+    cur.contrast = damp(cur.contrast, targetPreset.contrast, lambda, delta);
+    cur.saturation = damp(cur.saturation, targetPreset.saturation, lambda, delta);
+    cur.vibrancy = damp(cur.vibrancy, targetPreset.vibrancy, lambda, delta);
+    cur.hueOffset = damp(cur.hueOffset, targetPreset.hueOffset ?? 0, lambda, delta);
+    cur.gamma = damp(cur.gamma, targetPreset.gamma ?? 1.0, lambda, delta);
+    cur.splitToneBalance = damp(cur.splitToneBalance, targetPreset.splitToneBalance ?? 0, lambda, delta);
+    cur.exposure = damp(cur.exposure, targetPreset.exposure, lambda, delta);
+    cur.kelvin = damp(cur.kelvin, targetPreset.kelvin, lambda, delta);
+
     const isBoosting = useGameStore.getState().isBoosting;
-    chromaticAberration = damp(chromaticAberration, isBoosting ? 0.2 : 0, 4, delta);
+    const boostChromatic = isBoosting ? 0.2 : (targetPreset.chromaticAberration ?? 0);
+    cur.chromaticAberration = damp(cur.chromaticAberration, boostChromatic, 4.0, delta);
+
+    targetShadowColor.set(targetPreset.shadowTint);
+    targetHighlightColor.set(targetPreset.highlightTint);
+    const colorFactor = 1.0 - Math.exp(-lambda * delta);
+    currentShadowColor.current.lerp(targetShadowColor, colorFactor);
+    currentHighlightColor.current.lerp(targetHighlightColor, colorFactor);
 
     const isOnDirt = useGameStore.getState().isOnDirt;
-    dirtOpacity.current = damp(dirtOpacity.current, isOnDirt ? 0.4 : 0, 4, delta);
+    dirtOpacity.current = damp(dirtOpacity.current, isOnDirt ? 0.4 : 0, 4.0, delta);
     effect.setDirtOpacity(dirtOpacity.current);
+
     effect.updateColorMix(
-      redMix,
-      greenMix,
-      blueMix,
-      brightness,
-      contrast,
-      saturation,
-      vibrancy,
-      hueOffset,
-      gamma,
-      shadowTint,
-      highlightTint,
-      splitToneBalance,
-      exposure,
-      kelvin,
-      chromaticAberration
+      targetPreset.redMix ?? "#FF0000",
+      targetPreset.greenMix ?? "#00FF00",
+      targetPreset.blueMix ?? "#0000FF",
+      cur.brightness,
+      cur.contrast,
+      cur.saturation,
+      cur.vibrancy,
+      cur.hueOffset,
+      cur.gamma,
+      currentShadowColor.current,
+      currentHighlightColor.current,
+      cur.splitToneBalance,
+      cur.exposure,
+      cur.kelvin,
+      cur.chromaticAberration
     );
-    
-    effect.setHslAdjustments(hueAdjust, satAdjust, lumAdjust);
+
+    effect.setHslAdjustments(STATIC_HSL_ZERO, STATIC_HSL_ZERO, STATIC_HSL_ZERO);
     effect.updateTime(currentTime.current);
   });
 
@@ -590,52 +580,16 @@ const ColorGradingInner = forwardRef(({ grading, hueValues }, ref) => {
     effect.setLensDirtTexture(lensDirtTexture);
   }, [effect, camera, ref, lensDirtTexture]);
 
-  return <primitive object={effect} />;
-});
-
-// DEV-only tuner: keeps the Leva sliders for local tweaking. Never rendered
-// in production (see ColorGrading below).
-const ColorGradingDev = forwardRef((props, ref) => {
-  const grading = useControls("Color Grading", COLOR_GRADING_SCHEMA);
-
-  const hueControls = useControls("Hue Adjustments", () =>
-    Object.fromEntries(
-      HUE_NAMES.map((hue) => [
-        `${hue}`,
-        {
-          value: { hue: 0, sat: 0, lum: 0 },
-          step: 0.01,
-          min: -1,
-          max: 1,
-        },
-      ])
-    )
-  );
-
   return (
-    <ColorGradingInner
-      ref={ref}
-      grading={grading}
-      hueValues={hueControls?.[0]}
-      {...props}
-    />
+    <>
+      <primitive object={effect} />
+      {LazyColorGradingDev && (
+        <Suspense fallback={null}>
+          <LazyColorGradingDev />
+        </Suspense>
+      )}
+    </>
   );
 });
 
-export const ColorGrading = forwardRef((props, ref) => {
-  // Root-cause fix: useControls auto-mounts Leva's global panel into
-  // document.body on every call (leva/dist useRenderRoot) — gating the
-  // <Leva> element alone does NOT stop it. So the hook itself must never
-  // execute in production; prod uses the identical static defaults.
-  if (import.meta.env.DEV) {
-    return <ColorGradingDev ref={ref} {...props} />;
-  }
-  return (
-    <ColorGradingInner
-      ref={ref}
-      grading={COLOR_GRADING_DEFAULTS}
-      hueValues={HUE_DEFAULT_VALUES}
-      {...props}
-    />
-  );
-});
+
