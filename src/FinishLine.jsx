@@ -142,7 +142,8 @@ export function FinishLine() {
 
   useFrame(() => {
     const gm = useGameManager.getState();
-    if (!gm.gameStarted || gm.gameOver || gm.isPaused) return;
+    if (!gm.gameStarted || gm.gameOver || gm.isPaused || gm.isSpectating) return;
+    if (Array.isArray(gm.lapTimes) && gm.lapTimes.length >= gm.totalLaps) return;
 
     const st = useGameStore.getState();
     const p = st.playerPosition;

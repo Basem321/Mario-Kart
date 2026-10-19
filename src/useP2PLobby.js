@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Peer } from "peerjs";
 import { useOnlineRaceStore } from "./onlineRaceStore";
+import { useGameManager } from "./gameManager";
 import { receiveOnlineRaceEvent, setOnlineRaceTransport } from "./onlineRaceTransport";
 import { DEFAULT_TRACK_ID, isKnownTrackId } from "./tracks";
 import { normalizeBoxList } from "./items/itemWeights";
@@ -444,6 +445,10 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
     };
   }
 
+  if (candidate.type === "race:return-to-lobby") {
+    return { type: "race:return-to-lobby" };
+  }
+
   return null;
 };
 
@@ -589,6 +594,14 @@ export const useP2PLobby = () => {
   }, []);
 
   const applyIncomingRaceEvent = useCallback((playerId, event) => {
+    if (!event || typeof event !== "object") return;
+
+    if (event.type === "race:return-to-lobby") {
+      activeRaceRef.current = null;
+      useGameManager.getState().returnToLobby();
+      return;
+    }
+
     // Authenticated sender guard: explosion events only apply when the
     // stamped owner matches the stamped sender. Guests relay through the
     // host, so `playerId` here is already the host-stamped sender and
@@ -685,6 +698,21 @@ export const useP2PLobby = () => {
         return;
       }
 
+      if (event.type === "race:return-to-lobby") {
+        activeRaceRef.current = null;
+        if (hostRef.current) {
+          broadcastRaceTransform({
+            type: "lobby:race-event",
+            raceId: activeRace.raceId,
+            playerId: self.id,
+            event,
+          });
+          broadcastLobbyState();
+        }
+        useGameManager.getState().returnToLobby();
+        return;
+      }
+
       if (hostRef.current) {
         let relayedEvent = stampRaceProgress(event);
         // The host's own bombs/shells carry its id as owner, exactly like
@@ -732,7 +760,7 @@ export const useP2PLobby = () => {
         // Connection errors are surfaced by PeerJS's close/error handlers.
       }
     },
-    [broadcastRaceTransform],
+    [broadcastLobbyState, broadcastRaceTransform],
   );
 
   const checkLoadGate = useCallback(() => {

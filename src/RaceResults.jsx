@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useGameManager } from "./gameManager";
 import { useGameStore } from "./store";
 import { useOnlineRaceStore } from "./onlineRaceStore";
+import { publishOnlineRaceEvent } from "./onlineRaceTransport";
 import "./RaceResults.css";
 
 const ordinal = (n) => {
@@ -27,6 +28,8 @@ export function RaceResults() {
   const totalTime = useGameManager((s) => s.totalTime);
   const formatTime = useGameManager((s) => s.formatTime);
   const returnToHomepage = useGameManager((s) => s.returnToHomepage);
+  const returnToLobby = useGameManager((s) => s.returnToLobby);
+  const isHost = useOnlineRaceStore((s) => s.isHost);
   const players = useGameManager((s) => s.onlinePlayers);
   const selfId = useGameManager((s) => s.onlineSelfId);
   const gameOver = useGameManager((s) => s.gameOver);
@@ -119,6 +122,20 @@ export function RaceResults() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleReturnToLobby = () => {
+    const gmState = useGameManager.getState();
+    try {
+      gmState.winningSound?.pause();
+      gmState.gameOverSound?.pause();
+    } catch {
+      // ignore
+    }
+    if (isHost) {
+      publishOnlineRaceEvent({ type: "race:return-to-lobby" });
+    }
+    returnToLobby();
+  };
+
   const handleRetry = () => {
     // Stop the result jingle if the player retries while it's still playing.
     const gmState = useGameManager.getState();
@@ -131,7 +148,7 @@ export function RaceResults() {
     // Offline only: restart the same mode instantly.
     // Online races are host-driven, so retry returns to menu.
     if (isOnlineRace) {
-      returnToHomepage();
+      handleReturnToLobby();
       return;
     }
     const gm = useGameManager.getState();
@@ -224,17 +241,40 @@ export function RaceResults() {
         )}
 
         <div className="race-results-actions">
-          {!isOnlineRace && (
-            <button type="button" className="rr-btn retry" onClick={handleRetry}>
-              ↻ Race Again
-            </button>
+          {isOnlineRace ? (
+            <>
+              <button
+                type="button"
+                className="rr-btn retry"
+                onClick={handleReturnToLobby}
+              >
+                🏠 Return to Lobby
+              </button>
+              <button
+                type="button"
+                className="rr-btn home"
+                onClick={returnToHomepage}
+              >
+                🚪 Leave Room
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="rr-btn retry" onClick={handleRetry}>
+                ↻ Race Again
+              </button>
+              <button type="button" className="rr-btn home" onClick={returnToHomepage}>
+                Return to Homepage
+              </button>
+            </>
           )}
-          <button type="button" className="rr-btn home" onClick={returnToHomepage}>
-            {isOnlineRace ? "Back to Menu" : "Return to Homepage"}
-          </button>
         </div>
         {isOnlineRace && (
-          <p className="race-results-note">Ask the host to start a new race from the lobby.</p>
+          <p className="race-results-note">
+            {isHost
+              ? "As host, returning to lobby brings everyone back for the next race!"
+              : "Return to the lobby to get ready for the next race."}
+          </p>
         )}
       </div>
     </div>

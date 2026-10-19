@@ -25,6 +25,8 @@ import { findNearestBlackRoadPoint3D, getHighestRoadYAt, isOffRoad, trackConfigT
 import { itemConfig } from "./items/itemConfig.js";
 import { getTrack, getMergedRoadGeometry } from "./tracks";
 
+import { useOnlineRaceStore } from "./onlineRaceStore";
+
 // Horizontal ray vs the visible track meshes (barriers included).
 // Catches real walls even where the precomputed segments have gaps.
 const wallRaycaster = new Raycaster();
@@ -49,6 +51,10 @@ const _camPos = new Vector3();
 const _camLook = new Vector3();
 const _camRearPos = new Vector3();
 const _camRearLook = new Vector3();
+const _camSpectateTargetPos = new Vector3();
+const _camSpectateLookAt = new Vector3();
+const _spectatePos = new Vector3();
+const _spectateFallbackPos = new Vector3();
 
 export const PlayerController = () => {
   const rbRef = useRef(null);
@@ -1142,6 +1148,58 @@ export const PlayerController = () => {
       // Race finished locally: no more physics, but keep telling the others
       // the kart is parked/finished so they stop rendering and targeting it.
       if (playerRef.current) publishNetworkState(playerRef.current, true);
+      return;
+    }
+
+    if (gmState.isSpectating) {
+      if (playerRef.current) publishNetworkState(playerRef.current, true);
+      speedRef.current = 0;
+      setSpeed(0);
+
+      const kart = kartRef.current;
+      if (kart) {
+        kart.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        kart.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      }
+
+      // Camera follows spectateTargetId
+      const spectateId = gmState.spectateTargetId;
+      const camera = state.camera;
+      let targetPos = null;
+      let targetRotY = 0;
+
+      const targetGroup = spectateId ? state.scene.getObjectByName(`remote-racer-${spectateId}`) : null;
+      if (targetGroup) {
+        targetGroup.getWorldPosition(_spectatePos);
+        targetPos = _spectatePos;
+        targetRotY = targetGroup.rotation.y;
+      } else if (spectateId) {
+        const rr = useOnlineRaceStore.getState().remoteRacers[spectateId];
+        if (rr && Number.isFinite(rr.x)) {
+          _spectateFallbackPos.set(rr.x, rr.y || 0, rr.z);
+          targetPos = _spectateFallbackPos;
+          targetRotY = rr.rotationY || 0;
+        }
+      }
+
+      if (targetPos) {
+        const fx = -Math.sin(targetRotY);
+        const fz = -Math.cos(targetRotY);
+
+        _camSpectateTargetPos.set(
+          targetPos.x - fx * 5.2,
+          targetPos.y + 2.5,
+          targetPos.z - fz * 5.2
+        );
+        _camSpectateLookAt.set(
+          targetPos.x + fx * 7.5,
+          targetPos.y + 1.2,
+          targetPos.z + fz * 7.5
+        );
+
+        camera.position.lerp(_camSpectateTargetPos, Math.min(1, 9 * delta));
+        camera.lookAt(_camSpectateLookAt);
+      }
       return;
     }
     const player = playerRef.current;

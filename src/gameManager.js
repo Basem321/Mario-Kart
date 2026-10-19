@@ -1,5 +1,31 @@
 import { create } from "zustand";
 import { useGameStore } from "./store";
+import { useOnlineRaceStore } from "./onlineRaceStore";
+
+// Helper to determine if all online racers have finished or disconnected
+export const checkAllOnlineRacersFinished = ({
+  onlinePlayers,
+  onlineSelfId,
+  localCompletedLaps,
+  totalLaps,
+}) => {
+  if (!onlinePlayers || onlinePlayers.length === 0) return true;
+  const remoteProgress = useOnlineRaceStore.getState().remoteRaceProgress;
+  const remoteRacers = useOnlineRaceStore.getState().remoteRacers;
+
+  for (const player of onlinePlayers) {
+    if (player.id === onlineSelfId) {
+      if (localCompletedLaps < totalLaps) return false;
+    } else {
+      const racer = remoteRacers[player.id];
+      if (racer?.disconnected) continue;
+      const prog = remoteProgress[player.id];
+      const isFinished = Boolean(prog?.finished) || (Number(prog?.completedLaps) >= totalLaps);
+      if (!isFinished) return false;
+    }
+  }
+  return true;
+};
 
 // One shared AudioContext for all sessions. Creating a new context per
 // entry leaks them (browsers cap ~6) and eventually kills all audio.
@@ -40,6 +66,82 @@ export const useGameManager = create((set, get) => ({
   isTimeTrial: false,
   gameStarted: false,
   gameOver: false,
+  // Spectator mode for online races
+  isSpectating: false,
+  spectateTargetId: null,
+  startSpectating: (targetId = null) => {
+    const { onlinePlayers, onlineSelfId } = get();
+    const otherPlayers = onlinePlayers.filter((p) => p.id !== onlineSelfId);
+    const remoteProgress = useOnlineRaceStore.getState().remoteRaceProgress;
+    const remoteRacers = useOnlineRaceStore.getState().remoteRacers;
+
+    let picked = null;
+    if (targetId && otherPlayers.some((p) => p.id === targetId)) {
+      picked = targetId;
+    } else {
+      const unfinished = otherPlayers.find((p) => {
+        const prog = remoteProgress[p.id];
+        const racer = remoteRacers[p.id];
+        return !prog?.finished && !racer?.disconnected;
+      });
+      picked = unfinished ? unfinished.id : (otherPlayers[0]?.id ?? null);
+    }
+
+    set({
+      isSpectating: true,
+      spectateTargetId: picked,
+    });
+  },
+  stopSpectating: () => {
+    set({
+      isSpectating: false,
+      spectateTargetId: null,
+    });
+  },
+  cycleSpectateTarget: (direction = 1) => {
+    const { onlinePlayers, onlineSelfId, spectateTargetId } = get();
+    const otherPlayers = onlinePlayers.filter((p) => p.id !== onlineSelfId);
+    if (otherPlayers.length === 0) return;
+
+    const currentIndex = otherPlayers.findIndex((p) => p.id === spectateTargetId);
+    let nextIndex;
+    if (currentIndex === -1) {
+      nextIndex = 0;
+    } else {
+      nextIndex = (currentIndex + direction + otherPlayers.length) % otherPlayers.length;
+    }
+    set({ spectateTargetId: otherPlayers[nextIndex].id });
+  },
+  returnToLobby: () => {
+    const { backgroundMusic, winningSound, gameOverSound } = get();
+    try {
+      backgroundMusic?.pause();
+      if (backgroundMusic) backgroundMusic.currentTime = 0;
+      winningSound?.pause();
+      gameOverSound?.pause();
+    } catch {
+      // ignore pause errors if audio was never started
+    }
+
+    useGameStore.getState().resetBattleState();
+    useOnlineRaceStore.getState().clearLoadGate();
+    useOnlineRaceStore.getState().clearRemoteRacers();
+
+    set({
+      isPlaying: false,
+      gameStarted: false,
+      gameOver: false,
+      isPaused: false,
+      showHomepage: true,
+      isSpectating: false,
+      spectateTargetId: null,
+      currentLapTime: 0,
+      currentLap: 1,
+      totalTime: 0,
+      lapTimes: [],
+      bestLapTime: null,
+    });
+  },
   // Bumped every startGame: physics/visuals re-seat the kart on the grid so
   // "Race Again" never inherits the previous run's position, speed or drift.
   sessionId: 0,
@@ -199,6 +301,8 @@ export const useGameManager = create((set, get) => ({
       currentLap: 1,
       totalLaps,
       lapTimes: [],
+      isSpectating: false,
+      spectateTargetId: null,
       // Add specific time trial performance settings
       timeTrialPerformanceMode: isTimeTrial,
       isOnlineRace,
@@ -228,7 +332,9 @@ export const useGameManager = create((set, get) => ({
     // top 3 hear winning_sound, the rest hear game-over.
     set({
       gameOver: true,
-      isPlaying: false
+      isPlaying: false,
+      isSpectating: false,
+      spectateTargetId: null,
     });
   },
   
@@ -289,7 +395,21 @@ export const useGameManager = create((set, get) => ({
     });
 
     if (finished) {
-      get().endGame();
+      if (state.isOnlineRace) {
+        const allDone = checkAllOnlineRacersFinished({
+          onlinePlayers: state.onlinePlayers,
+          onlineSelfId: state.onlineSelfId,
+          localCompletedLaps: nextLapTimes.length,
+          totalLaps: state.totalLaps,
+        });
+        if (allDone) {
+          get().endGame();
+        } else {
+          get().startSpectating();
+        }
+      } else {
+        get().endGame();
+      }
     }
 
     return { counted: true, completedLap, finished };

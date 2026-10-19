@@ -7,6 +7,7 @@ import { itemConfig } from "./items/itemConfig.js";
 import { MiniMap } from "./MiniMap";
 import { OnlineRaceLeaderboard } from "./OnlineRaceLeaderboard";
 import { RaceResults } from "./RaceResults";
+import { SpectatorUI } from "./SpectatorUI";
 import gsap from "gsap";
 import "./GameUI.css";
 
@@ -165,9 +166,49 @@ const GameUI = () => {
   const isBoosting = useGameStore((s) => s.isBoosting);
   const boostSpeed = useGameStore((s) => s.speed);
   const isOnlineRace = useGameManager((s) => s.isOnlineRace);
+  const isSpectating = useGameManager((s) => s.isSpectating);
   const onlinePlayers = useGameManager((s) => s.onlinePlayers);
   const onlineSelfId = useGameManager((s) => s.onlineSelfId);
   const lapTimesLive = useGameManager((s) => s.lapTimes);
+  const remoteRaceProgress = useOnlineRaceStore((s) => s.remoteRaceProgress);
+  const remoteRacers = useOnlineRaceStore((s) => s.remoteRacers);
+
+  // When local player has completed all laps, monitor when all other players finish
+  useEffect(() => {
+    if (!isOnlineRace || gameOver) return;
+    const localCompleted = Array.isArray(lapTimesLive) ? lapTimesLive.length : 0;
+    if (localCompleted < totalLaps) return;
+
+    let allOthersDone = true;
+    for (const player of onlinePlayers) {
+      if (player.id === onlineSelfId) continue;
+      const racer = remoteRacers[player.id];
+      if (racer?.disconnected) continue;
+      const prog = remoteRaceProgress[player.id];
+      const isFinished = Boolean(prog?.finished) || (Number(prog?.completedLaps) >= totalLaps);
+      if (!isFinished) {
+        allOthersDone = false;
+        break;
+      }
+    }
+
+    if (allOthersDone) {
+      const gm = useGameManager.getState();
+      if (gm.isSpectating) {
+        gm.stopSpectating();
+      }
+      gm.endGame();
+    }
+  }, [
+    isOnlineRace,
+    gameOver,
+    lapTimesLive,
+    totalLaps,
+    onlinePlayers,
+    onlineSelfId,
+    remoteRaceProgress,
+    remoteRacers,
+  ]);
 
   // Live position: laps first, distance driven breaks ties. Distances are
   // read unsubscribed (they change every frame); this component already
@@ -288,7 +329,7 @@ const GameUI = () => {
       )}
 
       {/* Battle-item slot: roulette cycling, then the locked item */}
-      {rouletteIcon && (
+      {rouletteIcon && !isSpectating && (
         <div className={`item-slot${roulette ? " spinning" : ""}`} aria-live="polite">
           {ITEM_ICON_SRC[rouletteIcon] ? (
             <img
@@ -360,7 +401,7 @@ const GameUI = () => {
         </div>
       )}
 
-      {!isTimeTrial && gameStarted && !gameOver && (
+      {!isTimeTrial && gameStarted && !gameOver && !isSpectating && (
         <div className="game-ui regular-mode">
           <div className="game-info">
             {livePosition && (
@@ -406,6 +447,9 @@ const GameUI = () => {
           </div>
         </div>
       )}
+
+      {/* Online spectator overlay */}
+      {isOnlineRace && isSpectating && !gameOver && <SpectatorUI />}
 
       {gameStarted && !gameOver && (
         <>
