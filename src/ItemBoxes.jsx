@@ -538,7 +538,9 @@ const endBulletRide = (hop = true) => {
 };
 
 let blueAlarmAudio = null;
+let blueAlarmStartedAt = 0;
 const startBlueAlarm = () => {
+  blueAlarmStartedAt = performance.now();
   try {
     stopBlueAlarm();
     blueAlarmAudio = startLoop("blue-alarm.mp3", 0.6);
@@ -1103,12 +1105,16 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               myRide &&
               myRide.ownerId === me2 &&
               bulletActive(myRide, performance.now());
+          // The shell's target is always hit (the owner stamped targetId and
+          // was authenticated above); everyone else only inside the blast.
+          const isTarget = event.targetId === me2;
           if (
             !immune &&
             raceLive() &&
             myVulnerable() &&
-            p2 &&
-            resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2)
+            (isTarget ||
+              (p2 &&
+                resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2)))
           ) {
               applyShellStun({
                 x: event.x,
@@ -1506,6 +1512,19 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
     // in flight (2nd/3rd shell of a triple, or any remote shell): it stayed
     // visible to remotes but could never hit anyone.
     const liveShells = useGameStore.getState().activeShells;
+    // Safety net: the alarm/warning normally stop on blue:explode, but a shell
+    // can also vanish without one (12 s expiry, fizzle on a non-owner client,
+    // lost packet). With no blue shell left in flight the warning must not
+    // outlive it. Small grace so blue:incoming arriving a hair before the
+    // hydrated shell does not cancel itself.
+    if (
+      (blueAlarmAudio || useGameStore.getState().blueWarning) &&
+      now - blueAlarmStartedAt > 1500 &&
+      !liveShells.some((s) => s.kind === "blue")
+    ) {
+      stopBlueAlarm();
+      useGameStore.getState().setBlueWarning(null);
+    }
     if (liveShells.length > 0) {
       const step = Math.min(delta, 0.05);
       const me = myRacerId();
@@ -1662,17 +1681,16 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               const immune =
                 targetRide && bulletActive(targetRide, now);
               if (shell.owner) {
-                // BUG-2 fix: snap blast XZ to the leader's CURRENT live
-                // position (re-read from victims this frame), not the stale
-                // tx/tz from the start of the dive tick (~66ms old at 15Hz).
-                const liveLeader = victims.find((v) => v.id === shell.targetId);
-                const blastX = liveLeader?.x ?? tx;
-                const blastZ = liveLeader?.z ?? tz;
+                // The explode carries targetId: the targeted racer is hit
+                // regardless of where it is by the time this arrives (remote
+                // positions here are ~100+ ms old, so a distance-only check on
+                // the victim could miss a moving leader).
                 publishOnlineRaceEvent({
                   type: "blue:explode",
-                  x: blastX,
+                  x: tx,
                   y: ground,
-                  z: blastZ,
+                  z: tz,
+                  targetId: shell.targetId,
                   fizzle: Boolean(immune),
                   // Ownership proof (host relay overwrites with sender id).
                   ownerId: myRacerId(),

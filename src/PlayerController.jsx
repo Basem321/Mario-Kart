@@ -1153,13 +1153,13 @@ export const PlayerController = () => {
 
     if (gmState.isSpectating) {
       if (playerRef.current) publishNetworkState(playerRef.current, true);
-      speedRef.current = 0;
-      setSpeed(0);
-
-      const kart = kartRef.current;
-      if (kart) {
-        kart.setLinvel({ x: 0, y: 0, z: 0 }, true);
-        kart.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      // The local kart is parked while spectating: no physics step runs in
+      // this branch. (kartRef is a plain THREE.Group, not a rigid body, so it
+      // has no setLinvel/setAngvel; calling them threw every frame and killed
+      // the render loop, leaving a white screen.)
+      if (speedRef.current !== 0) {
+        speedRef.current = 0;
+        setSpeed(0);
       }
 
       // Camera follows spectateTargetId

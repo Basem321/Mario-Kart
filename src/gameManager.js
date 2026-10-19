@@ -98,6 +98,16 @@ export const useGameManager = create((set, get) => ({
       spectateTargetId: null,
     });
   },
+  // Used by SpectatorUI to auto-switch when the watched racer finishes or
+  // disconnects. Only known remote players are accepted.
+  setSpectateTargetId: (targetId) => {
+    const { onlinePlayers, onlineSelfId } = get();
+    if (
+      onlinePlayers.some((p) => p.id === targetId && p.id !== onlineSelfId)
+    ) {
+      set({ spectateTargetId: targetId });
+    }
+  },
   cycleSpectateTarget: (direction = 1) => {
     const { onlinePlayers, onlineSelfId, spectateTargetId } = get();
     const otherPlayers = onlinePlayers.filter((p) => p.id !== onlineSelfId);
