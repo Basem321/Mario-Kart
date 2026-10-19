@@ -372,11 +372,18 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
       typeof candidate.ownerId === "string" && candidate.ownerId
         ? candidate.ownerId.slice(0, 64)
         : null;
+    // Racer the shell was homing on: that racer is hit even if it has moved
+    // out of the blast radius during network latency.
+    const targetId =
+      typeof candidate.targetId === "string" && candidate.targetId
+        ? candidate.targetId.slice(0, 64)
+        : null;
     return {
       type: "blue:explode",
       ...position,
       fizzle: Boolean(candidate.fizzle),
       ...(ownerId ? { ownerId } : {}),
+      ...(targetId ? { targetId } : {}),
     };
   }
 
