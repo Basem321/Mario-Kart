@@ -78,16 +78,35 @@ const ANIM_STATES = new Set([
   "use_mushroom",
 ]);
 
-const toRaceTransform = (candidate) => {
-  const x = Number(candidate?.x);
-  const y = Number(candidate?.y);
-  const z = Number(candidate?.z);
-  const rotationY = Number(candidate?.rotationY);
-  const bodyY = Number(candidate?.bodyY);
+// Strict numeric read: `Number(null)`, `Number("")`, `Number([])` and
+// `Number(true)` all coerce to 0/1 and would pass `Number.isFinite`, so a
+// hostile packet could silently place a kart at the origin. Only real finite
+// numbers (or numeric strings from older peers) are accepted.
+const strictNumber = (value) => {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "") return Number(value);
+  return NaN;
+};
 
-  if (![x, y, z, rotationY].every(Number.isFinite)) {
+// Shortest believable lap/segment time for host-side progress plausibility.
+const MIN_LAP_PLAUSIBLE_MS = 5000;
+
+const toRaceTransform = (candidate) => {
+  const x = strictNumber(candidate?.x);
+  const y = strictNumber(candidate?.y);
+  const z = strictNumber(candidate?.z);
+  const rotationYRaw = strictNumber(candidate?.rotationY);
+  const bodyY = strictNumber(candidate?.bodyY);
+
+  if (![x, y, z, rotationYRaw].every(Number.isFinite)) {
     return null;
   }
+  // Yaw only matters modulo 2PI (receivers use the shortest arc); an
+  // unbounded value like 1e308 would make the angle maths meaningless.
+  if (Math.abs(rotationYRaw) > 1e6) {
+    return null;
+  }
+  const rotationY = rotationYRaw;
 
   // Ignore corrupt/hostile P2P packets that would place a visual kart far
   // outside the map or create a broken Three.js transform.
@@ -101,19 +120,23 @@ const toRaceTransform = (candidate) => {
     typeof candidate?.anim === "string" && ANIM_STATES.has(candidate.anim)
       ? candidate.anim
       : "drive";
+  // Only compared for change on the receiver; bounded to a sane epoch-ms
+  // range so a hostile value cannot be a 1e308 sentinel.
+  const animAtRaw = strictNumber(candidate?.animAt);
   const animAt =
-    Number.isFinite(Number(candidate?.animAt)) && Number(candidate.animAt) > 0
-      ? Number(candidate.animAt)
-      : 0;
+    Number.isFinite(animAtRaw) && animAtRaw > 0 && animAtRaw < 1e14 ? animAtRaw : 0;
 
   // Remaining hit-invulnerability ms (2.1 #10): clamped, anchored locally on
   // receipt so the owner can skip invulnerable victims without trusting clocks.
-  const invulnMs = Number(candidate?.invulnMs);
+  const invulnMs = strictNumber(candidate?.invulnMs);
   return {
     x,
     y,
     z,
     rotationY,
+    // Set once the sender crossed its final line: receivers hide the kart and
+    // stop treating it as an item target (it keeps publishing its last pose).
+    finished: candidate?.finished === true,
     // Same bounds as `y`: an unclamped bodyY from a hostile peer would put
     // the remote kart's visual (and the homing/shell maths that reads it)
     // arbitrarily far from the track.
@@ -951,6 +974,10 @@ export const useP2PLobby = () => {
             }
 
             if (message.type === "race:state") {
+              // Honest clients send ~15/s (10-17 with frame quantisation).
+              // Every accepted packet is re-broadcast to all other peers, so
+              // an unbounded sender would amplify into a flood.
+              if (shouldDropFlood(connection.peer, "state", 40)) return;
               const activeRace = activeRaceRef.current;
               const transform = toRaceTransform(message.state);
 
@@ -1040,11 +1067,23 @@ export const useP2PLobby = () => {
               ) {
                 return;
               }
-              // Plausibility: nobody finishes in the first seconds of a race.
-              if (event.type === "race:progress" && event.finished) {
-                const raceAgeMs = Date.now() - (activeRace.startedAt ?? Date.now());
-                const minMs = Math.max(5000, (activeRace.lapCount ?? 3) * 5000);
-                if (raceAgeMs < minMs) return;
+              // Plausibility: lap progress is client-reported, so the host
+              // only accepts it one lap at a time (a guest cannot jump 0 -> 3
+              // laps / "finished" in one message) and only if enough time has
+              // passed since the race start and since that racer's last lap.
+              if (event.type === "race:progress") {
+                const prev = useOnlineRaceStore.getState().remoteRaceProgress[connection.peer];
+                const prevLaps = Number(prev?.completedLaps) || 0;
+                if (event.completedLaps !== prevLaps + 1) return;
+                const nowMs = Date.now();
+                const raceAgeMs = nowMs - (activeRace.startedAt ?? nowMs);
+                if (raceAgeMs < event.completedLaps * MIN_LAP_PLAUSIBLE_MS) return;
+                if (
+                  Number.isFinite(prev?.completedAt) &&
+                  nowMs - prev.completedAt < MIN_LAP_PLAUSIBLE_MS
+                ) {
+                  return;
+                }
               }
               // Progress is published on lap completion only — a peer sending
               // it several times a second is hostile or buggy; drop the flood.
@@ -1409,6 +1448,15 @@ export const useP2PLobby = () => {
             store.setRaceError(
               store.raceError ||
                 "The lobby host discontinued while everyone was still loading. Start a new lobby.",
+            );
+          } else if (activeRaceRef.current) {
+            // Mid-race: the host owns item boxes and relays every transform,
+            // so the race can't continue meaningfully. GameUI renders this as
+            // a banner with a way back to the menu instead of a silent freeze.
+            const store = useOnlineRaceStore.getState();
+            store.setRaceError(
+              store.raceError ||
+                "The lobby host left the race. Other racers and item boxes are no longer updating.",
             );
           }
         });

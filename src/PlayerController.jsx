@@ -1046,8 +1046,13 @@ export const PlayerController = () => {
     player.position.x = wallX;
     player.position.z = wallZ;
     // Odometer for lap-tie position ranks (teleports capped in the store).
-    const movedDist = Math.hypot(wallX - prevX, wallZ - prevZ);
-    if (movedDist > 0.001) useGameStore.getState().addSelfDistance(movedDist);
+    // Only motion along the kart's heading counts, so reversing or sliding
+    // backwards never lifts a racer's rank. Remote racers use the same
+    // projection (onlineRaceStore.setRemoteRacer), keeping both comparable.
+    const fwdDist =
+      (wallX - prevX) * -Math.sin(player.rotation.y) +
+      (wallZ - prevZ) * -Math.cos(player.rotation.y);
+    if (fwdDist > 0.001) useGameStore.getState().addSelfDistance(fwdDist);
     if (wallHit) {
       const motionX = desiredX - prevX;
       const motionZ = desiredZ - prevZ;
@@ -1064,6 +1069,59 @@ export const PlayerController = () => {
     setPlayerPosition(player.position);
   }
 
+  // Send a compact transform about 15 times/sec. Rendering of remote karts
+  // smooths the received states, which keeps traffic low while making the
+  // side-by-side starting grid and race movement visible to everyone.
+  // animState rides along (v3 §10.7): spins/bullet/boost_lean so remotes
+  // play hit visuals. Wall clock (Date.now) — peers share it roughly.
+  // `finished` is set once the local race is over: the physics step stops
+  // then, but the pose keeps being published (with the flag) so remotes hide
+  // the parked kart instead of leaving a frozen ghost on the road.
+  function publishNetworkState(player, finished) {
+    const now = performance.now();
+    if (
+      !isOnlineRace ||
+      !useGameManager.getState().gameStarted ||
+      now - lastNetworkSyncRef.current < 66
+    ) {
+      return;
+    }
+    lastNetworkSyncRef.current = now;
+    const gsAnim = useGameStore.getState();
+    const spinA = gsAnim.spin;
+    const rideA = gsAnim.bulletRide;
+    const selfIdA = useGameManager.getState().onlineSelfId ?? "local";
+    const throwA = gsAnim.itemAnim;
+    const throwLive =
+      throwA && now >= throwA.start && now < throwA.start + throwA.totalMs
+        ? throwA.name
+        : null;
+    const anim =
+      spinA && now < spinA.until
+        ? spinA.heavy
+          ? "spin_hit_heavy"
+          : "spin_hit_light"
+        : rideA && rideA.ownerId === selfIdA && bulletActive(rideA, now)
+          ? "bullet"
+          : throwLive ?? (gsAnim.isBoosting
+            ? "boost_lean"
+            : gsAnim.carriedItem || gsAnim.carriedBomb || gsAnim.roulette
+              ? "hold_item"
+              : "drive");
+    publishOnlineRaceTransform({
+      x: player.position.x,
+      y: player.position.y,
+      z: player.position.z,
+      rotationY: player.rotation.y,
+      bodyY: useGameStore.getState().groundPosition ?? 0,
+      anim,
+      animAt: Date.now(),
+      finished,
+      // Remaining hit-invulnerability for the owner's skip check (2.1 #10).
+      invulnMs: Math.max(0, Math.min(4000, Math.round((gsAnim.invulnUntil || 0) - now))),
+    });
+  }
+
   useFrame((state, delta) => {
     if (!playerRef.current && !rbRef.current) return;
     // True pause (offline): freeze the whole physics step. Online races never
@@ -1071,7 +1129,13 @@ export const PlayerController = () => {
     // No driving before GO or after the results: inputs during the 3-2-1
     // countdown or behind the results screen must not move the kart.
     const gmState = useGameManager.getState();
-    if (gmState.isPaused || !gmState.gameStarted || gmState.gameOver) return;
+    if (gmState.isPaused || !gmState.gameStarted) return;
+    if (gmState.gameOver) {
+      // Race finished locally: no more physics, but keep telling the others
+      // the kart is parked/finished so they stop rendering and targeting it.
+      if (playerRef.current) publishNetworkState(playerRef.current, true);
+      return;
+    }
     const player = playerRef.current;
     const cameraGroup = cameraGroupRef.current;
     const kart = kartRef.current;
@@ -1156,51 +1220,7 @@ export const PlayerController = () => {
     driftPlayer(cappedDelta);
     getGamepad();
 
-    // Send a compact transform about 15 times/sec. Rendering of remote karts
-    // smooths the received states, which keeps traffic low while making the
-    // side-by-side starting grid and race movement visible to everyone.
-    // animState rides along (v3 §10.7): spins/bullet/boost_lean so remotes
-    // play hit visuals. Wall clock (Date.now) — peers share it roughly.
-    const now = performance.now();
-    if (
-      isOnlineRace &&
-      useGameManager.getState().gameStarted &&
-      now - lastNetworkSyncRef.current >= 66
-    ) {
-      lastNetworkSyncRef.current = now;
-      const gsAnim = useGameStore.getState();
-      const spinA = gsAnim.spin;
-      const rideA = gsAnim.bulletRide;
-      const selfIdA = useGameManager.getState().onlineSelfId ?? "local";
-      const throwA = gsAnim.itemAnim;
-      const throwLive =
-        throwA && now >= throwA.start && now < throwA.start + throwA.totalMs
-          ? throwA.name
-          : null;
-      const anim =
-        spinA && now < spinA.until
-          ? spinA.heavy
-            ? "spin_hit_heavy"
-            : "spin_hit_light"
-          : rideA && rideA.ownerId === selfIdA && bulletActive(rideA, now)
-            ? "bullet"
-            : throwLive ?? (gsAnim.isBoosting
-              ? "boost_lean"
-              : gsAnim.carriedItem || gsAnim.carriedBomb || gsAnim.roulette
-                ? "hold_item"
-                : "drive");
-      publishOnlineRaceTransform({
-        x: player.position.x,
-        y: player.position.y,
-        z: player.position.z,
-        rotationY: player.rotation.y,
-        bodyY: useGameStore.getState().groundPosition ?? 0,
-        anim,
-        animAt: Date.now(),
-        // Remaining hit-invulnerability for the owner's skip check (2.1 #10).
-        invulnMs: Math.max(0, Math.min(4000, Math.round((gsAnim.invulnUntil || 0) - now))),
-      });
-    }
+    publishNetworkState(player, false);
   });
 
   return (

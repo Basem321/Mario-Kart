@@ -13,7 +13,7 @@ import { animBlend, animDur, animLive, animT, bodyPose, spinPose } from "./items
 import { itemConfig } from "./items/itemConfig.js";
 
 
-import { useOnlineRaceStore } from "./onlineRaceStore";
+import { isRacerTargetable, useOnlineRaceStore } from "./onlineRaceStore";
 
 const smoothAngle = (from, to, lambda, delta) => {
   const difference = MathUtils.euclideanModulo(to - from + Math.PI, Math.PI * 2) - Math.PI;
@@ -83,6 +83,11 @@ const RemoteKart = ({ player, playerIndex }) => {
       }
     }
     if (!kartRef.current || !visualRef.current) return;
+
+    // Finished karts (parked at the line) and karts that stopped sending
+    // (disconnected / backgrounded) are hidden instead of lingering as a
+    // frozen ghost. Their last pose stays in the store for standings.
+    kartRef.current.visible = rsRide ? isRacerTargetable(rsRide) : true;
 
     // Scalars instead of `{ ...fallback, ...remoteState }`: no per-frame
     // object allocation in useFrame (AGENTS.md perf rule). Falls back to the

@@ -1,5 +1,19 @@
 import { create } from "zustand";
 
+// A remote kart that has sent nothing for this long is treated as gone for
+// rendering and item targeting (its last pose stays in the store so a racer's
+// laps/standings survive a disconnect).
+export const REMOTE_STALE_MS = 3000;
+
+// True while a remote racer is a live, on-track target: still racing and
+// recently heard from. Finished karts are parked at the line, stale ones are
+// disconnected/frozen — neither must attract shells.
+export const isRacerTargetable = (racer, now = performance.now()) => {
+  if (!racer || racer.finished === true) return false;
+  const lastSeen = Number(racer.lastSeenAt);
+  return Number.isFinite(lastSeen) ? now - lastSeen < REMOTE_STALE_MS : true;
+};
+
 // Kept outside the lobby component tree so 10–20 P2P position updates per
 // second do not re-render the homepage, lobby, or WebGL canvas root.
 export const useOnlineRaceStore = create((set) => ({
@@ -66,8 +80,18 @@ export const useOnlineRaceStore = create((set) => ({
         Number.isFinite(transform?.x) &&
         Number.isFinite(transform?.z)
       ) {
-        const d = Math.hypot(transform.x - prev.x, transform.z - prev.z);
-        if (d > 0.001 && d < 30) dist += d;
+        // Same measure as the local odometer: displacement projected on the
+        // sender's heading, so reversing doesn't count. The teleport cap
+        // scales with the time since the last packet (a 1.3 s stall at speed
+        // legitimately covers > 30u), with a floor for normal 15Hz hops.
+        const hx = -Math.sin(transform.rotationY || 0);
+        const hz = -Math.cos(transform.rotationY || 0);
+        const d = (transform.x - prev.x) * hx + (transform.z - prev.z) * hz;
+        const gapSec = Number.isFinite(prev.lastSeenAt)
+          ? Math.max(0, (performance.now() - prev.lastSeenAt) / 1000)
+          : 0;
+        const maxHop = Math.max(30, 80 * Math.min(gapSec, 5));
+        if (d > 0.001 && d < maxHop) dist += d;
       }
       // Anchor the sender's remaining invuln ms to the local clock (2.1 #10).
       const invulnMs = Number(transform?.invulnMs);
@@ -88,6 +112,10 @@ export const useOnlineRaceStore = create((set) => ({
             ...transform,
             invulnUntilLocal,
             animRecvAt,
+            // Local receipt clock: lets consumers drop racers whose packets
+            // stopped (disconnected / backgrounded) instead of treating the
+            // last pose as a live kart forever.
+            lastSeenAt: performance.now(),
           },
         },
         remoteDistances: { ...state.remoteDistances, [playerId]: dist },

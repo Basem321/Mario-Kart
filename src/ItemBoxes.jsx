@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useGLTF, useTexture, useKeyboardControls } from "@react-three/drei";
 import * as THREE from "three";
-import { useGameStore, applySpin, absorbWithOrbit } from "./store";import { useOnlineRaceStore } from "./onlineRaceStore";
+import { useGameStore, applySpin, absorbWithOrbit } from "./store";import { isRacerTargetable, useOnlineRaceStore } from "./onlineRaceStore";
 import { ItemBoxModel, BombModel, RedShellModel, BlueShellModel, BlooperModel } from "./models/Pickups";
 import {
   animDur,
@@ -362,7 +362,9 @@ const fireRedShell = (backward = false, fromTriple = false) => {
   let targetId = null;
   if (gm.isOnlineRace && !backward) {
     const ors = useOnlineRaceStore.getState();
-    const racers = Object.entries(ors.remoteRacers).map(([id, r]) => ({
+    const racers = Object.entries(ors.remoteRacers)
+      .filter(([, r]) => isRacerTargetable(r))
+      .map(([id, r]) => ({
       id,
       x: Number(r?.x) || 0,
       z: Number(r?.z) || 0,
@@ -484,7 +486,9 @@ const fireBlooperRelease = () => {
   let targetIds = [];
   if (gm.isOnlineRace) {
     const ors = useOnlineRaceStore.getState();
-    const racers = Object.entries(ors.remoteRacers).map(([id, r]) => ({
+    const racers = Object.entries(ors.remoteRacers)
+      .filter(([, r]) => isRacerTargetable(r))
+      .map(([id, r]) => ({
       id,
       x: Number(r?.x) || 0,
       z: Number(r?.z) || 0,
@@ -575,6 +579,10 @@ const fireBlueShell = (pending) => {
   ]);
   remoteIds.delete(me);
   for (const id of remoteIds) {
+    // A racer that stopped sending (disconnected) and never finished must
+    // not stay "the leader" the blue shell flies to.
+    const live = ors.remoteRacers[id];
+    if (live && live.finished !== true && !isRacerTargetable(live)) continue;
     const p = ors.remoteRaceProgress[id];
     rows.push({
       id,
@@ -1470,6 +1478,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       }
       const orsRide = useOnlineRaceStore.getState();
       for (const [id, r] of Object.entries(orsRide.remoteRacers)) {
+        if (!isRacerTargetable(r)) continue;
         const d = Math.hypot(px - (Number(r?.x) || 0), pz - (Number(r?.z) || 0));
         const knockRadius = Math.max(1, BULLET_KNOCK_RADIUS * (st.kartScale ?? 1));
         if (d < knockRadius && !knockedRef.current.ids.has(id)) {
@@ -1517,7 +1526,9 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
             st.bulletRide.ownerId === me &&
             bulletActive(st.bulletRide, now),
         },
-        ...Object.entries(ors.remoteRacers).map(([id, r]) => ({
+        ...Object.entries(ors.remoteRacers)
+      .filter(([, r]) => isRacerTargetable(r))
+      .map(([id, r]) => ({
           id,
           x: Number(r?.x) || 0,
           z: Number(r?.z) || 0,

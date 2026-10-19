@@ -69,6 +69,7 @@ const GameUI = () => {
   const bestLapTime = useGameManager((s) => s.bestLapTime);
   const formatTime = useGameManager((s) => s.formatTime);
   const returnToHomepage = useGameManager((s) => s.returnToHomepage);
+  const raceError = useOnlineRaceStore((s) => s.raceError);
   const musicVolume = useGameManager((s) => s.musicVolume);
   const sfxVolume = useGameManager((s) => s.sfxVolume);
   const setMusicVolume = useGameManager((s) => s.setMusicVolume);
@@ -411,6 +412,15 @@ const GameUI = () => {
           <MiniMap />
           <OnlineRaceLeaderboard />
         </>
+      )}
+
+      {/* Host left mid-race: the race can't sync anymore, so say so and give
+          a way out instead of leaving the player with frozen rivals. */}
+      {isOnlineRace && gameStarted && !gameOver && raceError && (
+        <div className="race-error-banner" role="alert">
+          <span>{raceError}</span>
+          <button type="button" onClick={returnToHomepage}>Back to Menu</button>
+        </div>
       )}
 
       {/* ESC Pause & Settings Menu */}
