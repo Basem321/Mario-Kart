@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { MathUtils } from "three";
-import { getOnlineSpawnSlot } from "./constants";
+import { getOnlineSpawnSlot, getDriftLevel } from "./constants";
 import { getTrack } from "./tracks";
 import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
@@ -11,8 +11,8 @@ import { HeldItems } from "./models/HeldItems.jsx";
 import { remoteBulletActive, remoteSpinning } from "./items/homing.js";
 import { animBlend, animDur, animLive, animT, bodyPose, spinPose } from "./items/animCurves.js";
 import { itemConfig } from "./items/itemConfig.js";
-
-
+import { Trails } from "./particles/sparks/Trails.jsx";
+import { Glow } from "./particles/drift/glow/Glow.jsx";
 import { isRacerTargetable, useOnlineRaceStore } from "./onlineRaceStore";
 
 const smoothAngle = (from, to, lambda, delta) => {
@@ -46,6 +46,12 @@ const RemoteKart = ({ player, playerIndex }) => {
     start: remoteState?.animRecvAt ?? 0,
     totalMs: animDur(remoteState?.anim),
   };
+  // BUG-1 fix: drift visuals for remote karts.
+  // driftDirRef is a plain object that mimics a useRef so Glow's existing
+  // driftDirection.current API works unchanged.
+  const driftDirRef = useRef({ current: 0 });
+  // remoteDriftLevel is recomputed in useFrame from the received driftPow.
+  const remoteDriftLevelRef = useRef(null);
 
   useFrame((_, delta) => {
     // Expired remote ride clears locally (2.2 #13): a lost bullet:end can't
@@ -56,6 +62,11 @@ const RemoteKart = ({ player, playerIndex }) => {
     }
     if (rsRide?.carriedItem) ghostCacheRef.current = rsRide.carriedItem;
     if (rsRide?.carriedBomb) ghostCacheRef.current = { bomb: true };
+    // BUG-1 fix: keep driftDir and driftPow live so Trails + Glow update.
+    const rd = Number(rsRide?.driftDir) || 0;
+    const rp = Number(rsRide?.driftPow) || 0;
+    driftDirRef.current.current = rd;
+    remoteDriftLevelRef.current = rp > 0 ? getDriftLevel(rp) : null;
     // Whole-driver throw/receive/use pose from the receipt clock.
     if (driverGroupRef.current) {
       const nowA = performance.now();
@@ -209,7 +220,20 @@ const RemoteKart = ({ player, playerIndex }) => {
           position={[-0.7, -0.2, 0.7]}
           layers={1}
         />
+        {/* BUG-1 fix: drift spark trails (left + right) and glow halo for
+            remote karts. Driven by received driftDir/driftPow from the
+            network packet — no reads of the local player's store. */}
+        <group position={[-0.77, 0.1, 0.7]}>
+          <Trails left driftLevelOverride={remoteDriftLevelRef.current} />
+        </group>
+        <group position={[0.77, 0.1, 0.7]}>
+          <Trails driftLevelOverride={remoteDriftLevelRef.current} />
+        </group>
+        <group position={[0, 0.4, 0.3]}>
+          <Glow driftDirection={driftDirRef.current} />
+        </group>
       </group>
+
       {remoteRideActive && (
         <group rotation-y={Math.PI}>
           <BulletModel position={[0, 0.1, 0]} />

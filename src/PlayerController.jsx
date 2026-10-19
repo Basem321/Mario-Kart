@@ -80,6 +80,8 @@ export const PlayerController = () => {
   const inputTurn = useRef(0);
   const lastExplosionIdRef = useRef(0);
   const lastNetworkSyncRef = useRef(-Infinity);
+  // BUG-5 fix: monotonically increasing sequence counter for outgoing packets
+  const networkSeqRef = useRef(0);
   const resetHeldRef = useRef(false);
   const resetRequestedRef = useRef(false);
   const lastResetAtRef = useRef(0);
@@ -1119,6 +1121,12 @@ export const PlayerController = () => {
       finished,
       // Remaining hit-invulnerability for the owner's skip check (2.1 #10).
       invulnMs: Math.max(0, Math.min(4000, Math.round((gsAnim.invulnUntil || 0) - now))),
+      // BUG-1 fix: drift state so remote players render spark trails + glow.
+      // driftDirection: -1.4 (left) | 0 (none) | 1.4 (right); driftPower: accumulated seconds.
+      driftDir: driftDirection.current,
+      driftPow: Math.min(driftPower.current, 10),
+      // BUG-5 fix: sequence number so receivers drop out-of-order packets
+      seq: ++networkSeqRef.current,
     });
   }
 

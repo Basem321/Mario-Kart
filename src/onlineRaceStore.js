@@ -9,7 +9,8 @@ export const REMOTE_STALE_MS = 3000;
 // recently heard from. Finished karts are parked at the line, stale ones are
 // disconnected/frozen — neither must attract shells.
 export const isRacerTargetable = (racer, now = performance.now()) => {
-  if (!racer || racer.finished === true) return false;
+  // BUG-4 fix: check racer.disconnected flag so mid-race disconnects drop immediately
+  if (!racer || racer.finished === true || racer.disconnected === true) return false;
   const lastSeen = Number(racer.lastSeenAt);
   return Number.isFinite(lastSeen) ? now - lastSeen < REMOTE_STALE_MS : true;
 };
@@ -72,6 +73,17 @@ export const useOnlineRaceStore = create((set) => ({
   setRemoteRacer: (playerId, transform) =>
     set((state) => {
       const prev = state.remoteRacers[playerId];
+      // BUG-5 fix: drop out-of-order packets where transform sequence is older than prev sequence.
+      // A large drop (> 10000) indicates an intentional counter reset / restart.
+      if (
+        prev &&
+        Number.isInteger(prev.seq) &&
+        Number.isInteger(transform?.seq) &&
+        transform.seq < prev.seq &&
+        prev.seq - transform.seq < 10000
+      ) {
+        return state;
+      }
       let dist = state.remoteDistances[playerId] || 0;
       if (
         prev &&

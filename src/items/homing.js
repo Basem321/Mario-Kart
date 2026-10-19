@@ -115,7 +115,9 @@ export const retargetBlue = (currentId, rows) => {
     if (Number(r.laps) > Number(best.laps)) best = r;
     else if (Number(r.laps) === Number(best.laps) && Number(r.dist) > Number(best.dist)) best = r;
   }
-  if (!best || !cur) return best ? best.id : currentId;
+  // BUG-3 fix: if current target finished (or is missing), switch immediately
+  // to the best remaining unfinished racer if one exists.
+  if (!best || !cur || cur.finished) return best ? best.id : currentId;
   if (Number(best.laps) > Number(cur.laps)) return best.id;
   if (Number(best.laps) === Number(cur.laps) && Number(best.dist) - Number(cur.dist) >= 5) {
     return best.id;

@@ -6,7 +6,9 @@ import { useGameStore } from '../../store'
 
 extend({ MeshLineGeometry, MeshLineMaterial })
 
-export const Trails = ({ radius = 1, left}) => {
+// Accepts an optional driftLevelOverride so remote karts can drive the
+// trail with network data instead of reading the local player's store.
+export const Trails = ({ radius = 1, left, driftLevelOverride }) => {
   const points = useMemo(() => {
     const pts = []
     const initialPos = new THREE.Vector3(0, 0, 0)
@@ -32,17 +34,21 @@ export const Trails = ({ radius = 1, left}) => {
       speed={2}
       radius={radius}
       left={left}
+      driftLevelOverride={driftLevelOverride}
     />
   )
 }
 
-function Fatline({ curve, width, color, speed, radius, left}) {
+function Fatline({ curve, width, color, speed, radius, left, driftLevelOverride}) {
   const ref = useRef()
   const geoRef = useRef()
   const lastColorRef = useRef("")
   useFrame((_, delta) => {
     if (!ref.current || !ref.current.material) return
-    const driftLevel = useGameStore.getState().driftLevel;
+    // driftLevelOverride lets remote karts supply their own level without
+    // touching the local player's store. Fallback = local store (unchanged
+    // behaviour for the local kart).
+    const driftLevel = driftLevelOverride ?? useGameStore.getState().driftLevel;
       if(driftLevel && driftLevel.level >= 1){
       ref.current.material.dashOffset -= delta * speed / 5;
       ref.current.visible = true;

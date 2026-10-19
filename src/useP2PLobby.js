@@ -147,6 +147,21 @@ const toRaceTransform = (candidate) => {
       Number.isFinite(invulnMs) && invulnMs > 0
         ? Math.max(0, Math.min(4000, Math.round(invulnMs)))
         : 0,
+    // BUG-1 fix: drift state for remote spark trails + glow. Hostile extremes
+    // collapse to 0 so a bad peer can only silence another's trail, not spam.
+    driftDir: (() => {
+      const d = strictNumber(candidate?.driftDir);
+      return Number.isFinite(d) ? Math.max(-2, Math.min(2, d)) : 0;
+    })(),
+    driftPow: (() => {
+      const p = strictNumber(candidate?.driftPow);
+      return Number.isFinite(p) && p > 0 ? Math.min(10, p) : 0;
+    })(),
+    // BUG-5 fix: packet sequence number for out-of-order drop
+    seq: (() => {
+      const s = strictNumber(candidate?.seq);
+      return Number.isInteger(s) && s >= 0 ? s : 0;
+    })(),
   };
 };
 
@@ -928,6 +943,17 @@ export const useP2PLobby = () => {
           // the only case that still needs it.
           if (!activeRaceRef.current) {
             useOnlineRaceStore.getState().removeRemoteRacer(peerId);
+          } else {
+            // BUG-4 fix: mark disconnected so targetability drops immediately
+            // without waiting for REMOTE_STALE_MS, while keeping laps/dist/pos intact.
+            const racer = useOnlineRaceStore.getState().remoteRacers[peerId];
+            if (racer) {
+              useOnlineRaceStore.getState().setRemoteRacer(peerId, {
+                ...racer,
+                disconnected: true,
+                lastSeenAt: 0,
+              });
+            }
           }
           const nextPlayers = playersRef.current.filter(({ id }) => id !== peerId);
           applyPlayers(nextPlayers);

@@ -1566,6 +1566,14 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               v.id === me
                 ? useGameStore.getState().selfDistance || 0
                 : orsB.remoteDistances[v.id] || 0,
+            // BUG-3 fix: include finished state so retargetBlue does not target finished racers
+            finished:
+              v.id === me
+                ? Boolean(useGameManager.getState().gameOver)
+                : Boolean(
+                    orsB.remoteRaceProgress[v.id]?.finished ||
+                    orsB.remoteRacers[v.id]?.finished
+                  ),
           }));
           const leaderId = retargetBlue(shell.targetId, rows);
           if (leaderId !== shell.targetId) shell.targetId = leaderId;
@@ -1575,11 +1583,14 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           const leaderProg = ors.remoteRaceProgress[shell.targetId];
           const selfDone =
             shell.targetId === me && useGameManager.getState().gameOver;
+          // BUG-4 fix: check targetability rather than bare existence in remoteRacers
+          // so disconnected ghosts trigger fizzle if no alternative target exists.
           const targetConnected =
-            leader ||
-            (useGameManager.getState().onlinePlayers ?? []).some((p) => p.id === shell.targetId) ||
-            Boolean(ors.remoteRacers[shell.targetId]);
-          if ((!targetConnected && !leader) || leaderProg?.finished || selfDone) {
+            Boolean(leader) ||
+            (shell.targetId === me
+              ? !selfDone
+              : isRacerTargetable(ors.remoteRacers[shell.targetId]));
+          if (!targetConnected || leaderProg?.finished || selfDone) {
             if (shell.owner) {
               publishOnlineRaceEvent({
                 type: "blue:explode",
@@ -1651,11 +1662,17 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
               const immune =
                 targetRide && bulletActive(targetRide, now);
               if (shell.owner) {
+                // BUG-2 fix: snap blast XZ to the leader's CURRENT live
+                // position (re-read from victims this frame), not the stale
+                // tx/tz from the start of the dive tick (~66ms old at 15Hz).
+                const liveLeader = victims.find((v) => v.id === shell.targetId);
+                const blastX = liveLeader?.x ?? tx;
+                const blastZ = liveLeader?.z ?? tz;
                 publishOnlineRaceEvent({
                   type: "blue:explode",
-                  x: tx,
+                  x: blastX,
                   y: ground,
-                  z: tz,
+                  z: blastZ,
                   fizzle: Boolean(immune),
                   // Ownership proof (host relay overwrites with sender id).
                   ownerId: myRacerId(),
