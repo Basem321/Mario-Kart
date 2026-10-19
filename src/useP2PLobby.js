@@ -158,6 +158,18 @@ const toRaceTransform = (candidate) => {
       const p = strictNumber(candidate?.driftPow);
       return Number.isFinite(p) && p > 0 ? Math.min(10, p) : 0;
     })(),
+    // Visual-only state (clamped: a hostile peer can at worst make another
+    // kart's wheels spin or its flames show, never move or hit anything).
+    steer: (() => {
+      const v = strictNumber(candidate?.steer);
+      return Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
+    })(),
+    speed: (() => {
+      const v = strictNumber(candidate?.speed);
+      return Number.isFinite(v) ? Math.max(-100, Math.min(400, v)) : 0;
+    })(),
+    boosting: candidate?.boosting === true,
+    onDirt: candidate?.onDirt === true,
     // BUG-5 fix: packet sequence number for out-of-order drop
     seq: (() => {
       const s = strictNumber(candidate?.seq);

@@ -4,6 +4,7 @@ import { useRef, useMemo, useEffect } from 'react';
 import { PlaneGeometry, Vector3, Quaternion, MeshBasicMaterial, DoubleSide } from 'three';
 import { useGameStore } from '../../store';
 import { useGameManager } from '../../gameManager';
+import { remoteFxSources } from '../../remoteFx';
 
 extend({ InstancedMesh2 });
 
@@ -58,46 +59,42 @@ export const Skid = () => {
     }
   }, [gameStarted, onlineRaceId]);
 
-  useFrame((state, delta) => {
-    if (!ref.current) return;
-    const wheelPositions = useGameStore.getState().wheelPositions
-    if (!wheelPositions || wheelPositions.length < 5) return;
-    const leftPos = wheelPositions[2];
-    const rightPos = wheelPositions[3]
-    const body = wheelPositions[4];
-    if (!leftPos || !rightPos || !body?.getWorldQuaternion) return;
-    const worldQuat = body.getWorldQuaternion(_worldQuat);
+  // Per-remote-racer last rear-wheel positions (same stamping rules as the
+  // local kart, driven by positions RemoteRacers publishes in remoteFxSources).
+  const remoteTrail = useRef(new Map());
 
-    const isSpinning = Boolean(body.isDrifting);
+  // Stamp skid quads for one kart between its last and current rear-wheel
+  // positions. `st` = { left, right, was } scratch state for that kart.
+  const stamp = (st, leftPos, rightPos, quat, drifting) => {
     // Rear wheels differ slightly on slopes — only skip wild mismatches.
     if (Math.abs(leftPos.y - rightPos.y) > 0.6) {
-      wasSpinning.current = false;
+      st.was = false;
       return;
     }
 
-    if (isSpinning) {
-      if (!wasSpinning.current) {
-        lastLeftPos.current.copy(leftPos);
-        lastRightPos.current.copy(rightPos);
+    if (drifting) {
+      if (!st.was) {
+        st.left.copy(leftPos);
+        st.right.copy(rightPos);
       }
 
-      const leftDistance = leftPos.distanceTo(lastLeftPos.current);
-      const rightDistance = rightPos.distanceTo(lastRightPos.current);
+      const leftDistance = leftPos.distanceTo(st.left);
+      const rightDistance = rightPos.distanceTo(st.right);
       const maxDist = Math.max(leftDistance, rightDistance);
 
       if (maxDist > minDistance) {
         const steps = Math.min(8, Math.ceil(maxDist / minDistance));
         for (let i = 0; i < steps; i++) {
           const factor = (i + 1) / steps;
-          const interpolatedLeft = lastLeftPos.current.clone().lerp(leftPos, factor);
-          const interpolatedRight = lastRightPos.current.clone().lerp(rightPos, factor);
+          const interpolatedLeft = st.left.clone().lerp(leftPos, factor);
+          const interpolatedRight = st.right.clone().lerp(rightPos, factor);
 
           ref.current.addInstances(2, (obj, index) => {
             obj.position.copy(index % 2 === 0 ? interpolatedLeft : interpolatedRight);
             // Sit just above the road surface to avoid z-fighting.
             obj.position.y += 0.03;
             obj.position.y -= 0.22;
-            obj.quaternion.copy(worldQuat);
+            obj.quaternion.copy(quat);
             obj.rotateX(-Math.PI / 2);
 
             obj.currentTime = 0;
@@ -105,13 +102,46 @@ export const Skid = () => {
         }
       }
 
-      lastLeftPos.current.copy(leftPos);
-      lastRightPos.current.copy(rightPos);
-      wasSpinning.current = true;
+      st.left.copy(leftPos);
+      st.right.copy(rightPos);
+      st.was = true;
     } else {
-      wasSpinning.current = false;
+      st.was = false;
+    }
+  };
+
+  const localTrail = useRef({ left: lastLeftPos.current, right: lastRightPos.current, was: false });
+
+  useFrame((state, delta) => {
+    if (!ref.current) return;
+    const wheelPositions = useGameStore.getState().wheelPositions
+    if (wheelPositions && wheelPositions.length >= 5) {
+      const leftPos = wheelPositions[2];
+      const rightPos = wheelPositions[3]
+      const body = wheelPositions[4];
+      if (leftPos && rightPos && body?.getWorldQuaternion) {
+        const worldQuat = body.getWorldQuaternion(_worldQuat);
+        localTrail.current.was = wasSpinning.current;
+        stamp(localTrail.current, leftPos, rightPos, worldQuat, Boolean(body.isDrifting));
+        wasSpinning.current = localTrail.current.was;
+      }
     }
 
+    // Remote karts drifting.
+    for (const [id, src] of remoteFxSources) {
+      let st = remoteTrail.current.get(id);
+      if (!st) {
+        st = { left: new Vector3(), right: new Vector3(), was: false };
+        remoteTrail.current.set(id, st);
+      }
+      stamp(st, src.rearL, src.rearR, src.quat, src.drifting);
+    }
+    // Drop trail state of racers that left.
+    if (remoteTrail.current.size > remoteFxSources.size) {
+      for (const id of remoteTrail.current.keys()) {
+        if (!remoteFxSources.has(id)) remoteTrail.current.delete(id);
+      }
+    }
 
     ref.current.updateInstances((obj) => {
       obj.currentTime += delta;

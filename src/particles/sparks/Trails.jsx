@@ -6,9 +6,11 @@ import { useGameStore } from '../../store'
 
 extend({ MeshLineGeometry, MeshLineMaterial })
 
-// Accepts an optional driftLevelOverride so remote karts can drive the
-// trail with network data instead of reading the local player's store.
-export const Trails = ({ radius = 1, left, driftLevelOverride }) => {
+// Accepts an optional driftLevelRef ({ current: level | null }) so remote
+// karts can drive the trail with network data instead of reading the local
+// player's store. It is a ref (read every frame): a plain prop would freeze at
+// whatever value the last React render saw.
+export const Trails = ({ radius = 1, left, driftLevelRef }) => {
   const points = useMemo(() => {
     const pts = []
     const initialPos = new THREE.Vector3(0, 0, 0)
@@ -34,21 +36,23 @@ export const Trails = ({ radius = 1, left, driftLevelOverride }) => {
       speed={2}
       radius={radius}
       left={left}
-      driftLevelOverride={driftLevelOverride}
+      driftLevelRef={driftLevelRef}
     />
   )
 }
 
-function Fatline({ curve, width, color, speed, radius, left, driftLevelOverride}) {
+function Fatline({ curve, width, color, speed, radius, left, driftLevelRef }) {
   const ref = useRef()
   const geoRef = useRef()
   const lastColorRef = useRef("")
   useFrame((_, delta) => {
     if (!ref.current || !ref.current.material) return
-    // driftLevelOverride lets remote karts supply their own level without
-    // touching the local player's store. Fallback = local store (unchanged
-    // behaviour for the local kart).
-    const driftLevel = driftLevelOverride ?? useGameStore.getState().driftLevel;
+    // driftLevelRef lets remote karts supply their own level without touching
+    // the local player's store (null = not drifting, never the local level).
+    // No ref = the local kart: unchanged behaviour.
+    const driftLevel = driftLevelRef
+      ? driftLevelRef.current
+      : useGameStore.getState().driftLevel;
       if(driftLevel && driftLevel.level >= 1){
       ref.current.material.dashOffset -= delta * speed / 5;
       ref.current.visible = true;

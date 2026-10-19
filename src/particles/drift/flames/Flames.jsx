@@ -6,6 +6,7 @@ import { memo } from "react";
 import fragmentShader from "./fragment.glsl";
 import vertexShader from "./vertex.glsl";
 import { useGameStore } from "../../../store";
+import { remoteFxSources } from "../../../remoteFx";
 
 extend({ InstancedMesh2 });
 
@@ -19,6 +20,17 @@ const _zAxis = new Vector3(0, 0, 1);
 const _q1 = new Quaternion();
 const _q2 = new Quaternion();
 const _eul = new Euler();
+
+// One flame sprite at `pos` (module-level: no per-frame closure allocation).
+const spawnFlame = (mesh, pos, scale) => {
+  mesh.addInstances(1, (obj) => {
+    obj.position.set(pos.x, pos.y - 0.1, pos.z);
+    obj.currentTime = 0;
+    obj.setUniform('uCurrentTime', 0);
+    obj.setUniform('uTimeOffset', Math.random());
+    obj.scale.set(scale, scale, scale);
+  });
+};
 
 export const Flames = () => {
   const ref = useRef();
@@ -75,29 +87,32 @@ export const Flames = () => {
     // kart blows full-size flames. At scale=1 identical to before.
     const ks = useGameStore.getState().kartScale ?? 1;
     const spawnScale = 0.7 * ks;
-    if (flamePositions && state.clock.getElapsedTime() - lastFiredTimeRef.current >= addInterval && isBoosting) {
-      const noiseTexture = useGameStore.getState().noiseTexture;
-      material.uniforms.noiseTexture.value = noiseTexture;
-      const [left, right] = flamePositions;
-      ref.current.addInstances(1, (obj) => {
-        obj.position.set(left.x, left.y -.1, left.z);
-        obj.currentTime = 0;
-        obj.setUniform('uCurrentTime', 0);
-        obj.setUniform('uTimeOffset', Math.random());
-      
-        obj.scale.set(spawnScale, spawnScale, spawnScale);
-      });
-
-      ref.current.addInstances(1, (obj) => {
-        obj.position.set(right.x, right.y -.1, right.z);
-        obj.currentTime = 0;
-        obj.setUniform('uCurrentTime', 0);
-        obj.setUniform('uTimeOffset', Math.random());
-      
-        obj.scale.set(spawnScale, spawnScale, spawnScale);
-      });
-
-      lastFiredTimeRef.current = state.clock.getElapsedTime();
+    const fireDue = state.clock.getElapsedTime() - lastFiredTimeRef.current >= addInterval;
+    if (fireDue) {
+      let fired = false;
+      if (flamePositions && isBoosting) {
+        const noiseTexture = useGameStore.getState().noiseTexture;
+        material.uniforms.noiseTexture.value = noiseTexture;
+        const [left, right] = flamePositions;
+        spawnFlame(ref.current, left, spawnScale);
+        spawnFlame(ref.current, right, spawnScale);
+        fired = true;
+      }
+      // Remote karts boosting: same flames at their exhausts (positions are
+      // published by RemoteRacers; the scale follows the local kart size like
+      // the local flames do).
+      if (remoteFxSources.size > 0) {
+        for (const src of remoteFxSources.values()) {
+          if (!src.boosting) continue;
+          if (!fired) {
+            material.uniforms.noiseTexture.value = useGameStore.getState().noiseTexture;
+          }
+          spawnFlame(ref.current, src.flameL, spawnScale);
+          spawnFlame(ref.current, src.flameR, spawnScale);
+          fired = true;
+        }
+      }
+      if (fired) lastFiredTimeRef.current = state.clock.getElapsedTime();
     }
 
     ref.current.updateInstances((obj) => {
