@@ -5,7 +5,9 @@ import gsap from "gsap";
 
 
 
-export const Spark = forwardRef((props, ref) => {
+// depthTest=false (default) draws over everything, as on the local kart.
+// Remote karts pass true so the flash is hidden behind walls.
+export const Spark = forwardRef(({ depthTest = false }, ref) => {
   const texture = useTexture("/textures/particles/spark.png");
   const materialRef = useRef();
   const meshRef = useRef();
@@ -86,7 +88,7 @@ export const Spark = forwardRef((props, ref) => {
         map={texture}
         transparent
         depthWrite={false}
-        depthTest={false}
+        depthTest={depthTest}
         blending={AdditiveBlending}
         opacity={0}
       />

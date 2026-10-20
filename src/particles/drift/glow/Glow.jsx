@@ -8,7 +8,9 @@ import vertexShader from './vertex.glsl';
 import { useGameStore } from "../../../store";
 
 
-export const Glow = forwardRef(({ driftDirection }, ref) => {
+// depthTest=false (default) keeps the local kart's glow visible over its own
+// body. Remote karts pass true so the glow is hidden behind walls.
+export const Glow = forwardRef(({ driftDirection, depthTest = false }, ref) => {
   const sparkRef = useRef(null);
   let noiseTexture = null;
   
@@ -26,9 +28,9 @@ export const Glow = forwardRef(({ driftDirection }, ref) => {
     fragmentShader: fragmentShader,
     transparent: true,
     depthWrite: false,
-    depthTest: false,
+    depthTest,
     blending:AdditiveBlending
-  }), [])
+  }), [depthTest])
   
   useFrame((state) => {
     if (material) {
@@ -84,7 +86,7 @@ export const Glow = forwardRef(({ driftDirection }, ref) => {
       <mesh layers={1} material={material}>
         <circleGeometry args={[size, 22]} />
       </mesh>
-      <Spark ref={sparkRef}/>
+      <Spark ref={sparkRef} depthTest={depthTest}/>
     </Billboard>
   );
 });

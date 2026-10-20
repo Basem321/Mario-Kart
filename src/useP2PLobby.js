@@ -390,12 +390,18 @@ const toRaceEvent = (candidate, maxLapCount = 5) => {
       typeof candidate.targetId === "string" && candidate.targetId
         ? candidate.targetId.slice(0, 64)
         : null;
+    // Lets the victim dedupe the hit against its own simulated landing.
+    const shellId =
+      typeof candidate.shellId === "string" && candidate.shellId
+        ? candidate.shellId.slice(0, 120)
+        : null;
     return {
       type: "blue:explode",
       ...position,
       fizzle: Boolean(candidate.fizzle),
       ...(ownerId ? { ownerId } : {}),
       ...(targetId ? { targetId } : {}),
+      ...(shellId ? { shellId } : {}),
     };
   }
 

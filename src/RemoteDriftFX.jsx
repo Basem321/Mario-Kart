@@ -9,7 +9,9 @@ import { useOnlineRaceStore } from "./onlineRaceStore";
 
 // Drift effects of a REMOTE kart: the same Glow / Sparks / Skate / Trails set
 // the local kart renders (models/Kart.jsx), driven by the driftDir/driftPow the
-// racer publishes instead of the local drift refs. Mount it inside the remote
+// racer publishes instead of the local drift refs. Glow/Sparks use depthTest so
+// they are hidden behind walls (the local kart draws them over everything).
+// Mount it inside the remote
 // kart's visual group (already rotated by PI and offset by -0.5 in Y).
 export const RemoteDriftFX = ({ playerId }) => {
   const glowL = useRef(null);
@@ -66,16 +68,16 @@ export const RemoteDriftFX = ({ playerId }) => {
   return (
     <>
       <group position={[-0.97, -0.337, -0.9]}>
-        <Glow ref={glowL} driftDirection={driftDirRef} />
-        <Sparks ref={sparksL} />
+        <Glow ref={glowL} driftDirection={driftDirRef} depthTest />
+        <Sparks ref={sparksL} depthTest />
         <Trails driftLevelRef={driftLevelRef} />
         <group position={[0.15, 0.2, -0.2]}>
           <Skate ref={skateL} />
         </group>
       </group>
       <group position={[0.97, -0.337, -0.9]}>
-        <Glow ref={glowR} driftDirection={driftDirRef} />
-        <Sparks ref={sparksR} left />
+        <Glow ref={glowR} driftDirection={driftDirRef} depthTest />
+        <Sparks ref={sparksR} left depthTest />
         <Trails left driftLevelRef={driftLevelRef} />
         <group position={[-0.15, 0.2, -0.2]}>
           <Skate ref={skateR} />
