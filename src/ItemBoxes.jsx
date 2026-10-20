@@ -305,6 +305,18 @@ const localFinished = () => {
   return Boolean(gm.gameOver || gm.isSpectating);
 };
 
+// Blue shells whose hit THIS client already applied. The victim can be hit by
+// the owner's blue:explode event or by its own simulated landing, whichever
+// arrives first; the claim makes sure it is stunned exactly once.
+const blueHandled = new Set();
+const claimBlueHit = (shellId) => {
+  if (!shellId) return true;
+  if (blueHandled.has(shellId)) return false;
+  blueHandled.add(shellId);
+  if (blueHandled.size > 32) blueHandled.delete(blueHandled.values().next().value);
+  return true;
+};
+
 const shellHitFxId = (shellId) => `shellhit-${String(shellId)}`;
 
 // Stun the LOCAL kart from a shell hit + small burst. Remote victims apply
@@ -1128,13 +1140,14 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
             myVulnerable() &&
             (isTarget ||
               (p2 &&
-                resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2)))
+                resolveBlueBlast([{ id: me2, x: p2.x, z: p2.z }], event).includes(me2))) &&
+            claimBlueHit(event.shellId)
           ) {
               applyShellStun({
                 x: event.x,
                 y: event.y,
                 z: event.z,
-                shellId: `blue-${event.x}-${event.z}`,
+                shellId: event.shellId ?? `blue-${event.x}-${event.z}`,
                 scale: 1.2,
                 heavy: true,
                 soft: true,
@@ -1708,6 +1721,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                   y: ground,
                   z: tz,
                   targetId: shell.targetId,
+                  shellId: shell.id,
                   fizzle: Boolean(immune),
                   // Ownership proof (host relay overwrites with sender id).
                   ownerId: myRacerId(),
@@ -1739,6 +1753,27 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
                       heavy: true,
                     });
                   }
+                }
+              }
+              else if (shell.targetId === me) {
+                // Victim-side landing: this client simulated the shell dropping
+                // onto its OWN exact position, so apply the hit here too instead
+                // of relying only on the owner's blue:explode (if that is lost,
+                // dropped or mismatched the shell used to vanish unharmed).
+                stopBlueAlarm();
+                useGameStore.getState().setBlueWarning(null);
+                const myRideL = st.bulletRide;
+                const immuneL =
+                  myRideL && myRideL.ownerId === me && bulletActive(myRideL, now);
+                if (!immuneL && raceLive() && myVulnerable(now) && claimBlueHit(shell.id)) {
+                  applyShellStun({
+                    x: moved.x,
+                    y: ground,
+                    z: moved.z,
+                    shellId: shell.id,
+                    scale: 1.2,
+                    heavy: true,
+                  });
                 }
               }
               continue;

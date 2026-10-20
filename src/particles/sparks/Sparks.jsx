@@ -7,7 +7,9 @@ import fragmentShader from "./fragment.glsl";
 import vertexShader from "./vertex.glsl";
 import { useGameStore } from "../../store";
 
-export const Sparks = forwardRef(({ left }, ref) => {
+// depthTest=false (default) = unchanged for the local kart; remote karts pass
+// true so sparks are hidden behind walls.
+export const Sparks = forwardRef(({ left, depthTest = false }, ref) => {
   const pointsRef = useRef();
   const simulationTimeRef = useRef(0);
   const shouldEmitRef = useRef(false);
@@ -70,10 +72,10 @@ export const Sparks = forwardRef(({ left }, ref) => {
       vertexColors: true,
       transparent: true,
       depthWrite: false,
-      depthTest: false,
+      depthTest,
       blending: AdditiveBlending,
     });
-  }, [texture]);
+  }, [texture, depthTest]);
 
   useFrame((_, delta) => {
     const targetOpacity = shouldEmitRef.current ? 1.0 : 0.0;
