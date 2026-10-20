@@ -1131,6 +1131,12 @@ export const PlayerController = () => {
       // driftDirection: -1.4 (left) | 0 (none) | 1.4 (right); driftPower: accumulated seconds.
       driftDir: driftDirection.current,
       driftPow: Math.min(driftPower.current, 10),
+      // Visual-only state so the other peer sees what this player sees:
+      // steering input (-1..1), forward speed, boost flames, dirt dust.
+      steer: inputTurn.current,
+      speed: speedRef.current,
+      boosting: Boolean(gsAnim.isBoosting),
+      onDirt: Boolean(gsAnim.isOnDirt),
       // BUG-5 fix: sequence number so receivers drop out-of-order packets
       seq: ++networkSeqRef.current,
     });

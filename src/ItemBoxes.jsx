@@ -291,7 +291,18 @@ const myVulnerable = (now = performance.now()) =>
 // Late/duplicate P2P hits must never stun behind the results screen.
 const raceLive = () => {
   const gm = useGameManager.getState();
+  // A spectating (already finished) kart is parked: nothing may stun it.
+  if (gm.isSpectating) return false;
   return shouldApplyHit({ gameStarted: gm.gameStarted, gameOver: gm.gameOver });
+};
+
+// The local race is over for me: results screen OR parked and spectating.
+// Spectating keeps gameOver=false, so checking gameOver alone treated the
+// spectator as the unfinished race leader (most laps) and blue shells
+// retargeted onto the parked kart and vanished there.
+const localFinished = () => {
+  const gm = useGameManager.getState();
+  return Boolean(gm.gameOver || gm.isSpectating);
 };
 
 const shellHitFxId = (shellId) => `shellhit-${String(shellId)}`;
@@ -572,7 +583,7 @@ const fireBlueShell = (pending) => {
   const me = myRacerId();
   const ors = useOnlineRaceStore.getState();
   const localCompleted = Array.isArray(gm.lapTimes) ? gm.lapTimes.length : 0;
-  const rows = [{ id: me, laps: localCompleted, finished: Boolean(gm.gameOver), dist: st.selfDistance || 0 }];
+  const rows = [{ id: me, laps: localCompleted, finished: localFinished(), dist: st.selfDistance || 0 }];
   const remoteIds = new Set([
     ...Object.keys(ors.remoteRacers),
     ...Object.keys(ors.remoteRaceProgress),
@@ -609,6 +620,9 @@ const fireBlueShell = (pending) => {
       }
     }
     if (best) leaderId = best.id;
+    // Every rival already finished (or left): there is nothing to hit, and
+    // targeting yourself would stun the shooter with their own shell.
+    else return refund();
   }
   // Gate BEFORE firing: solo allows firing, online requires leader
   if (!canFireBlue({ isOnlineRace: gm.isOnlineRace, leaderId })) return refund();
@@ -1529,7 +1543,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
       const step = Math.min(delta, 0.05);
       const me = myRacerId();
       const ors = useOnlineRaceStore.getState();
-      const victims = [
+      const victimsAll = [
         {
           id: me,
           x: px,
@@ -1559,6 +1573,10 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           bullet: Boolean(r?.bulletRide),
         })),
       ];
+      // A finished/spectating local kart is parked: it is no longer a target,
+      // a blast victim or a leader candidate.
+      const meDone = localFinished();
+      const victims = meDone ? victimsAll.filter((v) => v.id !== me) : victimsAll;
       // Red shells cannot touch bullet riders (§4.4): filter before searching.
       // Invulnerable / already-spinning racers are skipped by the owner too
       // (2.1 #10); the victim keeps its own check as final authority.
@@ -1588,7 +1606,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
             // BUG-3 fix: include finished state so retargetBlue does not target finished racers
             finished:
               v.id === me
-                ? Boolean(useGameManager.getState().gameOver)
+                ? localFinished()
                 : Boolean(
                     orsB.remoteRaceProgress[v.id]?.finished ||
                     orsB.remoteRacers[v.id]?.finished
@@ -1600,8 +1618,7 @@ export function ItemBoxes() {  const selectedTrackId = useGameManager((s) => s.s
           // Self-targets finish locally: remoteRaceProgress never holds self.
           const leader = victims.find((v) => v.id === shell.targetId);
           const leaderProg = ors.remoteRaceProgress[shell.targetId];
-          const selfDone =
-            shell.targetId === me && useGameManager.getState().gameOver;
+          const selfDone = shell.targetId === me && meDone;
           // BUG-4 fix: check targetability rather than bare existence in remoteRacers
           // so disconnected ghosts trigger fizzle if no alternative target exists.
           const targetConnected =

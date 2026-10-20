@@ -1,8 +1,8 @@
-import { useRef } from "react";
-import { useGLTF } from "@react-three/drei";
+import { useEffect, useRef } from "react";
+import { useGLTF, useTexture } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { MathUtils } from "three";
-import { getOnlineSpawnSlot, getDriftLevel } from "./constants";
+import { MathUtils, Vector3 } from "three";
+import { getOnlineSpawnSlot } from "./constants";
 import { getTrack } from "./tracks";
 import { useGameManager } from "./gameManager";
 import { Driver } from "./models/Driver";
@@ -11,8 +11,10 @@ import { HeldItems } from "./models/HeldItems.jsx";
 import { remoteBulletActive, remoteSpinning } from "./items/homing.js";
 import { animBlend, animDur, animLive, animT, bodyPose, spinPose } from "./items/animCurves.js";
 import { itemConfig } from "./items/itemConfig.js";
-import { Trails } from "./particles/sparks/Trails.jsx";
-import { Glow } from "./particles/drift/glow/Glow.jsx";
+import VFXEmitter from "./wawa-vfx/VFXEmitter.tsx";
+import { KartDust } from "./models/KartDust.jsx";
+import { RemoteDriftFX } from "./RemoteDriftFX.jsx";
+import { dropRemoteFxSource, getRemoteFxSource } from "./remoteFx";
 import { isRacerTargetable, useOnlineRaceStore } from "./onlineRaceStore";
 
 const smoothAngle = (from, to, lambda, delta) => {
@@ -46,12 +48,33 @@ const RemoteKart = ({ player, playerIndex }) => {
     start: remoteState?.animRecvAt ?? 0,
     totalMs: animDur(remoteState?.anim),
   };
-  // BUG-1 fix: drift visuals for remote karts.
-  // driftDirRef is a plain object that mimics a useRef so Glow's existing
-  // driftDirection.current API works unchanged.
-  const driftDirRef = useRef({ current: 0 });
-  // remoteDriftLevel is recomputed in useFrame from the received driftPow.
-  const remoteDriftLevelRef = useRef(null);
+  const starsTex = useTexture("/textures/stars.png");
+  const bodyMeshRef = useRef(null);
+  const steerWheelRef = useRef(null);
+  const frontWheelsRef = useRef(null);
+  const wheelRefs = useRef([null, null, null, null]);
+  const rearLRef = useRef(null);
+  const rearRRef = useRef(null);
+  const flameLRef = useRef(null);
+  const flameRRef = useRef(null);
+  const smokeLRef = useRef(null);
+  const smokeRRef = useRef(null);
+  const starsGroupRef = useRef(null);
+  const smokeOnRef = useRef(null);
+  // Smoothed values mirroring the local kart (drift yaw, steering).
+  const driftYawRef = useRef(0);
+  const steerRef = useRef(0);
+  // Dust at the wheels (same component as the local kart; the flag per wheel
+  // comes from the racer's published onDirt).
+  const dustWheelStates = useRef([
+    { position: new Vector3(-0.7, -0.2, 0.7), shouldEmit: false },
+    { position: new Vector3(0.7, -0.2, 0.7), shouldEmit: false },
+    { position: new Vector3(-0.77, -0.137, -0.7), shouldEmit: false },
+    { position: new Vector3(0.77, -0.137, -0.7), shouldEmit: false },
+  ]);
+
+  // Effect anchors published for the shared flame / skid systems.
+  useEffect(() => () => dropRemoteFxSource(player.id), [player.id]);
 
   useFrame((_, delta) => {
     // Expired remote ride clears locally (2.2 #13): a lost bullet:end can't
@@ -62,11 +85,12 @@ const RemoteKart = ({ player, playerIndex }) => {
     }
     if (rsRide?.carriedItem) ghostCacheRef.current = rsRide.carriedItem;
     if (rsRide?.carriedBomb) ghostCacheRef.current = { bomb: true };
-    // BUG-1 fix: keep driftDir and driftPow live so Trails + Glow update.
-    const rd = Number(rsRide?.driftDir) || 0;
-    const rp = Number(rsRide?.driftPow) || 0;
-    driftDirRef.current.current = rd;
-    remoteDriftLevelRef.current = rp > 0 ? getDriftLevel(rp) : null;
+    const nowF = performance.now();
+    const spd = Number(rsRide?.speed) || 0;
+    const turn = Number(rsRide?.steer) || 0;
+    const drift = Number(rsRide?.driftDir) || 0;
+    const spinNow = remoteSpinning(rsRide?.anim, rsRide?.animRecvAt, nowF);
+    const rideNow = remoteBulletActive(rsRide?.bulletRide, nowF);
     // Whole-driver throw/receive/use pose from the receipt clock.
     if (driverGroupRef.current) {
       const nowA = performance.now();
@@ -83,14 +107,22 @@ const RemoteKart = ({ player, playerIndex }) => {
           BASE_Y + (pose.y ?? 0) * b,
           BASE_Z + (pose.z ?? 0) * b
         );
-      } else if (
-        driverGroupRef.current.rotation.x !== 0 ||
-        driverGroupRef.current.rotation.y !== 0 ||
-        driverGroupRef.current.rotation.z !== 0 ||
-        driverGroupRef.current.position.y !== BASE_Y
-      ) {
-        driverGroupRef.current.rotation.set(0, 0, 0);
-        driverGroupRef.current.position.set(BASE_X, BASE_Y, BASE_Z);
+      } else {
+        // Steering lean + drift hang + speed tuck + idle vibe: same layers as
+        // the local driver (models/Kart.jsx), fed by the published
+        // steer / driftDir / speed.
+        const D = Math.PI / 180;
+        const spdRatio = Math.min(spd / 75, 1);
+        const targetRoll = -turn * 20 * D + drift * 18 * D;
+        const targetYaw = -turn * 12 * D + drift * 10 * D;
+        const targetPitch = spdRatio * 10 * D;
+        const g = driverGroupRef.current;
+        g.rotation.x = MathUtils.damp(g.rotation.x, targetPitch, 8, delta);
+        g.rotation.y = MathUtils.damp(g.rotation.y, targetYaw, 8, delta);
+        g.rotation.z = MathUtils.damp(g.rotation.z, targetRoll, 8, delta);
+        g.position.x = MathUtils.damp(g.position.x, BASE_X + (-turn * 0.07 + drift * 0.06), 8, delta);
+        g.position.y = MathUtils.damp(g.position.y, BASE_Y + Math.sin(nowA / 300) * 0.012, 8, delta);
+        g.position.z = MathUtils.damp(g.position.z, BASE_Z + spdRatio * 0.03, 8, delta);
       }
     }
     if (!kartRef.current || !visualRef.current) return;
@@ -128,9 +160,12 @@ const RemoteKart = ({ player, playerIndex }) => {
     if (spinningNow && spinPse) {
       wasSpinningRef.current = true;
       visualRef.current.rotation.set(spinPse.pitch, Math.PI + spinPse.yaw, spinPse.roll);
-    } else if (wasSpinningRef.current) {
+    } else {
       wasSpinningRef.current = false;
-      visualRef.current.rotation.set(0, Math.PI, 0);
+      // Drift: the whole kart (and its particles) slides at +/-0.4 rad into
+      // the drift, exactly like the local kart's drift yaw.
+      driftYawRef.current = MathUtils.damp(driftYawRef.current, drift * 0.4, 4, delta);
+      visualRef.current.rotation.set(0, Math.PI + driftYawRef.current, 0);
     }
     visualRef.current.position.y = MathUtils.damp(
       visualRef.current.position.y * rs,
@@ -138,6 +173,63 @@ const RemoteKart = ({ player, playerIndex }) => {
       12,
       delta,
     ) / rs + (spinPse ? spinPse.hop : 0);
+
+    // --- Mirrors of the local kart's visuals (models/Kart.jsx) ---------------
+    // Wheel spin + steering (front wheels + steering wheel).
+    const spin = spd * 0.6 * Math.min(delta, 0.1);
+    for (let i = 0; i < 4; i++) {
+      const w = wheelRefs.current[i];
+      if (w) w.rotation.x += spin;
+    }
+    steerRef.current = MathUtils.damp(steerRef.current, turn, 4, delta);
+    if (frontWheelsRef.current) frontWheelsRef.current.rotation.y = steerRef.current;
+    if (steerWheelRef.current) steerWheelRef.current.rotation.y = steerRef.current * Math.PI * 4;
+
+    // Hit-invulnerability blink (8 Hz) after a spin ends; bullet riders hide
+    // the kart model entirely.
+    const blinking = !spinNow && !rideNow && nowF < (Number(rsRide?.invulnUntilLocal) || 0);
+    visualRef.current.visible =
+      !rideNow && (!blinking || Math.floor(nowF / (1000 / 8 / 2)) % 2 === 0);
+
+    // Dizzy stars while spinning out.
+    if (starsGroupRef.current) {
+      starsGroupRef.current.visible = spinNow;
+      if (spinNow) {
+        starsGroupRef.current.rotation.y += delta * 7;
+        starsGroupRef.current.position.y = 1.35 + Math.sin(nowF / 90) * 0.08;
+      }
+    }
+
+    // Exhaust smoke at low speed (same threshold as the local kart) and dust
+    // on dirt.
+    const smokeOn = spd <= 15;
+    if (smokeOn !== smokeOnRef.current) {
+      smokeOnRef.current = smokeOn;
+      if (smokeOn) {
+        smokeLRef.current?.startEmitting();
+        smokeRRef.current?.startEmitting();
+      } else {
+        smokeLRef.current?.stopEmitting();
+        smokeRRef.current?.stopEmitting();
+      }
+    }
+    const dirty = rsRide?.onDirt === true && spd > 2;
+    for (let i = 0; i < 4; i++) dustWheelStates.current[i].shouldEmit = dirty;
+
+    // Anchors for the shared boost-flame and skid-mark systems.
+    const fx = getRemoteFxSource(player.id);
+    const visibleNow = kartRef.current.visible && !rideNow;
+    fx.boosting = visibleNow && rsRide?.boosting === true;
+    fx.drifting = visibleNow && drift !== 0 && !spinNow;
+    if (fx.boosting && flameLRef.current && flameRRef.current) {
+      flameLRef.current.getWorldPosition(fx.flameL);
+      flameRRef.current.getWorldPosition(fx.flameR);
+    }
+    if (fx.drifting && rearLRef.current && rearRRef.current && bodyMeshRef.current) {
+      rearLRef.current.getWorldPosition(fx.rearL);
+      rearRRef.current.getWorldPosition(fx.rearR);
+      bodyMeshRef.current.getWorldQuaternion(fx.quat);
+    }
   });
 
   return (
@@ -148,13 +240,18 @@ const RemoteKart = ({ player, playerIndex }) => {
       scale={spawnSlot.kartScale ?? 1}
       name={`remote-racer-${player.id}`}
     >
-      <group ref={visualRef} name="spinGroup" position-y={-0.5} rotation-y={Math.PI} visible={!remoteRideActive}>
-        <mesh castShadow receiveShadow geometry={nodes.body.geometry} material={materials.m_Body}>
+      <group ref={visualRef} name="spinGroup" position-y={-0.5} rotation-y={Math.PI}>
+        <mesh ref={bodyMeshRef} castShadow receiveShadow geometry={nodes.body.geometry} material={materials.m_Body}>
           <group position={[-0.77, 0, -0.7]} />
           <group position={[0.77, 0, -0.7]} />
           <group position={[0.7, 0, 0.7]} />
           <group position={[-0.7, 0, 0.7]} />
+          {/* Rear wheel anchors for the shared skid-mark system. */}
+          <group ref={rearLRef} position={[-0.77, -0.137, -0.7]} />
+          <group ref={rearRRef} position={[0.77, -0.137, -0.7]} />
+          <KartDust wheelStates={dustWheelStates.current} trackLocal={false} />
           <mesh
+            ref={steerWheelRef}
             castShadow
             receiveShadow
             geometry={nodes.d_wheel.geometry}
@@ -187,8 +284,76 @@ const RemoteKart = ({ player, playerIndex }) => {
                 : null
             }
           />
+          {/* Dizzy stars while spun out (same as the local kart). */}
+          <group ref={starsGroupRef} position={[0, 1.35, -0.1]} visible={false}>
+            {[0, 1, 2, 3, 4, 5].map((i) => {
+              const a = (i / 6) * Math.PI * 2;
+              return (
+                <sprite
+                  key={i}
+                  position={[Math.cos(a) * 0.9, (i % 2) * 0.25, Math.sin(a) * 0.9]}
+                  scale={[0.45, 0.45, 1]}
+                >
+                  <spriteMaterial map={starsTex} transparent depthWrite={false} />
+                </sprite>
+              );
+            })}
+          </group>
+          {/* Exhaust anchors: boost flames spawn here and the idle smoke
+              emitters ride on them, same spots as the local kart. */}
+          <group ref={flameLRef} position={[0.5, 0.65, -1.5]} rotation-x={-Math.PI / 9}>
+            <VFXEmitter
+              ref={smokeLRef}
+              emitter="smoke"
+              settings={{
+              duration: 0.02,
+              delay: 0.1,
+              nbParticles: 1,
+              spawnMode: "time",
+              loop: true,
+              startPositionMin: [0, 0, 0],
+              startPositionMax: [0, 0, 0],
+              startRotationMin: [0, 0, -1],
+              startRotationMax: [0, 0, 1],
+              particlesLifetime: [0.2, 0.4],
+              speed: [0.5, 1],
+              colorStart: ["#ffffff"],
+              directionMin: [-0.1, 0, 0],
+              directionMax: [0.1, 0.01, 0.5],
+              rotationSpeedMin: [0, 0, -1],
+              rotationSpeedMax: [0, 0, 1],
+              size: [0.5, 1],
+            }}
+            />
+          </group>
+          <group ref={flameRRef} position={[-0.5, 0.65, -1.5]} rotation-x={-Math.PI / 9}>
+            <VFXEmitter
+              ref={smokeRRef}
+              emitter="smoke"
+              settings={{
+              duration: 0.02,
+              delay: 0.1,
+              nbParticles: 1,
+              spawnMode: "time",
+              loop: true,
+              startPositionMin: [0, 0, 0],
+              startPositionMax: [0, 0, 0],
+              startRotationMin: [0, 0, -1],
+              startRotationMax: [0, 0, 1],
+              particlesLifetime: [0.2, 0.4],
+              speed: [0.5, 1],
+              colorStart: ["#ffffff"],
+              directionMin: [-0.1, 0, 0],
+              directionMax: [0.1, 0.01, 0.5],
+              rotationSpeedMin: [0, 0, -1],
+              rotationSpeedMax: [0, 0, 1],
+              size: [0.5, 1],
+            }}
+            />
+          </group>
         </mesh>
         <mesh
+          ref={(el) => (wheelRefs.current[2] = el)}
           castShadow
           receiveShadow
           geometry={nodes.wheel_2.geometry}
@@ -197,6 +362,7 @@ const RemoteKart = ({ player, playerIndex }) => {
           layers={1}
         />
         <mesh
+          ref={(el) => (wheelRefs.current[3] = el)}
           castShadow
           receiveShadow
           geometry={nodes.wheel_3.geometry}
@@ -204,34 +370,29 @@ const RemoteKart = ({ player, playerIndex }) => {
           position={[0.77, -0.137, -0.7]}
           layers={1}
         />
-        <mesh
-          castShadow
-          receiveShadow
-          geometry={nodes.wheel_1.geometry}
-          material={materials.m_Tire}
-          position={[0.7, -0.2, 0.7]}
-          layers={1}
-        />
-        <mesh
-          castShadow
-          receiveShadow
-          geometry={nodes.wheel_0.geometry}
-          material={materials.m_Tire}
-          position={[-0.7, -0.2, 0.7]}
-          layers={1}
-        />
-        {/* BUG-1 fix: drift spark trails (left + right) and glow halo for
-            remote karts. Driven by received driftDir/driftPow from the
-            network packet — no reads of the local player's store. */}
-        <group position={[-0.77, 0.1, 0.7]}>
-          <Trails left driftLevelOverride={remoteDriftLevelRef.current} />
+        <group ref={frontWheelsRef}>
+          <mesh
+            ref={(el) => (wheelRefs.current[1] = el)}
+            castShadow
+            receiveShadow
+            geometry={nodes.wheel_1.geometry}
+            material={materials.m_Tire}
+            position={[0.7, -0.2, 0.7]}
+            layers={1}
+          />
+          <mesh
+            ref={(el) => (wheelRefs.current[0] = el)}
+            castShadow
+            receiveShadow
+            geometry={nodes.wheel_0.geometry}
+            material={materials.m_Tire}
+            position={[-0.7, -0.2, 0.7]}
+            layers={1}
+          />
         </group>
-        <group position={[0.77, 0.1, 0.7]}>
-          <Trails driftLevelOverride={remoteDriftLevelRef.current} />
-        </group>
-        <group position={[0, 0.4, 0.3]}>
-          <Glow driftDirection={driftDirRef.current} />
-        </group>
+        {/* Drift glow / sparks / skate / trails, driven by the racer's
+            published driftDir + driftPow (never the local player's store). */}
+        <RemoteDriftFX playerId={player.id} />
       </group>
 
       {remoteRideActive && (
