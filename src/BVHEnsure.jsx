@@ -15,19 +15,40 @@ import { getTrack } from "./tracks";
 // model loading, and no matter how many sessions came before.
 // Without this, wheel/wall raycasts fall back to brute force (~27ms per
 // ray vs ~0.04ms with BVH) and the game drops to single-digit fps.
+//
+// IMPORTANT: a geometry having `boundsTree` is NOT enough. The BVH lives on
+// the geometry (which useGLTF caches for the whole page lifetime) but the
+// accelerated `raycast` lives on the Mesh INSTANCE. When the canvas is
+// unmounted (Return to room) R3F detaches every child from the <Bvh> group
+// before drei's cleanup traverses it, so the cleanup never disposes the
+// trees. On the next race the cached geometries still have their boundsTree
+// (so drei's <Bvh> skips them) but the freshly created Mesh objects carry the
+// default brute-force `Mesh.prototype.raycast`. So we always re-arm the
+// instance, whether or not the tree already exists.
 function ensureBVH(root, label) {
   let total = 0;
   let had = 0;
   let built = 0;
+  let rearmed = 0;
   let skipped = 0;
   root.traverse((o) => {
     if (!o.isMesh || !o.geometry || !o.geometry.isBufferGeometry) return;
-    if (!o.name.includes("ground")) return;
-    total += 1;
+    const isGround = o.name.includes("ground");
+    if (isGround) total += 1;
+
     if (o.geometry.boundsTree) {
-      had += 1;
+      // Tree survived from a previous session: just make this Mesh use it.
+      // Only swap the stock Mesh raycast (same gate as drei's <Bvh>) so
+      // InstancedMesh / SkinnedMesh keep their own implementations.
+      if (o.raycast === Mesh.prototype.raycast) {
+        o.raycast = acceleratedRaycast;
+        rearmed += 1;
+      }
+      if (isGround) had += 1;
       return;
     }
+
+    if (!isGround) return;
     try {
       o.raycast = acceleratedRaycast;
       o.geometry.computeBoundsTree = computeBoundsTree;
@@ -39,7 +60,7 @@ function ensureBVH(root, label) {
     }
   });
   console.log(
-    `[BVHEnsure:${label}] ground meshes:${total} already:${had} built:${built} skipped:${skipped}`
+    `[BVHEnsure:${label}] ground meshes:${total} already:${had} built:${built} rearmed:${rearmed} skipped:${skipped}`
   );
 }
 
